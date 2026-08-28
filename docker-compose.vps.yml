@@ -1,0 +1,180 @@
+# The VPS stack: Postgres + backend + built frontend, published through the
+# Traefik that is ALREADY running on this server.
+#
+#   cp .env.example .env && edit .env
+#   docker compose -f docker-compose.vps.yml up -d
+#
+# THE FRONT DOOR IS NOT OURS. 62.72.59.79 already runs `traefik-traefik-1` on the
+# host network, holding :80 and :443 with a Let's Encrypt resolver and an HTTP->HTTPS
+# redirect. Starting our own Caddy there would have collided with it and taken a
+# co-tenant's sites down. So nothing here publishes 80/443: the two web containers
+# carry Traefik labels and Traefik routes to them.
+#
+# What is here: Postgres (extracted + serving + metrics), the API, the built
+# frontend, and the signal LLM. What is NOT here: the crawler and Layer A/B
+# extraction -- those run at the data centre and write in over an SSH tunnel.
+# The split, and the measurements behind it, are in DEPLOY.md.
+#
+# Every limit here is a HARD cap (`cpus`, `mem_limit`). cpu_shares is a weight: it
+# decides who wins once the box is already contended, which is the moment the
+# dashboard has already stopped answering.
+
+name: kssl
+
+services:
+  db:
+    image: postgres:16
+    container_name: kssl-db
+    environment:
+      POSTGRES_PASSWORD: ${KSSL_DB_PASSWORD:?set KSSL_DB_PASSWORD in .env}
+      POSTGRES_DB: ${KSSL_DB_NAME:-kssl}
+      POSTGRES_USER: ${KSSL_DB_USER:-postgres}
+    # loopback only: the database is reached through the SSH tunnel, never the net
+    ports:
+      - "127.0.0.1:${KSSL_DB_PORT:-5460}:5432"
+    command: >
+      postgres
+      -c shared_buffers=2GB
+      -c work_mem=32MB
+      -c maintenance_work_mem=512MB
+      -c max_connections=60
+    volumes:
+      - kssl_pgdata:/var/lib/postgresql/data
+      # init scripts run in name order, on a FRESH volume only
+      - ./db/schema_extracted.sql:/docker-entrypoint-initdb.d/01_schema_extracted.sql:ro
+      - ./db/schema_serving.sql:/docker-entrypoint-initdb.d/02_schema_serving.sql:ro
+      - ./db/schema_serving_live.sql:/docker-entrypoint-initdb.d/03_serving_live.sql:ro
+      - ./db/schema_comments.sql:/docker-entrypoint-initdb.d/04_comments.sql:ro
+      # every stage reports its wall clock here -- see pipeline/stage_timer.py
+      - ./db/schema_metrics.sql:/docker-entrypoint-initdb.d/05_metrics.sql:ro
+      # the article-bench job queue (see bench/worker.py)
+      - ./db/schema_bench.sql:/docker-entrypoint-initdb.d/06_bench.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${KSSL_DB_USER:-postgres} -d ${KSSL_DB_NAME:-kssl}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    cpus: ${KSSL_DB_CPUS:-2}
+    mem_limit: ${KSSL_DB_MEM:-8g}
+    restart: unless-stopped
+
+  backend:
+    build:
+      # repo root, so the image can include pipeline/stage_timer.py without a
+      # second copy of it living under backend/
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: kssl-backend
+    environment:
+      KSSL_DSN: host=db port=5432 dbname=${KSSL_DB_NAME:-kssl} user=${KSSL_DB_USER:-postgres} password=${KSSL_DB_PASSWORD}
+      KSSL_SERVE_ORIGIN: ${KSSL_SERVE_ORIGIN:-live}
+      # the API records its own serve time as the 'frontend' stage
+      KSSL_METRICS_DSN: host=db port=5432 dbname=${KSSL_DB_NAME:-kssl} user=${KSSL_DB_USER:-postgres} password=${KSSL_DB_PASSWORD}
+      # set HERE, not in .env: .env is copied to several machines, and a
+      # data-centre timing labelled 'vps' is worse than one labelled unknown
+      KSSL_HOST_ROLE: vps
+    volumes:
+      # Mounted, not baked. The production write-up is regenerated from the live
+      # metrics table; if it were in the image, every regeneration would mean a
+      # rebuild and the page on screen would drift behind the database it claims
+      # to be reporting.
+      - ./PRODUCTION.html:/app/PRODUCTION.html:ro
+    expose:
+      - "8600"
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      # /api on the same host name as the app, so the built frontend's relative
+      # fetches work with no CORS and no second certificate
+      traefik.enable: "true"
+      traefik.docker.network: kssl_default
+      traefik.http.routers.kssl-api.rule: Host(`${KSSL_DOMAIN:?set KSSL_DOMAIN in .env}`) && PathPrefix(`/api`)
+      traefik.http.routers.kssl-api.entrypoints: websecure
+      traefik.http.routers.kssl-api.tls.certresolver: letsencrypt
+      traefik.http.routers.kssl-api.priority: "20"
+      traefik.http.routers.kssl-api.middlewares: kssl-auth
+      traefik.http.services.kssl-api.loadbalancer.server.port: "8600"
+      # The dataset is the client's competitive position. Without this it is
+      # served to anyone who guesses the hostname.
+      traefik.http.middlewares.kssl-auth.basicauth.users: ${KSSL_BASIC_AUTH:?set KSSL_BASIC_AUTH in .env}
+      traefik.http.middlewares.kssl-auth.basicauth.realm: KSSL
+    cpus: ${KSSL_API_CPUS:-1}
+    mem_limit: ${KSSL_API_MEM:-1g}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: kssl-frontend
+    expose:
+      - "80"
+    depends_on:
+      - backend
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: kssl_default
+      traefik.http.routers.kssl-web.rule: Host(`${KSSL_DOMAIN}`)
+      traefik.http.routers.kssl-web.entrypoints: websecure
+      traefik.http.routers.kssl-web.tls.certresolver: letsencrypt
+      # lower than the API router, so /api wins on the same host
+      traefik.http.routers.kssl-web.priority: "10"
+      traefik.http.services.kssl-web.loadbalancer.server.port: "80"
+      traefik.http.routers.kssl-web.middlewares: kssl-auth,kssl-sec
+      traefik.http.middlewares.kssl-sec.headers.frameDeny: "true"
+      traefik.http.middlewares.kssl-sec.headers.contentTypeNosniff: "true"
+      traefik.http.middlewares.kssl-sec.headers.referrerPolicy: strict-origin-when-cross-origin
+    cpus: ${KSSL_WEB_CPUS:-0.5}
+    mem_limit: ${KSSL_WEB_MEM:-256m}
+    restart: unless-stopped
+
+  # The signal LLM. This IS part of the stack -- it writes the cards the
+  # dashboard shows.
+  #
+  # Measured on this box (deploy/remote/bench_cpu_llm.py, no GPU), qwen2.5:7b
+  # generating a real ~145-token signal card:
+  #
+  #     cores   gen tok/s   one card
+  #       2        2.5        60 s
+  #       3        4.0        37 s
+  #       4        5.3        28 s
+  #       6       10.5        14 s
+  #
+  # so cores bought here are bought at roughly 1.7 tok/s each, and the model
+  # holds 5.5 GB resident whatever it is given. An earlier draft of DEPLOY.md
+  # said a pipeline pass would take "days"; that assumed 600-token answers and
+  # was wrong -- a few hundred cards at 14-28 s each is under two hours.
+  llm:
+    image: ollama/ollama:latest
+    container_name: kssl-llm
+    environment:
+      OLLAMA_MODELS: /models
+      # one request at a time; parallelism buys nothing without a GPU and
+      # multiplies the KV cache (measured: NUM_PARALLEL=24 wedged a 14b)
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      # unset, ollama reserves 32k per slot and the RAM figure above triples
+      OLLAMA_CONTEXT_LENGTH: "8192"
+      OLLAMA_KEEP_ALIVE: "60m"
+    # loopback-published, not merely exposed: the pipeline runs on the host (or
+    # reaches in over the SSH tunnel), and with `expose` alone nothing could
+    # call the model this service exists to serve.
+    ports:
+      - "127.0.0.1:${KSSL_OLLAMA_PORT:-11434}:11434"
+    volumes:
+      # a directory, not a named volume: the models are 16 GB and are pulled
+      # once per machine, so they must survive `down -v` and be shareable with
+      # the benchmark container.
+      - ${KSSL_MODELS_DIR:-./models}:/models
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    cpus: ${KSSL_LLM_CPUS:-4}
+    mem_limit: ${KSSL_LLM_MEM:-8g}
+    restart: unless-stopped
+
+volumes:
+  kssl_pgdata:

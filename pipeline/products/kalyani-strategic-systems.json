@@ -1,0 +1,519 @@
+{
+ "company": "Kalyani Strategic Systems",
+ "site": "https://www.kssl.co.in/",
+ "html_pages": 3,
+ "pdfs": [
+  "https://www.kssl.co.in/brochure/Export.pdf"
+ ],
+ "products": [
+  {
+   "product": "ATAGS",
+   "category": "ARTILLERY",
+   "specs": [
+    {
+     "label": "Elevation",
+     "value": "-5°to75° with the speed of 5°/sec",
+     "line": "Elevation : -5°to75° with the speed of 5°/sec"
+    },
+    {
+     "label": "Traverse",
+     "value": "30° Right and Left",
+     "line": "Traverse : 30° Right and Left"
+    },
+    {
+     "label": "Intense Rate",
+     "value": "10 rounds in 2.5 min",
+     "line": "Intense Rate : 10 rounds in 2.5 min"
+    },
+    {
+     "label": "Sustained Rate",
+     "value": "60 rounds in 60 min",
+     "line": "Sustained Rate : 60 rounds in 60 min"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 4,
+   "has_spec_header": false,
+   "pages": [
+    4
+   ]
+  },
+  {
+   "product": "MArG 39-BR",
+   "category": "ARTILLERY",
+   "specs": [
+    {
+     "label": "Elevation",
+     "value": "-2° to +72° (11° above cab)",
+     "line": "Elevation : -2° to +72° (11° above cab)"
+    },
+    {
+     "label": "Traverse",
+     "value": "25° to Right & Left",
+     "line": "Traverse : 25° to Right & Left"
+    },
+    {
+     "label": "Intense Rate",
+     "value": "10 rounds in 3 min",
+     "line": "Intense Rate : 10 rounds in 3 min"
+    },
+    {
+     "label": "Sustained Rate",
+     "value": "42 rounds in 60 min",
+     "line": "Sustained Rate : 42 rounds in 60 min"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 6,
+   "has_spec_header": false,
+   "pages": [
+    6
+   ]
+  },
+  {
+   "product": "MArG 45",
+   "category": "ARTILLERY",
+   "specs": [
+    {
+     "label": "Elevation",
+     "value": "-2° to +72° (11° above cab)",
+     "line": "Elevation : -2° to +72° (11° above cab)"
+    },
+    {
+     "label": "Traverse",
+     "value": "25° to Right & Left",
+     "line": "Traverse : 25° to Right & Left"
+    },
+    {
+     "label": "Intense Rate",
+     "value": "10 rounds in 3 min",
+     "line": "Intense Rate : 10 rounds in 3 min"
+    },
+    {
+     "label": "Sustained Rate",
+     "value": "42 rounds in 60 min",
+     "line": "Sustained Rate : 42 rounds in 60 min"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 7,
+   "has_spec_header": false,
+   "pages": [
+    7
+   ]
+  },
+  {
+   "product": "MArG 52",
+   "category": "ARTILLERY",
+   "specs": [
+    {
+     "label": "Elevation",
+     "value": "0° to +72° (11° above cab)",
+     "line": "Elevation : 0° to +72° (11° above cab)"
+    },
+    {
+     "label": "Traverse",
+     "value": "25° to Right & Left",
+     "line": "Traverse : 25° to Right & Left"
+    },
+    {
+     "label": "Intense Rate",
+     "value": "12 rounds in 3 min",
+     "line": "Intense Rate : 12 rounds in 3 min"
+    },
+    {
+     "label": "Sustained Rate",
+     "value": "42 rounds in 60 min",
+     "line": "Sustained Rate : 42 rounds in 60 min"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 8,
+   "has_spec_header": false,
+   "pages": [
+    8
+   ]
+  },
+  {
+   "product": "Mounted Gun System - ATAGS 155mm/52 Cal",
+   "category": "ARTILLERY",
+   "specs": [
+    {
+     "label": "Elevation",
+     "value": "0° to 70° (11° above cab)",
+     "line": "Elevation : 0° to 70° (11° above cab)"
+    },
+    {
+     "label": "Traverse",
+     "value": "30° Right and Left",
+     "line": "Traverse : 30° Right and Left"
+    },
+    {
+     "label": "Intense Rate",
+     "value": "10 rounds in 2.5 min",
+     "line": "Intense Rate : 10 rounds in 2.5 min"
+    },
+    {
+     "label": "Sustained Rate",
+     "value": "60 rounds in 60 min",
+     "line": "Sustained Rate : 60 rounds in 60 min"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 9,
+   "has_spec_header": false,
+   "pages": [
+    9
+   ]
+  },
+  {
+   "product": "Bharat ULH 155mm 39 CAL",
+   "category": "ARTILLERY",
+   "specs": [
+    {
+     "label": "On Black Top",
+     "value": "60 Kmph",
+     "line": "On Black Top : 60 Kmph"
+    },
+    {
+     "label": "Cross-country Terrain",
+     "value": "24 kmph",
+     "line": "Cross-country Terrain : 24 kmph"
+    },
+    {
+     "label": "Elevation",
+     "value": "-3° to 70°",
+     "line": "Elevation : -3° to 70°"
+    },
+    {
+     "label": "Traverse",
+     "value": "23° Right and Left",
+     "line": "Traverse : 23° Right and Left"
+    },
+    {
+     "label": "Intense Rate",
+     "value": "12 rounds in 3 min",
+     "line": "Intense Rate : 12 rounds in 3 min"
+    },
+    {
+     "label": "Sustained Rate",
+     "value": "42 rounds in 60 min",
+     "line": "Sustained Rate : 42 rounds in 60 min"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 10,
+   "has_spec_header": false,
+   "pages": [
+    10
+   ]
+  },
+  {
+   "product": "LAMV",
+   "category": "PROTECTED VEHICLES",
+   "specs": [
+    {
+     "label": "LAMV LAMV",
+     "value": "Additional Features",
+     "line": "LAMV LAMV Additional Features"
+    },
+    {
+     "label": "• Enhanced power-to-weight ratio",
+     "value": "• Central Tyre Inflation System (CTIS)",
+     "line": "• Enhanced power-to-weight ratio • Central Tyre Inflation System (CTIS)"
+    },
+    {
+     "label": "Multi-Role, Highly Dynamic,",
+     "value": "• Automatic Fire Detection & Suppression system (AFDSS)",
+     "line": "Multi-Role, Highly Dynamic, • Automatic Fire Detection & Suppression system (AFDSS)"
+    },
+    {
+     "label": "Mine Protected,",
+     "value": "• Cargo Compartment",
+     "line": "Mine Protected, • Cargo Compartment"
+    },
+    {
+     "label": "Light Armoured Multipurpose Vehicle",
+     "value": "• Roof Hatches",
+     "line": "Light Armoured Multipurpose Vehicle • Roof Hatches"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 12,
+   "has_spec_header": false,
+   "pages": [
+    12
+   ]
+  },
+  {
+   "product": "Kalyani M4",
+   "category": "PROTECTED VEHICLES",
+   "specs": [
+    {
+     "label": "Construction Monocoque Hull Monocoque Hull",
+     "value": "Monocoque Hull",
+     "line": "Construction Monocoque Hull Monocoque Hull Monocoque Hull"
+    },
+    {
+     "label": "GVWR 16.5 Tons 13 Tons",
+     "value": "12 Tons",
+     "line": "GVWR 16.5 Tons 13 Tons 12 Tons"
+    },
+    {
+     "label": "Payload 2 Tons 2 Tons",
+     "value": "2 Tons",
+     "line": "Payload 2 Tons 2 Tons 2 Tons"
+    },
+    {
+     "label": "Wheelbase 3300mm 3300mm",
+     "value": "3300mm",
+     "line": "Wheelbase 3300mm 3300mm 3300mm"
+    },
+    {
+     "label": "Tyres 16.00 R20 16.00 R20",
+     "value": "16.00 R20",
+     "line": "Tyres 16.00 R20 16.00 R20 16.00 R20"
+    },
+    {
+     "label": "Air conditioner 12kW 12kW",
+     "value": "12kW",
+     "line": "Air conditioner 12kW 12kW 12kW"
+    },
+    {
+     "label": "Electrical System 24V 24V",
+     "value": "24V",
+     "line": "Electrical System 24V 24V 24V"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 15,
+   "has_spec_header": true,
+   "pages": [
+    15
+   ]
+  },
+  {
+   "product": "LAPV",
+   "category": "PROTECTED VEHICLES",
+   "specs": [
+    {
+     "label": "LAPV LAPV",
+     "value": "Additional Features",
+     "line": "LAPV LAPV Additional Features"
+    },
+    {
+     "label": "• Enhanced power-to-weight ratio",
+     "value": "• Central Tyre Inflation System (CTIS)",
+     "line": "• Enhanced power-to-weight ratio • Central Tyre Inflation System (CTIS)"
+    },
+    {
+     "label": "Multi-Role, Highly Dynamic,",
+     "value": "• Automatic Fire Detection & Suppression system (AFDSS)",
+     "line": "Multi-Role, Highly Dynamic, • Automatic Fire Detection & Suppression system (AFDSS)"
+    },
+    {
+     "label": "Mine Protected,",
+     "value": "• Cargo Compartment",
+     "line": "Mine Protected, • Cargo Compartment"
+    },
+    {
+     "label": "Light Armoured Personnel Vehicle",
+     "value": "• Roof Hatches",
+     "line": "Light Armoured Personnel Vehicle • Roof Hatches"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 16,
+   "has_spec_header": false,
+   "pages": [
+    16
+   ]
+  },
+  {
+   "product": "Kalyani Maverick",
+   "category": "PROTECTED VEHICLES",
+   "specs": [
+    {
+     "label": "Crew (2+1+8) (2+1+8)",
+     "value": "(2+1+8)",
+     "line": "Crew (2+1+8) (2+1+8) (2+1+8)"
+    },
+    {
+     "label": "GVWR 15.5 Tons 12.5 Tons",
+     "value": "10.5 Tons",
+     "line": "GVWR 15.5 Tons 12.5 Tons 10.5 Tons"
+    },
+    {
+     "label": "Payload 1.5 Tons 1.5 Tons",
+     "value": "1.5 Tons",
+     "line": "Payload 1.5 Tons 1.5 Tons 1.5 Tons"
+    },
+    {
+     "label": "Wheelbase 3180 mm 3180 mm",
+     "value": "3180 mm",
+     "line": "Wheelbase 3180 mm 3180 mm 3180 mm"
+    },
+    {
+     "label": "Electrical System 24V 24V",
+     "value": "24V",
+     "line": "Electrical System 24V 24V 24V"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 19,
+   "has_spec_header": true,
+   "pages": [
+    19
+   ]
+  },
+  {
+   "product": "CQB Carbine",
+   "category": "SMALL ARMS",
+   "specs": [
+    {
+     "label": "SPECIFICATIONS",
+     "value": "Carbine",
+     "line": "SPECIFICATIONS Carbine"
+    },
+    {
+     "label": "Calibre, mm",
+     "value": "5.56 x 45",
+     "line": "Calibre, mm 5.56 x 45"
+    },
+    {
+     "label": "Weight (without Magazine), kg",
+     "value": "< 3.3",
+     "line": "Weight (without Magazine), kg < 3.3"
+    },
+    {
+     "label": "Length (Butt Extended), mm",
+     "value": "800",
+     "line": "Length (Butt Extended), mm 800"
+    },
+    {
+     "label": "Length (Butt Retracted), mm",
+     "value": "650",
+     "line": "Length (Butt Retracted), mm 650"
+    },
+    {
+     "label": "Operation",
+     "value": "Gas Operated, Rotating Bolt",
+     "line": "Operation Gas Operated, Rotating Bolt"
+    },
+    {
+     "label": "Barrel Length, mm",
+     "value": "300",
+     "line": "Barrel Length, mm 300"
+    },
+    {
+     "label": "No. of Grooves",
+     "value": "6",
+     "line": "No. of Grooves 6"
+    },
+    {
+     "label": "Rifling",
+     "value": "1 in 200 , RH",
+     "line": "Rifling 1 in 200 , RH"
+    },
+    {
+     "label": "Effective Range, m",
+     "value": "200-300",
+     "line": "Effective Range, m 200-300"
+    },
+    {
+     "label": "Magazine capacity",
+     "value": "30 Rounds",
+     "line": "Magazine capacity 30 Rounds"
+    },
+    {
+     "label": "Modes of Fire",
+     "value": "Single Shot, Short Burst, Safe",
+     "line": "Modes of Fire Single Shot, Short Burst, Safe"
+    },
+    {
+     "label": "Rate of Fire, rmp",
+     "value": "600-700",
+     "line": "Rate of Fire, rmp 600-700"
+    },
+    {
+     "label": "Safety",
+     "value": "Mechanical and Applied",
+     "line": "Safety Mechanical and Applied"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 33,
+   "has_spec_header": true,
+   "pages": [
+    33
+   ]
+  },
+  {
+   "product": "Protective Carbine",
+   "category": "SMALL ARMS",
+   "specs": [
+    {
+     "label": "Calibre, mm",
+     "value": "5.56",
+     "line": "Calibre, mm 5.56"
+    },
+    {
+     "label": "Cartridge, mm",
+     "value": "5.56 x 30",
+     "line": "Cartridge, mm 5.56 x 30"
+    },
+    {
+     "label": "Barrel Length, mm",
+     "value": "300",
+     "line": "Barrel Length, mm 300"
+    },
+    {
+     "label": "Overall length close stock, mm",
+     "value": "550",
+     "line": "Overall length close stock, mm 550"
+    },
+    {
+     "label": "Overall length open stock, mm",
+     "value": "750",
+     "line": "Overall length open stock, mm 750"
+    },
+    {
+     "label": "Firing Mode",
+     "value": "Single and automatic",
+     "line": "Firing Mode Single and automatic"
+    },
+    {
+     "label": "Effective Firing Range, m",
+     "value": "200-300",
+     "line": "Effective Firing Range, m 200-300"
+    },
+    {
+     "label": "Rate of fire, round/min",
+     "value": "700-900",
+     "line": "Rate of fire, round/min 700-900"
+    },
+    {
+     "label": "Magazine capacity, rounds",
+     "value": "30",
+     "line": "Magazine capacity, rounds 30"
+    },
+    {
+     "label": "Weight (carbine only), kg",
+     "value": "< 3",
+     "line": "Weight (carbine only), kg < 3"
+    },
+    {
+     "label": "Principle of Operation",
+     "value": "Gas operated, Rotating bolt",
+     "line": "Principle of Operation Gas operated, Rotating bolt"
+    }
+   ],
+   "source_url": "https://www.kssl.co.in/brochure/Export.pdf",
+   "page": 35,
+   "has_spec_header": true,
+   "pages": [
+    35
+   ]
+  }
+ ]
+}

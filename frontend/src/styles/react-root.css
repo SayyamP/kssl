@@ -1,0 +1,68 @@
+/* The original markup lived directly in <body>, which carried the column flexbox.
+   React mounts into #root, so the same rules have to land one level down. */
+#root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Boot + failure states — the standalone file had its data inline and so could not
+   have either. Fetching from Postgres can, so say which one it is. */
+.boot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  height: 100%;
+  background: var(--d-bg);
+  color: var(--d-txt-3);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  padding: 40px;
+  text-align: center;
+}
+.boot .boot-mark {
+  font-family: var(--sans);
+  font-weight: 800;
+  font-size: 26px;
+  letter-spacing: -0.02em;
+  color: #fff;
+}
+.boot .boot-mark span {
+  font-weight: 500;
+  color: var(--d-txt-2);
+}
+.boot .boot-msg {
+  max-width: 560px;
+  line-height: 1.7;
+  color: var(--d-txt-3);
+}
+.boot.err .boot-msg {
+  color: var(--threat-badge);
+}
+.boot code {
+  color: var(--d-txt-2);
+  background: var(--d-bg-2);
+  border: 1px solid var(--d-line);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.boot .boot-retry {
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--d-txt-2);
+  background: transparent;
+  border: 1px solid var(--d-line-2);
+  padding: 7px 16px;
+  cursor: pointer;
+}
+.boot .boot-retry:hover {
+  color: var(--d-txt);
+  border-color: var(--d-txt-4);
+}

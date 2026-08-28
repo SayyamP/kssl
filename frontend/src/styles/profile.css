@@ -1,0 +1,57 @@
+/* Company Profile. The left rail reuses .mu-list / .mu-search / .pg-comp from the
+   Positioning and Partnerships views so the three read as one product; only the right
+   pane is new. */
+
+.v-profile{grid-template-columns:300px 1fr}
+.cp-body{grid-column:2;overflow-y:auto;background:var(--d-bg);padding-bottom:40px}
+
+.cp-head{padding:20px 24px 18px;border-bottom:1px solid var(--d-line);background:var(--d-bg-1)}
+.cp-name{font-size:20px;font-weight:700;color:var(--d-txt);letter-spacing:-.01em}
+.cp-ident{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:7px;font-family:var(--mono);font-size:11px;color:var(--d-txt-3)}
+.cp-ident > span:not(:last-child)::after{content:"·";margin-left:10px;color:var(--d-txt-4)}
+.cp-threat{text-transform:uppercase;letter-spacing:.1em;font-size:9px;padding:3px 8px;border:1px solid var(--d-line-2);border-radius:3px;color:var(--d-txt-2)}
+.cp-threat.high{color:var(--threat-badge);border-color:var(--threat)}
+.cp-threat.medium{color:var(--watch-badge);border-color:var(--watch)}
+.cp-threat.low{color:var(--fav-badge);border-color:var(--fav)}
+
+.cp-sec{padding:18px 24px 20px;border-bottom:1px solid var(--d-line)}
+.cp-sec-h{display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;margin-bottom:13px}
+.cp-note{font-size:11px;color:var(--d-txt-4);line-height:1.45}
+.cp-prose{font-size:13px;color:var(--d-read);line-height:1.6;max-width:74ch}
+
+.cp-chips{display:flex;flex-wrap:wrap;gap:7px}
+.cp-chip{font-size:12px;color:var(--d-txt-2);background:var(--d-bg-2);border:1px solid var(--d-line);padding:5px 10px;border-radius:3px}
+
+.cp-row{padding:11px 0;border-bottom:1px solid var(--d-line);display:flex;flex-direction:column;gap:5px}
+.cp-row:last-child{border-bottom:none}
+.cp-row-h{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.cp-row-t{font-size:13px;font-weight:600;color:var(--d-txt);line-height:1.4}
+.cp-row-x{font-size:12px;color:var(--d-txt-2);line-height:1.55;max-width:82ch}
+.cp-tag{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt-3);background:var(--d-bg-2);border:1px solid var(--d-line);padding:2px 7px;white-space:nowrap}
+.cp-tag.dir-threat{color:var(--threat-badge)}
+.cp-tag.dir-watch{color:var(--watch-badge)}
+.cp-tag.dir-fav{color:var(--fav-badge)}
+
+.cp-thin{color:var(--d-txt-4)}
+.cp-empty{padding:26px 24px;font-family:var(--mono);font-size:11.5px;color:var(--d-txt-4);line-height:1.6}
+
+/* What the corpus does NOT hold. Deliberately styled as an absence, not a section
+   waiting to fill: no card, no border, muted throughout. */
+.cp-gap{padding:18px 24px 24px}
+.cp-gap .eyebrow{display:block;margin-bottom:11px;color:var(--d-txt-4)}
+.cp-gap-row{display:grid;grid-template-columns:110px 1fr;gap:12px;padding:5px 0;align-items:baseline}
+.cp-gap-k{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-txt-4)}
+.cp-gap-v{font-size:11.5px;color:var(--d-txt-4);line-height:1.5}
+
+/* Harvested profile rows. Each is a link to the page it was read from, and the ❝ reveals
+   the exact sentence on hover — the same affordance the signal drawer uses, because it
+   means the same thing: this value has evidence behind it. */
+.cp-src-list{display:flex;flex-direction:column;gap:1px}
+.cp-src-row{display:grid;grid-template-columns:1fr auto auto;align-items:baseline;gap:12px;
+  padding:7px 9px;margin:0 -9px;border-radius:3px;text-decoration:none;transition:background .12s}
+.cp-src-row:hover{background:var(--d-bg-2)}
+.cp-src-v{font-size:12.5px;color:var(--d-txt);line-height:1.35;overflow-wrap:anywhere}
+.cp-src-d{font-family:var(--mono);font-size:10.5px;color:var(--d-txt-3);white-space:nowrap}
+.cp-src-q{font-family:var(--mono);font-size:11px;color:var(--d-txt-4);opacity:.5;
+  flex-shrink:0;transition:opacity .12s,color .12s}
+.cp-src-row:hover .cp-src-q{opacity:1;color:var(--fav-badge)}

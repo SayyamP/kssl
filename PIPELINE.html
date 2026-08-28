@@ -1,0 +1,598 @@
+<meta charset="utf-8">
+<title>KSSL Pipeline Explained</title>
+<style>
+:root{
+  --bg:#fbfaf8; --ink:#1c1a17; --dim:#5d564d; --line:#e0dbd2; --card:#ffffff;
+  --accent:#8a4b2a; --code-bg:#f4f1ec; --mark:#f7efe6;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#16150f; --ink:#eae5db; --dim:#a49c8f; --line:#2f2c25; --card:#1d1b15;
+    --accent:#d9925f; --code-bg:#211f19; --mark:#2a241b;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#16150f; --ink:#eae5db; --dim:#a49c8f; --line:#2f2c25; --card:#1d1b15;
+  --accent:#d9925f; --code-bg:#211f19; --mark:#2a241b;
+}
+/* Theme switch. The palette above already answers the system setting; this only
+   lets a reader override it, and the choice is remembered per browser. */
+.themetog{position:fixed;top:14px;right:14px;z-index:9;
+  font:600 12px/1 ui-sans-serif,system-ui,sans-serif;letter-spacing:.04em;
+  color:var(--dim);background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:8px 13px;cursor:pointer}
+.themetog:hover{color:var(--accent);border-color:var(--accent)}
+@media print{.themetog{display:none}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.65 "Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;}
+header{padding:56px 24px 30px;max-width:900px;margin:0 auto;}
+h1{font-size:clamp(28px,4.6vw,44px);line-height:1.12;margin:0 0 14px;
+  letter-spacing:-.02em;text-wrap:balance;}
+.sub{color:var(--dim);max-width:66ch;margin:0;font-size:17px}
+nav.toc{max-width:900px;margin:0 auto 20px;padding:0 24px}
+nav.toc ol{columns:2;column-gap:34px;padding-left:18px;margin:0;font-size:14.5px}
+nav.toc li{margin:3px 0;break-inside:avoid}
+nav.toc a{color:var(--dim);text-decoration:none;border-bottom:1px solid transparent}
+nav.toc a:hover{color:var(--accent);border-bottom-color:var(--accent)}
+main{max-width:900px;margin:0 auto;padding:0 24px 80px}
+section{padding:34px 0;border-top:1px solid var(--line)}
+h2{font-size:25px;margin:0 0 16px;letter-spacing:-.01em;text-wrap:balance}
+h3{font-size:18px;margin:26px 0 8px}
+h4{font-size:15px;margin:18px 0 6px;color:var(--dim);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:600}
+p{max-width:70ch}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em;
+  background:var(--code-bg);padding:1px 5px;border-radius:3px}
+a{color:var(--accent)}
+.rule{background:var(--mark);border-left:3px solid var(--accent);
+  padding:12px 16px;border-radius:0 4px 4px 0;max-width:70ch}
+.note{color:var(--dim);font-size:14.5px;max-width:70ch}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;
+  margin:18px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:14px 16px}
+.card h3{margin:0 0 6px;font-size:15px;color:var(--accent)}
+.card p{font-size:14.5px;margin:0;color:var(--dim)}
+.tw{overflow-x:auto;margin:12px 0;border:1px solid var(--line);border-radius:6px}
+table{border-collapse:collapse;width:100%;font-size:14px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+table.data,table.schema{background:var(--card)}
+th{text-align:left;font-weight:600;color:var(--dim);font-size:12px;
+  text-transform:uppercase;letter-spacing:.06em;padding:9px 12px;
+  border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.col{color:var(--accent);white-space:nowrap}
+td.ty{color:var(--dim);white-space:nowrap;font-size:13px}
+td.req{color:var(--dim);font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+td.off{color:var(--dim);white-space:nowrap}
+td.q{color:var(--dim);font-style:italic}
+/* The prose column is no longer last -- the example column is -- so it is addressed
+   by position rather than by :last-child, which silently moved to the examples. */
+table.data td:last-child,table.schema td:nth-child(4){
+  font-family:inherit;font-size:14.5px;min-width:14rem}
+td.egc{max-width:22rem;min-width:11rem}
+span.eg{color:var(--accent);font-size:12.5px;word-break:break-word;
+  display:inline-block;line-height:1.45}
+span.egnone{color:var(--dim);opacity:.55;font-size:12px;font-style:italic}
+table.kv td:first-child{color:var(--dim);white-space:nowrap;width:11rem}
+table.kv{background:transparent;font-size:14.5px}
+table.kv td{font-family:inherit}
+pre.prompt{background:var(--code-bg);border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:0 5px 5px 0;padding:14px 16px;overflow-x:auto;white-space:pre-wrap;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;line-height:1.5}
+pre.doc{background:var(--code-bg);border-radius:5px;padding:12px 14px;overflow-x:auto;
+  white-space:pre-wrap;font-size:13.5px;font-family:inherit;color:var(--dim);margin:6px 0 0}
+.example{background:var(--card);border:1px solid var(--line);border-radius:6px;
+  padding:16px 18px;margin:16px 0}
+.exhead{font-size:11.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);
+  margin:10px 0 6px;font-family:ui-monospace,Menlo,monospace}
+.exhead:first-child{margin-top:0}
+.step{border-left:2px solid var(--line);padding-left:18px;margin:26px 0}
+.step h3{margin-top:0;color:var(--accent)}
+.stores{font-size:14.5px;color:var(--dim)}
+.cnt{font-size:12px;color:var(--dim);font-weight:400;
+  font-family:ui-monospace,Menlo,monospace}
+.lens{background:var(--code-bg);border-radius:4px;padding:9px 12px;font-size:14px;
+  margin:6px 0;max-width:none}
+ol.walk{max-width:72ch;padding-left:22px}
+ol.walk li{margin:12px 0}
+figure.flow{margin:20px 0;padding:16px;background:var(--card);border:1px solid var(--line);
+  border-radius:6px}
+figure.flow svg{width:100%;height:auto;max-width:100%}
+figcaption{color:var(--dim);font-size:13.5px;margin-top:10px;text-align:center}
+footer{border-top:1px solid var(--line);max-width:900px;margin:0 auto;padding:22px 24px 60px}
+footer p{color:var(--dim);font-size:13.5px;margin:0}
+@media (max-width:620px){nav.toc ol{columns:1}}
+</style>
+<button class=themetog id=themetog type=button
+  aria-label="Switch between light and dark">Light</button>
+<script>
+(function(){
+  var K="kssl-pipeline-theme", r=document.documentElement;
+  function sysDark(){ try{ return matchMedia("(prefers-color-scheme: dark)").matches; }
+                      catch(e){ return false; } }
+  function stored(){ try{ return localStorage.getItem(K); }catch(e){ return null; } }
+  function now(){ var v=stored(); return v || (sysDark() ? "dark" : "light"); }
+  function paint(){
+    var t=now();
+    r.setAttribute("data-theme", t);
+    var b=document.getElementById("themetog");
+    if(b) b.textContent = (t==="dark" ? "Light" : "Dark");
+  }
+  paint();
+  document.addEventListener("click", function(e){
+    var b=e.target.closest && e.target.closest("#themetog");
+    if(!b) return;
+    var next = now()==="dark" ? "light" : "dark";
+    try{ localStorage.setItem(K, next); }catch(err){}
+    paint();
+  });
+  try{ matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function(){
+    if(!stored()) paint();
+  }); }catch(e){}
+})();
+</script>
+<header><h1>From a news page to a card on the screen</h1><p class=sub>Every number the KSSL dashboard shows is produced by the chain below, on this machine, from documents the crawler fetched. This page explains that chain in plain English &mdash; what each step reads, what it writes, and which database column it lands in. It is generated from the running code and the live database, so it cannot drift from what actually happens.</p></header>
+<nav class=toc><ol>
+<li><a href="#what">What this is</a></li>
+<li><a href="#map">The whole path</a></li>
+<li><a href="#s0">1 · The raw document</a></li>
+<li><a href="#s1">2 · Layer A — reading the document</a></li>
+<li><a href="#s2">3 · Layer B — who is who</a></li>
+<li><a href="#s3">4 · The gates (before any LLM)</a></li>
+<li><a href="#s4">5 · Signals: competitive / market / technology</a></li>
+<li><a href="#s5">6 · The entailment check</a></li>
+<li><a href="#s6">7 · Companies, partnerships, geo, innovation, matchups</a></li>
+<li><a href="#s7">8 · Tenders (live APIs)</a></li>
+<li><a href="#s8">9 · Serving tables, column by column</a></li>
+<li><a href="#s9">10 · Which tab reads what</a></li>
+<li><a href="#s10">11 · What is deliberately empty</a></li>
+<li><a href="#s11">12 · One document, followed all the way</a></li>
+</ol></nav>
+<main>
+<section id=what><h2>What this is</h2>
+<p>The dashboard has three pillars (Competitive, Market, Technology) and a set of tabs under each. Nothing on those tabs is typed by a person. A document is fetched, read by two local models, filtered by rules, judged by a local model, checked against its own evidence, and only then written to the tables the screen reads.</p>
+<p class=rule><b>The rule the whole design serves:</b> the screen may only show something the source actually says. Where the corpus cannot support a number, the tab stays empty rather than filled with a plausible one.</p>
+<div class=cards><div class=card><h3>Two schemas</h3><p><code>extracted</code> is what the readers produced &mdash; documents, spans, propositions, entities. <code>serving</code> is what the screen reads. Nothing skips from one to the other without passing a gate.</p></div><div class=card><h3>Two origins</h3><p>Every serving row carries <code>origin</code>: <code>reference</code> (the hand-researched demo seed, now archived) or <code>pipeline</code> (produced by this chain). The API serves only <code>pipeline</code>.</p></div><div class=card><h3>Local models only</h3><p>A 7B extractor plus GLiNER read the documents; a 14B judge writes and verifies the cards. Both run on this machine through Ollama. No text leaves the box.</p></div></div></section>
+<section id=map><h2>The whole path</h2>
+
+<figure class=flow>
+<svg viewBox="0 0 900 300" role="img" aria-label="The pipeline from a fetched page to a
+dashboard tab, with refusal gates between stages" xmlns="http://www.w3.org/2000/svg">
+<defs><marker id="pa" markerWidth="9" markerHeight="9" refX="8" refY="3"
+orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="currentColor"/></marker></defs>
+<g fill="none" stroke="currentColor" stroke-width="1.4" marker-end="url(#pa)">
+<path d="M132,52 L172,52"/><path d="M292,52 L332,52"/><path d="M452,52 L492,52"/>
+<path d="M572,70 L572,110"/><path d="M572,168 L572,208"/><path d="M492,228 L452,228"/>
+<path d="M332,228 L292,228"/>
+</g>
+<g font-size="12" text-anchor="middle" fill="currentColor">
+<rect x="12" y="32" width="120" height="40" rx="5" fill="none" stroke="currentColor"/>
+<text x="72" y="50">crawler / API</text><text x="72" y="64" opacity=".7">a page, whole</text>
+<rect x="172" y="32" width="120" height="40" rx="5" fill="none" stroke="currentColor"/>
+<text x="232" y="50">Layer A</text><text x="232" y="64" opacity=".7">spans + statements</text>
+<rect x="332" y="32" width="120" height="40" rx="5" fill="none" stroke="currentColor"/>
+<text x="392" y="50">Layer B</text><text x="392" y="64" opacity=".7">who is who</text>
+<rect x="492" y="32" width="160" height="40" rx="5" fill="none" stroke="currentColor"/>
+<text x="572" y="50">extracted schema</text><text x="572" y="64" opacity=".7">offsets checked</text>
+<rect x="492" y="110" width="160" height="58" rx="5" fill="none" stroke="currentColor"
+stroke-dasharray="4 3"/>
+<text x="572" y="130">the gates</text><text x="572" y="146" opacity=".7">listing · date ·</text>
+<text x="572" y="160" opacity=".7">portfolio · duplicate</text>
+<rect x="492" y="208" width="160" height="40" rx="5" fill="none" stroke="currentColor"/>
+<text x="572" y="226">local judge</text><text x="572" y="240" opacity=".7">writes the card</text>
+<rect x="332" y="208" width="120" height="40" rx="5" fill="none" stroke="currentColor"/>
+<text x="392" y="226">entailment</text><text x="392" y="240" opacity=".7">quotes vs claim</text>
+<rect x="172" y="208" width="120" height="40" rx="5" fill="none" stroke="currentColor"/>
+<text x="232" y="226">serving schema</text><text x="232" y="240" opacity=".7">what the UI reads</text>
+<text x="72" y="232" font-weight="600">the tab</text>
+<text x="450" y="285" opacity=".75" font-size="11">every stage may refuse — and every
+refusal is counted and printed, never silent</text>
+</g></svg>
+<figcaption>The path a document takes. The dashed box is where most documents
+stop.</figcaption>
+</figure>
+<p>Read it as a funnel. Thousands of sentences become hundreds of spans, spans become propositions with quotes, propositions survive a series of refusals, and the few that survive become a row on a tab. Every stage is allowed to say <i>no</i>, and every <i>no</i> is counted and printed.</p></section>
+<section id=s0><h2>1 &middot; The raw document</h2>
+<p>A document enters as fetched text &mdash; a press release, a news article, a procurement notice. It is stored whole, in its original language, with the URL it came from. The text is never rewritten: everything downstream quotes it by character offset, so if the stored text changed, every quote would become a lie.</p>
+<div class=example><div class=exhead>The document used as the example throughout this page</div><table class=kv><tr><td>document_id</td><td><code>doc_2c689e0660fe7b1c</code></td></tr><tr><td>url</td><td><a href='https://www.saab.com/sv/newsroom/press-releases/2026/saab-far-order-pa-granatgevaret-carl-gustaf-fran-litauen'>https://www.saab.com/sv/newsroom/press-releases/2026/saab-far-order-pa-granatgev</a></td></tr><tr><td>source</td><td>saab.com</td></tr><tr><td>language</td><td>sv &mdash; note this is <b>not</b> English</td></tr><tr><td>title</td><td>Saab får order på granatgeväret Carl-Gustaf från Litauen</td></tr><tr><td>size</td><td>1888 characters, 14 sentences</td></tr></table><div class=exhead>first lines as stored</div><pre class=doc>Saab får order på granatgeväret Carl-Gustaf från Litauen
+Saab har fått en order från Litauen gällande det axelburna granatgeväret Carl-Gustaf M4 och tillhörande träningsutrustning. Ordervärdet är 460 miljoner kronor och leveranser är planerade 2026-2029.
+Ordern läggs inom ramen för ett nyligen tecknat kontrakt mellan Saab och Litauen, vilket även omfattar optioner på ytterligare beställningar till ett värde av upp ti&hellip;</pre></div>
+<h3>Where it is stored &mdash; <code>extracted.document</code></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>document_id</td><td class=ty>text</td><td class=req>required</td><td>Stable id, sha256 of the URL truncated to 16 hex chars. The same page fetched twice keeps one id.</td><td class=egc><span class=eg>doc_2c689e0660fe7b1c</span></td></tr><tr><td class=col>url</td><td class=ty>text</td><td class=req></td><td>Final URL after redirects, as fetched.</td><td class=egc><span class=eg>https://www.saab.com/sv/newsroom/press-releases/2026/saab-far-order-pa-granatgevaret-carl-gustaf-fran-litauen</span></td></tr><tr><td class=col>source_id</td><td class=ty>text</td><td class=req></td><td>Publisher host with any leading www. stripped -- the outlet, used for corroboration counting.</td><td class=egc><span class=eg>saab.com</span></td></tr><tr><td class=col>language</td><td class=ty>text</td><td class=req></td><td>ISO code from the extraction pipeline's own detector, never a second library: two detectors disagreeing about Persian and Arabic is a bug already paid for once.</td><td class=egc><span class=eg>sv</span></td></tr><tr><td class=col>title</td><td class=ty>text</td><td class=req></td><td>Headline as published.</td><td class=egc><span class=eg>Saab får order på granatgeväret Carl-Gustaf från Litauen</span></td></tr><tr><td class=col>text</td><td class=ty>text</td><td class=req>required</td><td>Body text after boilerplate removal. All span offsets index into THIS string, so it must never be re-normalised in place.</td><td class=egc><span class=eg>Saab får order på granatgeväret Carl-Gustaf från Litauen
+Saab har fått en order från Litauen gällande det axelburna granatgeväret Carl-Gustaf M4 och tillhörande</span></td></tr><tr><td class=col>text_sha256</td><td class=ty>character</td><td class=req>required</td><td>Hash of text. Two addresses with identical bodies are one syndicated story, not two independent witnesses.</td><td class=egc><span class=eg>d62e53b914fd5401dd75629936057a884d875dea20d97f278775f17d56c2c645</span></td></tr><tr><td class=col>n_chars</td><td class=ty>integer</td><td class=req>required</td><td>Length of text in characters; the denominator for coverage.</td><td class=egc><span class=eg>1888</span></td></tr><tr><td class=col>n_sentences</td><td class=ty>integer</td><td class=req></td><td>Sentence count from segmentation.</td><td class=egc><span class=eg>14</span></td></tr><tr><td class=col>meta</td><td class=ty>jsonb</td><td class=req></td><td>Provenance blob: which set (kssl/parallax/kssl_demo), how it was found, when fetched.</td><td class=egc><span class=eg>{"set": "parallax", "model": "qwen2.5:7b", "run_id": "run-20260822-142124", "built_at": "2026-08-23T02:39:41", "elapsed_s": 602.3}</span></td></tr><tr><td class=col>first_seen</td><td class=ty>timestamp with time zone</td><td class=req></td><td>When this document first entered the store; NOT the publication date, which is derived from the document's own Date spans.</td><td class=egc><span class=eg>2026-08-24 10:18:00.337491+00</span></td></tr></tbody></table></div><p class=note>650 documents currently loaded. <code>text_sha256</code> and <code>n_chars</code> exist so a changed document is detectable; <code>meta</code> records which extraction set and run produced it.</p>
+</section>
+<section id=s1><h2>2 &middot; Layer A &mdash; reading the document</h2>
+<p>Layer A is the comprehension engine (a 7B model plus GLiNER, run per chunk). It does two things, and both are anchored to the text.</p>
+<p><b>Spans.</b> It marks every meaningful stretch of text and says what kind of thing it is &mdash; an organisation, a weapon system, a country, a date, a money value &mdash; and what it means in English (<code>gloss</code>), even when the document is Swedish or Persian. Each span records the exact character positions it covers.</p>
+<p><b>Propositions.</b> It then states what the document <i>says</i>, as subject &ndash; predicate &ndash; object, each one carrying the sentence it came from as a verbatim quote plus that quote's offsets. This is the unit everything later reads. No later step ever sees the raw page again &mdash; only these grounded statements.</p>
+<div class=example><div class=exhead>Spans from the example document (first 8 of 214)</div><div class=tw><table class=data><thead><tr><th>id</th><th>type</th><th>text as written</th><th>meaning in English</th><th>offsets</th></tr></thead><tbody><tr><td><code>s0</code></td><td>Organization</td><td>Saab</td><td>a company name</td><td class=off>0&ndash;4</td></tr><tr><td><code>s1</code></td><td>Action</td><td>får</td><td>receives</td><td class=off>5&ndash;8</td></tr><tr><td><code>s2</code></td><td>Contract</td><td>order</td><td>an agreement to supply goods or services</td><td class=off>9&ndash;14</td></tr><tr><td><code>s3</code></td><td>WeaponSystem</td><td>granatgeväret</td><td>a type of weapon</td><td class=off>18&ndash;31</td></tr><tr><td><code>s4</code></td><td>WeaponSystem</td><td>Carl-Gustaf</td><td>a brand name of a weapon</td><td class=off>32&ndash;43</td></tr><tr><td><code>s5</code></td><td>Country</td><td>Litauen</td><td>a country in Europe</td><td class=off>49&ndash;56</td></tr><tr><td><code>s6</code></td><td>Organization</td><td>Saab</td><td>a company or organization</td><td class=off>57&ndash;61</td></tr><tr><td><code>s7</code></td><td>Action</td><td>fått</td><td>received</td><td class=off>66&ndash;70</td></tr></tbody></table></div>
+<p class=note>Most common types in this document: Other&nbsp;53, Attribute&nbsp;33, Action&nbsp;33, Concept&nbsp;16, Organization&nbsp;15, WeaponSystem&nbsp;9.</p></div>
+<div class=example><div class=exhead>Propositions from the same document (first 5 of 13)</div><div class=tw><table class=data><thead><tr><th>#</th><th>subject</th><th>predicate</th><th>object</th><th>evidence quote</th></tr></thead><tbody><tr><td>0</td><td>Saab</td><td>delivers</td><td>axelburna granatgeväret Carl-Gustaf M4</td><td class=q>&ldquo;Saab har fått en order från Litauen gällande det axelburna granatgeväret Carl-Gustaf M4 och tillhörande träningsutrustning.&rdquo;</td></tr><tr><td>1</td><td>Saab</td><td>delivers</td><td>träningsutrustning</td><td class=q>&ldquo;Saab har fått en order från Litauen gällande det axelburna granatgeväret Carl-Gustaf M4 och tillhörande träningsutrustning.&rdquo;</td></tr><tr><td>2</td><td>order</td><td>is worth</td><td>460 miljoner kronor</td><td class=q>&ldquo;Ordervärdet är 460 miljoner kronor&rdquo;</td></tr><tr><td>3</td><td>order</td><td>is for</td><td>axelburna granatgeväret Carl-Gustaf M4</td><td class=q>&ldquo;Saab har fått en order från Litauen gällande det axelburna granatgeväret Carl-Gustaf M4 och tillhörande träningsutrustning.&rdquo;</td></tr><tr><td>4</td><td>order</td><td>is for</td><td>träningsutrustning</td><td class=q>&ldquo;Saab har fått en order från Litauen gällande det axelburna granatgeväret Carl-Gustaf M4 och tillhörande träningsutrustning.&rdquo;</td></tr></tbody></table></div><p class=note>The subject/predicate/object are normalised to English while the quote stays exactly as the Swedish original wrote it. That is what lets an English dashboard cite a Swedish source honestly.</p></div>
+<h3>Where spans are stored &mdash; <code>extracted.span</code></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>document_id</td><td class=ty>text</td><td class=req>required</td><td>Document the span is cut from.</td><td class=egc><span class=eg>doc_2c689e0660fe7b1c</span></td></tr><tr><td class=col>run_id</td><td class=ty>text</td><td class=req>required</td><td>Extraction run that produced it.</td><td class=egc><span class=eg>run-20260822-142124</span></td></tr><tr><td class=col>span_id</td><td class=ty>text</td><td class=req>required</td><td>Id unique within the document.</td><td class=egc><span class=eg>s0</span></td></tr><tr><td class=col>start_c</td><td class=ty>integer</td><td class=req>required</td><td>Start character offset into document.text, inclusive.</td><td class=egc><span class=eg>0</span></td></tr><tr><td class=col>end_c</td><td class=ty>integer</td><td class=req>required</td><td>End character offset, exclusive. The load step refuses any document where text[start_c:end_c] != text -- a repaired offset would be an invented quote.</td><td class=egc><span class=eg>4</span></td></tr><tr><td class=col>text</td><td class=ty>text</td><td class=req>required</td><td>The exact substring. Must equal document.text[start_c:end_c].</td><td class=egc><span class=eg>Saab</span></td></tr><tr><td class=col>type</td><td class=ty>text</td><td class=req>required</td><td>Semantic type: Organization, Country, Date, Measure, WeaponSystem, Concept, Action and so on.</td><td class=egc><span class=eg>Organization</span></td></tr><tr><td class=col>type_ner</td><td class=ty>text</td><td class=req></td><td>Raw label from the NER model before reconciliation.</td><td class=egc><span class=eg>WeaponSystem</span></td></tr><tr><td class=col>gloss</td><td class=ty>text</td><td class=req></td><td>Short description of what the span refers to. Answers "same kind of thing", never "same thing".</td><td class=egc><span class=eg>a company name</span></td></tr><tr><td class=col>in_article</td><td class=ty>text</td><td class=req></td><td>Whether the span sits in article body or in navigation/boilerplate.</td><td class=egc><span class=eg>the Swedish aerospace and defence company mentioned in the article</span></td></tr><tr><td class=col>source</td><td class=ty>text</td><td class=req></td><td>Which component proposed it: the model, the lexicon, or a rule.</td><td class=egc><span class=eg>gliner+llm</span></td></tr><tr><td class=col>score</td><td class=ty>real</td><td class=req></td><td>Extractor confidence, where the component supplies one.</td><td class=egc><span class=eg>0.985</span></td></tr><tr><td class=col>sent</td><td class=ty>integer</td><td class=req></td><td>Index of the sentence containing the span.</td><td class=egc><span class=eg>0</span></td></tr></tbody></table></div><p class=note>220,014 spans currently loaded. The load step refuses any document whose spans fail <code>text[start_c:end_c] == text</code> &mdash; a repaired offset would be an invented quote.</p>
+<h3>Where statements are stored &mdash; <code>extracted.proposition</code></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>document_id</td><td class=ty>text</td><td class=req>required</td><td>Document the statement came from.</td><td class=egc><span class=eg>doc_2c689e0660fe7b1c</span></td></tr><tr><td class=col>run_id</td><td class=ty>text</td><td class=req>required</td><td>Extraction run that produced it.</td><td class=egc><span class=eg>run-20260822-142124</span></td></tr><tr><td class=col>i</td><td class=ty>integer</td><td class=req>required</td><td>Position of the statement within the document.</td><td class=egc><span class=eg>0</span></td></tr><tr><td class=col>subject</td><td class=ty>text</td><td class=req>required</td><td>Who or what the statement is about, as written.</td><td class=egc><span class=eg>Saab</span></td></tr><tr><td class=col>predicate</td><td class=ty>text</td><td class=req>required</td><td>The relation, as the source phrased it -- free text, not a controlled vocabulary. 4,963 distinct surfaces over 17k rows; mapping these onto the ontology's closed predicates is an unbuilt join.</td><td class=egc><span class=eg>delivers</span></td></tr><tr><td class=col>object</td><td class=ty>text</td><td class=req>required</td><td>What the subject is related to, as written.</td><td class=egc><span class=eg>axelburna granatgeväret Carl-Gustaf M4</span></td></tr><tr><td class=col>time_txt</td><td class=ty>text</td><td class=req></td><td>Time expression as written, unparsed.</td><td class=egc><span class=eg>over the next few months</span></td></tr><tr><td class=col>place_txt</td><td class=ty>text</td><td class=req></td><td>Place expression as written, unparsed.</td><td class=egc><span class=eg>Kuwait</span></td></tr><tr><td class=col>polarity</td><td class=ty>text</td><td class=req></td><td>Asserted or negated. A negated statement claims the opposite, so this may never be ignored.</td><td class=egc><span class=eg>positive</span></td></tr><tr><td class=col>modality</td><td class=ty>text</td><td class=req></td><td>How strongly it is claimed: asserted, planned, reported, hypothetical. "Plans to deliver" is not "delivered".</td><td class=egc><span class=eg>asserted</span></td></tr><tr><td class=col>ev_start</td><td class=ty>integer</td><td class=req>required</td><td>Start offset of the evidence sentence in document.text.</td><td class=egc><span class=eg>57</span></td></tr><tr><td class=col>ev_end</td><td class=ty>integer</td><td class=req>required</td><td>End offset of the evidence sentence.</td><td class=egc><span class=eg>180</span></td></tr><tr><td class=col>ev_quote</td><td class=ty>text</td><td class=req>required</td><td>The sentence the statement was read from. Existence of a quote is not entailment: it must actually support the claim.</td><td class=egc><span class=eg>Saab har fått en order från Litauen gällande det axelburna granatgeväret Carl-Gustaf M4 och tillhörande träningsutrustning.</span></td></tr><tr><td class=col>ev_fragment</td><td class=ty>boolean</td><td class=req>required</td><td>True when the evidence is a fragment rather than a whole sentence.</td><td class=egc><span class=eg>false</span></td></tr></tbody></table></div><p class=note>18,673 propositions currently loaded. <code>ev_quote</code> with <code>ev_start</code>/<code>ev_end</code> is the evidence every later stage quotes; <code>modality</code> records whether the document asserted, planned or speculated.</p>
+</section>
+<section id=s2><h2>3 &middot; Layer B &mdash; who is who</h2>
+<p>The same company is written differently everywhere &mdash; <i>Bharat Forge</i>, <i>Bharat Forge Limited</i>, <i>Kalyani</i>. Layer B resolves mentions into canonical entities with their aliases, so counting, ordering and de-duplication all work on one identity rather than three.</p>
+<p>A second, smaller identity layer (<code>pipeline/aliases.py</code>) sits in front of the serving side. It folds legal suffixes (Ltd, GmbH, S.A.), maps known variants (Hanwha Defense &rarr; Hanwha Aerospace), and encodes one standing rule: <b>Kalyani, KSSL and Bharat Forge are one client identity</b> &mdash; the client group, never a rival, never a threat to itself.</p>
+<h3><code>extracted.entity</code></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>entity_id</td><td class=ty>text</td><td class=req>required</td><td>Layer B identity. Hashed from surface AND type, because the same string as an Organization and as a Product are different things.</td><td class=egc><span class=eg>Ececc5584241b</span></td></tr><tr><td class=col>entity_type</td><td class=ty>text</td><td class=req>required</td><td>Organization, Product, Platform, WeaponSystem, Technology, Program, Facility, Material, Equipment.</td><td class=egc><span class=eg>WeaponSystem</span></td></tr><tr><td class=col>canonical_name</td><td class=ty>text</td><td class=req>required</td><td>The spelling chosen to represent the group of aliases.</td><td class=egc><span class=eg>F-35</span></td></tr><tr><td class=col>canonical_lang</td><td class=ty>text</td><td class=req></td><td>Language of the canonical spelling.</td><td class=egc><span class=egnone>no value stored</span></td></tr><tr><td class=col>ont_node_id</td><td class=ty>text</td><td class=req></td><td>Ontology sector node this entity classifies to (l2/ontology/ontology.yaml). NULL means unclassified -- the open slot, counted and reported, never force-fitted.</td><td class=egc><span class=egnone>no value stored</span></td></tr><tr><td class=col>ont_version</td><td class=ty>text</td><td class=req></td><td>Ontology semver in force when the classification was made, so a taxonomy change is a re-classification job and not a silent reinterpretation.</td><td class=egc><span class=egnone>no value stored</span></td></tr><tr><td class=col>redirects_to</td><td class=ty>text</td><td class=req></td><td>Set when this entity was merged into another; the row survives so old references still resolve.</td><td class=egc><span class=egnone>no value stored</span></td></tr><tr><td class=col>created_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the entity was first created.</td><td class=egc><span class=eg>2026-08-24 20:16:49.103334+00</span></td></tr><tr><td class=col>created_by_run</td><td class=ty>text</td><td class=req>required</td><td>Extraction run that created it; joins extraction_run.</td><td class=egc><span class=eg>layer_b:parallax</span></td></tr></tbody></table></div><p class=note>19,887 entities.</p>
+<h3><code>extracted.entity_alias</code></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>entity_id</td><td class=ty>text</td><td class=req>required</td><td>Entity this spelling belongs to.</td><td class=egc><span class=eg>Ececc5584241b</span></td></tr><tr><td class=col>surface</td><td class=ty>text</td><td class=req>required</td><td>The spelling exactly as it appeared in a document.</td><td class=egc><span class=eg>F-35</span></td></tr><tr><td class=col>surface_folded</td><td class=ty>text</td><td class=req>required</td><td>Accent-stripped, case-folded form for matching. Decompose, strip, then recompose NFC -- NFKD alone shatters Hangul into Jamo.</td><td class=egc><span class=eg>f-35</span></td></tr><tr><td class=col>lang</td><td class=ty>text</td><td class=req>required</td><td>Language the spelling occurred in.</td><td class=egc><span class=eg>de</span></td></tr><tr><td class=col>script</td><td class=ty>text</td><td class=req>required</td><td>Writing system. Cross-script pairs are never auto-merged whatever they score: six Russian outlets once matched at similarity 1.00 because they share a gloss, not an identity.</td><td class=egc><span class=eg>und</span></td></tr><tr><td class=col>alias_kind</td><td class=ty>text</td><td class=req>required</td><td>Closed set: name, abbreviation, translit, former. Not free text.</td><td class=egc><span class=eg>name</span></td></tr><tr><td class=col>n_mentions</td><td class=ty>integer</td><td class=req>required</td><td>How often this spelling occurred. A count of spellings, not of companies, until identity hygiene has run.</td><td class=egc><span class=eg>8</span></td></tr></tbody></table></div><p class=note>20,982 aliases &mdash; the surface forms that all mean the same organisation.</p>
+</section>
+<section id=s3><h2>4 &middot; The gates (before any LLM)</h2>
+<p>Most documents never reach a model. The cheap refusals run first, in this order, and each one is counted and printed at the end of every run &mdash; a skipped document is a reported number, never a silent disappearance.</p>
+
+<div class=tw><table class=data>
+<thead><tr><th>gate</th><th>what it refuses</th><th>why it exists</th></tr></thead>
+<tbody>
+<tr><td>audit suppression</td><td>document ids an audit ruled out</td>
+<td>a human verdict must outlive the next re-run</td></tr>
+<tr><td>listing page</td><td>homepages, <code>/tag/</code>, <code>/category/</code>,
+paginated archives, media indexes</td>
+<td>they are collections of headlines; a card built from one mixes unrelated stories</td></tr>
+<tr><td>no statements</td><td>documents Layer A could not read</td>
+<td>a document with no grounded statements would have to be summarised from raw text</td></tr>
+<tr><td>provable date</td><td>documents with no date of their own</td>
+<td>the fetch date is not the publication date</td></tr>
+<tr><td>recency</td><td>articles older than roughly three months</td>
+<td>an intelligence feed showing 2024 news as current is wrong, not stale</td></tr>
+<tr><td>portfolio relevance</td><td>documents that name no KSSL category and no tracked
+company</td><td>keeps the feed about artillery, ammunition, armour, small arms, naval,
+UAVs, missiles and forgings</td></tr>
+<tr><td>duplicate story</td><td>a story already carded, under any company spelling</td>
+<td>one event syndicated by four outlets is one signal</td></tr>
+<tr><td>client-news in the rival lane</td><td>KSSL / Kalyani / Bharat Forge stories filed
+as competitive</td><td>the competitive pillar tracks rivals; the client is not its own
+rival</td></tr>
+</tbody></table></div>
+<p class=rule>Two of these gates exist because they failed once in production. An August-2026 news query returned a July-2024 article and the dashboard showed it as current &mdash; so recency is now proved per article, from the article's own dates, in thirteen languages. And a &ldquo;document&rdquo; that was really a site's headline ticker produced a card whose title, summary and quotes came from three unrelated stories &mdash; so listing pages are refused by URL shape before anything reads them.</p></section>
+<section id=s4><h2>5 &middot; Signals: competitive / market / technology</h2>
+<p>This is the step that fills the three Overview feeds. For one document that passed every gate, the judge model is shown <b>only that document's propositions with their quotes</b> &mdash; never the raw page &mdash; and asked one question: is there a signal here a KSSL analyst should see, and which pillar does it belong to?</p>
+<div class=cards><div class=card><h3>Competitive</h3><p>A <b>rival's</b> move: an order won, a partnership, an expansion, a product launch that changes KSSL's field. KSSL's own news is never a competitive signal &mdash; the pillar tracks rivals.</p></div><div class=card><h3>Market</h3><p>A demand event: a tender, a government order, a budget, an import or export decision that changes what buyers want.</p></div><div class=card><h3>Technology</h3><p>A capability advance: a system demonstrated, a technical milestone, an innovation that moves what is expected in a KSSL category.</p></div></div>
+<h3>The prompt, exactly as the code sends it</h3>
+<p class=note>The <code>%s</code> placeholders are filled in at call time with the nine KSSL categories, then the document's title, source, language, and its list of statements.</p>
+<pre class=prompt>You are an analyst for KSSL (Kalyani Strategic Systems, the defence arm of the
+Kalyani Group / Bharat Forge -- Indian maker of artillery, ammunition, armoured vehicles,
+small arms, drones). Below are the extracted statements of ONE news article, each with its
+supporting quote.
+
+Decide: does this article carry ONE signal a KSSL analyst should see? File it into exactly
+one pillar:
+- competitive: a RIVAL defence company's move -- an order won, a partnership, an expansion,
+  a product launch that changes KSSL's competitive field.
+- market: a procurement or demand event -- a tender, a government order, a budget, an import
+  or export decision that changes what buyers want.
+- technology: a capability or R&amp;D advance -- a new system demonstrated, a technical
+  milestone, an innovation that shifts what is technically expected in a KSSL category.
+Routine corporate news, politics without procurement, and non-defence stories are NOT
+signals. Kalyani / KSSL / Bharat Forge is the CLIENT GROUP, never a rival and never a
+threat: its own capability news files under technology, a procurement it wins under market,
+and it NEVER files under competitive.
+
+If there is no signal, reply exactly: NONE
+If the signal fits NONE of the listed categories, also reply NONE -- never stretch the
+nearest category.
+
+Otherwise reply with ONLY this JSON (no prose around it):
+{"pillar": "&lt;competitive | market | technology&gt;",
+ "title": "&lt;one factual headline, max 90 chars, only facts the statements state&gt;",
+ "company": "&lt;the ONE organization that ACTED -- for a market signal the issuing agency
+             or government body the statements name, never just the country. If two
+             organizations acted jointly, name the one the statements put first; NEVER
+             write 'X and Y' in this field&gt;",
+ "category": "&lt;exactly one of: %s&gt;",
+ "dir": "&lt;threat ONLY if a rival gains in a KSSL category, else watch&gt;",
+ "what": "&lt;one factual sentence: what happened, exactly as stated -- announced is not
+          delivered, an order is not a delivery, a plan is not a contract&gt;",
+ "sowhat": "&lt;1-2 sentences: the SPECIFIC significance the statements support. No generic
+            filler ('could potentially impact KSSL', 'sets new standards'); if the
+            statements do not say why it matters, reply NONE instead&gt;"}
+
+Write title, what and sowhat in ENGLISH, whatever language the statements are in.
+Rules: use ONLY the statements below; no numbers or names that are not in them.
+
+Article: %s (%s, %s)
+Statements:
+%s</pre>
+<h3>What is done with the answer</h3>
+<p>The reply is parsed field by field, and a malformed reply is a counted failure rather than a half-written row:</p>
+
+<div class=tw><table class=data>
+<thead><tr><th>field</th><th>rule</th><th>if it fails</th></tr></thead>
+<tbody>
+<tr><td>pillar</td><td>exactly one of competitive / market / technology</td>
+<td>the card is refused (an unknown pillar used to default into the rival lane)</td></tr>
+<tr><td>category</td><td>exactly one of the nine KSSL categories</td>
+<td>refused &mdash; a free-text category joins nothing downstream</td></tr>
+<tr><td>title, company, sowhat</td><td>all present, English</td><td>refused whole</td></tr>
+<tr><td>dir</td><td>threat or watch</td><td>falls back to watch, never to threat</td></tr>
+<tr><td>company (client group)</td><td>Kalyani / KSSL / Bharat Forge</td>
+<td>forced to watch, and removed from the competitive lane entirely</td></tr>
+<tr><td>all text</td><td>HTML-escaped at write time</td>
+<td>article text is not curated markup and must not be able to inject any</td></tr>
+</tbody></table></div>
+<h3>Where it is stored</h3>
+<p>Two rows are written per accepted signal: the feed row and the detail panel.</p>
+<h4><code>serving.signal_card</code> &mdash; the row in the feed</h4>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>id</td><td class=ty>text</td><td class=req>required</td><td>Card id. Pipeline cards are pl_&lt;document_id&gt;, so a card always names the document behind it.</td><td class=egc><span class=eg>pl_doc_940f78371b80c3cd</span></td></tr><tr><td class=col>lane</td><td class=ty>text</td><td class=req>required</td><td>Which pillar feed it appears in: competitive, market or tech.</td><td class=egc><span class=eg>competitive</span></td></tr><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position within the lane; renumbered from served position, never from insert order.</td><td class=egc><span class=eg>3</span></td></tr><tr><td class=col>dir</td><td class=ty>text</td><td class=req></td><td>threat or watch. Client news is never a threat to itself.</td><td class=egc><span class=eg>threat</span></td></tr><tr><td class=col>rank</td><td class=ty>text</td><td class=req></td><td>Rank badge text, derived from the served position so the badge and the row can never disagree.</td><td class=egc><span class=eg>03</span></td></tr><tr><td class=col>title</td><td class=ty>text</td><td class=req>required</td><td>One-line headline of the signal.</td><td class=egc><span class=eg>Saab Delivers Carl-Gustaf M4 to Lithuania</span></td></tr><tr><td class=col>meta</td><td class=ty>text</td><td class=req></td><td>Byline: category, company, source outlet.</td><td class=egc><span class=eg>Small Arms · Saab · from saab.com</span></td></tr><tr><td class=col>company</td><td class=ty>text</td><td class=req></td><td>Canonical company the card is about. Kalyani, KSSL and Bharat Forge fold to one client identity.</td><td class=egc><span class=eg>Saab</span></td></tr><tr><td class=col>lens</td><td class=ty>text</td><td class=req></td><td>Analytical lens applied to the move.</td><td class=egc><span class=eg>Competitive</span></td></tr><tr><td class=col>sowhat</td><td class=ty>text</td><td class=req></td><td>Why it matters to KSSL. Analyst inference is allowed here; invented facts are not.</td><td class=egc><span class=eg>The delivery of advanced training systems to Lithuania enhances Saab's competitive position in the small arms training market, potentially impacting KSSL's mark</span></td></tr><tr><td class=col>sec</td><td class=ty>jsonb</td><td class=req></td><td>Sector tags for filtering.</td><td class=egc><span class=eg>[{"lens": "EVIDENCE", "read": "Saab delivers Carl-Gustaf M4 -- \"Saab je zaprimio narudžbu iz Litve za oružani sustav Carl-Gustaf M4 i opremu za obuku.\""}, {"l</span></td></tr><tr><td class=col>url</td><td class=ty>text</td><td class=req></td><td>Link to the article itself, not to the outlet home page.</td><td class=egc><span class=eg>https://www.saab.com/hr/markets/croatia/press-releases/saab-prima-narudbu-za-carl-gustaf-iz-litve</span></td></tr><tr><td class=col>ago</td><td class=ty>text</td><td class=req></td><td>Human-readable age, computed from the publication date proved from the document's own Date spans -- never the fetch date.</td><td class=egc><span class=eg>2026</span></td></tr><tr><td class=col>tags</td><td class=ty>text</td><td class=req></td><td>Free tags shown on the card.</td><td class=egc><span class=eg>Small Arms</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline = produced by this system from the corpus; reference = the archived hand-built dataset. serving_live views expose pipeline only.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-24 20:23:51.62424+00</span></td></tr></tbody></table></div><p class=note>14 pipeline rows. <code>lane</code> is the pillar (competitive/market/tech); <code>ago</code> is the article's own publication month; <code>ord</code> and <code>rank</code> are renumbered from the served position, so rivals lead the competitive feed and badges start at 01.</p>
+<h4><code>serving.signal_detail</code> &mdash; the panel that opens on click</h4>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>id</td><td class=ty>text</td><td class=req>required</td><td>Matches signal_card.id.</td><td class=egc><span class=eg>pl_doc_db066a2342c1b7bb</span></td></tr><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position.</td><td class=egc><span class=eg>3</span></td></tr><tr><td class=col>rank</td><td class=ty>text</td><td class=req></td><td>Rank badge, from served position.</td><td class=egc><span class=eg>MARKET SIGNAL · 03</span></td></tr><tr><td class=col>dir</td><td class=ty>text</td><td class=req></td><td>threat or watch, consistent with the card.</td><td class=egc><span class=eg>watch</span></td></tr><tr><td class=col>title</td><td class=ty>text</td><td class=req>required</td><td>Headline of the detail panel.</td><td class=egc><span class=eg>US Approves Norway's Potential $2.3B UH-60M Black Hawk Purchase</span></td></tr><tr><td class=col>facts</td><td class=ty>jsonb</td><td class=req></td><td>The extracted statements behind the card. Each must be entailed by its evidence, not merely mentioned by it.</td><td class=egc><span class=eg>[["Company", "US Department of State"], ["Category", "Protected &amp; Armoured Vehicles"], ["Date", "Jun 2026"], ["Primary lens", "Market"]]</span></td></tr><tr><td class=col>what</td><td class=ty>text</td><td class=req></td><td>What happened, in plain words.</td><td class=egc><span class=eg>The US Department of State approved Norway's potential $2.3 billion purchase of 21 UH-60M Black Hawk helicopters, including spare parts, logistics support, and </span></td></tr><tr><td class=col>why</td><td class=ty>text</td><td class=req></td><td>Why it matters.</td><td class=egc><span class=eg>This approval signals a significant market opportunity for helicopter manufacturers, as it involves a substantial procurement decision that could influence futu</span></td></tr><tr><td class=col>lens</td><td class=ty>jsonb</td><td class=req></td><td>Per-lens readings of the same move.</td><td class=egc><span class=eg>[["STATEMENT", "The proposed package includes spare parts, logistics support and training — &lt;i&gt;&amp;ldquo;The proposed package includes spare parts, logistics suppo</span></td></tr><tr><td class=col>actions</td><td class=ty>jsonb</td><td class=req></td><td>Suggested actions.</td><td class=egc><span class=eg>[]</span></td></tr><tr><td class=col>url</td><td class=ty>text</td><td class=req></td><td>Source article.</td><td class=egc><span class=eg>https://defence-industry.eu/u-s-department-of-state-approves-norways-potential-2-3-billion-purchase-of-21-uh-60m-black-hawk-multirole-helicopters</span></td></tr><tr><td class=col>suggest</td><td class=ty>jsonb</td><td class=req></td><td>Follow-up questions offered to the reader.</td><td class=egc><span class=eg>[]</span></td></tr><tr><td class=col>kind</td><td class=ty>text</td><td class=req></td><td>Which detail layout to render.</td><td class=egc><span class=eg>tender</span></td></tr><tr><td class=col>match</td><td class=ty>jsonb</td><td class=req></td><td>Matched KSSL capability, where one applies.</td><td class=egc><span class=eg>[{"n": "ATAGS / Bharat 52 (155/52)", "fit": "high", "pct": "88%", "lines": [["up", "~70 km with ramjet round — exceeds the range bar"], ["up", "Made-in-India of</span></td></tr><tr><td class=col>pursue</td><td class=ty>jsonb</td><td class=req></td><td>Pursuit guidance for an opportunity.</td><td class=egc><span class=eg>{"note": "opens the official tender portal · closes in 9 days", "label": "Pursue this tender", "title": "Armenia 155mm mounted-gun tender", "issuer": "MoD · Arm</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-24 20:24:06.31576+00</span></td></tr></tbody></table></div><p class=note><code>what</code> is the event in one factual sentence; <code>why</code> is the analyst reading; <code>lens</code> holds the verbatim quotes, so a reader can always get from the card back to the sentences behind it.</p>
+</section>
+<section id=s5><h2>6 &middot; The entailment check</h2>
+<p>Grounding is not entailment. The extractor guarantees the <i>quotes</i> are real; it does not guarantee the card built on them is what those quotes say. So every card is shown back to the model with its own evidence and asked whether the evidence supports it. Cards that fail are deleted and the reason is printed.</p>
+<pre class=prompt>You are verifying a competitive-intelligence card against its evidence.
+
+CARD CLAIM:
+Title: %s
+Why it matters: %s
+
+EVIDENCE (verbatim quotes from the source article):
+%s
+
+Question: do the quotes SUPPORT the card? Judge in two parts:
+1. The TITLE's facts (who, what, numbers) must be stated or directly implied by
+   the quotes -- not merely the same company or topic. A title that upgrades the
+   claim (announced -&gt; delivered, plan -&gt; contract, talks -&gt; order, concept -&gt;
+   product) is NOT supported.
+2. The why-it-matters is an analyst's reading; it may INFER significance from
+   those facts. Reject it only if it asserts facts the quotes contradict or
+   do not contain at all.
+Reply with exactly one line:
+SUPPORTED
+or
+UNSUPPORTED: &lt;one short reason&gt;</pre>
+<p class=rule>The check is deliberately asymmetric: the <b>facts</b> in the title must be stated or directly implied (announced is not delivered, a plan is not a contract, talks are not an order), while the <b>why-it-matters</b> may infer significance &mdash; it is refused only if it asserts something the quotes do not contain. An unparseable verdict never deletes a card.</p></section>
+<section id=s6><h2>7 &middot; Companies, partnerships, geo, innovation, matchups</h2>
+<p>The other tabs are filled by a second pass over the same propositions, one step per tab. Each step is delete-then-write for its own rows, so re-running cleans rather than duplicates.</p>
+<div class=step><h3>Companies — the rival roster and the drawer behind each name</h3><p>Every company the corpus actually covers gets a profile built from up to 25 of its own statements: sector, headquarters, an assessment, a threat level, and the products the statements name. Sources are recorded per profile.</p>
+<pre class=prompt>You profile companies for a defence-intelligence dashboard for KSSL
+(Kalyani Strategic Systems, the defence arm of the Kalyani Group / Bharat Forge -- Indian
+maker of artillery, ammunition, armoured vehicles, small arms, drones). Below are extracted
+statements about "%s", each with its supporting quote.
+
+If "%s" is NOT a company (a country, government, ministry, armed force) or the
+statements are too thin to profile it, reply exactly: NONE
+
+Otherwise reply with ONLY this JSON (no prose around it):
+{"sector": "&lt;its defence sector(s), stated or directly evident in the statements, else null&gt;",
+ "hq": "&lt;headquarters city/country ONLY if a statement states it, else null&gt;",
+ "assess": "&lt;2-3 sentences, in ENGLISH: what the statements show THIS company doing --
+            concrete orders, products, moves; no generic filler and no speculation&gt;",
+ "threat": "&lt;high|medium|low -- its competitive threat to KSSL, judged only from the
+            statements, else null. Kalyani/KSSL/Bharat Forge is the CLIENT GROUP itself:
+            for it, threat is always null&gt;",
+ "products": ["&lt;product/system names the statements explicitly name as this company's&gt;"],
+ "dir": "&lt;client if it IS Kalyani/KSSL/Bharat Forge (one group); rival if it competes in
+         KSSL's categories; else other&gt;"}
+
+Rules: use ONLY the statements; never add facts you know from elsewhere; unstated
+fields are null; an empty product list is fine. Write all text fields in ENGLISH.
+
+Statements about %s:
+%s</pre>
+<p class=stores>Stored in <code>serving.competitors</code> &mdash; one row per company, %s</p>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>comp_id</td><td class=ty>text</td><td class=req>required</td><td>Slug identity for the company, shared across serving tables.</td><td class=egc><span class=eg>aweil</span></td></tr><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position in the roster; pipeline rows start at 1001 so reference rows keep the low range.</td><td class=egc><span class=eg>2001</span></td></tr><tr><td class=col>name</td><td class=ty>text</td><td class=req>required</td><td>Display name, canonicalised. Never a bare country and never two organisations joined by a conjunction.</td><td class=egc><span class=eg>AWEIL</span></td></tr><tr><td class=col>dir</td><td class=ty>text</td><td class=req></td><td>rival, client or other. The client group is never a rival.</td><td class=egc><span class=eg>threat</span></td></tr><tr><td class=col>sector</td><td class=ty>text</td><td class=req></td><td>What the company sells. Refused when it merely echoes the prompt's own portfolio list back.</td><td class=egc><span class=eg>Artillery · Ammunition · Small Arms</span></td></tr><tr><td class=col>hq</td><td class=ty>text</td><td class=req></td><td>Headquarters country.</td><td class=egc><span class=eg>Kanpur, Uttar Pradesh, India</span></td></tr><tr><td class=col>threat</td><td class=ty>text</td><td class=req></td><td>high, medium or low -- derived from countable inputs, not asserted by a model. NULL when nothing measurable places the company in a KSSL category.</td><td class=egc><span class=eg>medium</span></td></tr><tr><td class=col>assess</td><td class=ty>text</td><td class=req></td><td>Prose assessment. Every sentence must be traceable to the company's own extracted statements; a row with no surviving sentence is refused.</td><td class=egc><span class=eg>5/5 core-relevant; 0 OSINT-enriched. Domestic tie; the relevant differentiators are indigenous IP, forging scale and trials-maturity</span></td></tr><tr><td class=col>updates</td><td class=ty>jsonb</td><td class=req></td><td>Recent moves. Listing pages and careers pages are filtered out.</td><td class=egc><span class=eg>"&lt;div&gt;&lt;b&gt;2026&lt;/b&gt; — Indo Defence 2025&lt;/div&gt;"</span></td></tr><tr><td class=col>center</td><td class=ty>jsonb</td><td class=req></td><td>Map centre for the company view.</td><td class=egc><span class=eg>{"id": "brahmos-aerospace", "label": "BrahMos Aerospace"}</span></td></tr><tr><td class=col>partners</td><td class=ty>jsonb</td><td class=req></td><td>Named partners.</td><td class=egc><span class=eg>[{"id": "drdo", "rel": "tech", "src": "https://en.wikipedia.org/wiki/ATAGS_(howitzer)", "date": null, "kind": "Domestic", "note": "Weapon, artillery and defence</span></td></tr><tr><td class=col>site</td><td class=ty>text</td><td class=req></td><td>Official website.</td><td class=egc><span class=eg>https://brahmos.com</span></td></tr><tr><td class=col>srcs</td><td class=ty>jsonb</td><td class=req></td><td>Documents the profile was built from.</td><td class=egc><span class=eg>[{"url": "https://en.wikipedia.org/wiki/ATAGS_(howitzer)", "label": "en.wikipedia.org"}]</span></td></tr><tr><td class=col>products</td><td class=ty>jsonb</td><td class=req></td><td>Named products. Generic nouns are not product names.</td><td class=egc><span class=eg>[]</span></td></tr><tr><td class=col>threatNote</td><td class=ty>text</td><td class=req></td><td>The measurement behind the threat rating, stated so the rating can be checked.</td><td class=egc><span class=eg>42 corpus document(s); stated products fall in Missiles &amp; Air Defence</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-25 08:23:12.808306+00</span></td></tr></tbody></table></div>
+</div>
+<div class=step><h3>Partnerships — who is tied to whom</h3><p>Statements whose predicate indicates a partnership, joint venture or agreement are read one at a time. The model must name the two organisations separately; a single field holding &ldquo;X and Y&rdquo; is refused, and two companies merely mentioned in the same sentence are not a tie.</p>
+<pre class=prompt>Below is ONE extracted statement from a defence-news article, with its
+supporting quote. Decide: does it state a partnership, joint venture, MoU, alliance,
+licence or teaming agreement between two NAMED organizations (companies or agencies)?
+
+If not -- or if either side is not a named organization, or the tie is merely announced
+intent with no named counterpart -- reply exactly: NONE
+
+Otherwise reply with ONLY this JSON, in ENGLISH:
+{"a": "&lt;organization 1 -- ONE name, never 'X and Y'&gt;",
+ "b": "&lt;organization 2 -- ONE name, never 'X and Y'&gt;",
+ "rel": "&lt;exactly one of: jv | tech | supply | mou | acq | other&gt;",
+ "note": "&lt;one line stating what was agreed, exactly as the quote says -- an MoU is not a
+          contract, a plan is not a delivery&gt;",
+ "date": "&lt;date of the agreement ONLY if stated, else null&gt;",
+ "country": "&lt;country of organization b ONLY if stated, else null&gt;"}
+
+If the statement ties THREE or more organizations, pick the one pair the quote actually
+binds; if no single pair is asserted, reply NONE.
+
+Article: %s
+Statement: %s %s %s
+Quote: "%s"
+</pre>
+<p class=stores>Stored in <code>serving.partner</code> &mdash; client-group ties; rival ties are attached to the company profiles</p>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>id</td><td class=ty>text</td><td class=req>required</td><td>Partnership id.</td><td class=egc><span class=eg>plp_01</span></td></tr><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position.</td><td class=egc><span class=eg>1001</span></td></tr><tr><td class=col>label</td><td class=ty>text</td><td class=req>required</td><td>The two sides of the tie. Each side must be a named organisation, not a country or an armed force.</td><td class=egc><span class=eg>AM General</span></td></tr><tr><td class=col>kind</td><td class=ty>text</td><td class=req></td><td>Kind of tie: joint venture, MoU, supply, licence.</td><td class=egc><span class=eg>Foreign OEM</span></td></tr><tr><td class=col>rel</td><td class=ty>text</td><td class=req></td><td>Relationship direction.</td><td class=egc><span class=eg>other</span></td></tr><tr><td class=col>sig</td><td class=ty>integer</td><td class=req></td><td>Significance score.</td><td class=egc><span class=eg>3</span></td></tr><tr><td class=col>ptype</td><td class=ty>text</td><td class=req></td><td>Partner type.</td><td class=egc><span class=eg>Partnership</span></td></tr><tr><td class=col>note</td><td class=ty>text</td><td class=req></td><td>What the tie covers.</td><td class=egc><span class=eg>entered into a strategic partnership with the intent to target global requirements for truck-mounted artillery systems</span></td></tr><tr><td class=col>date</td><td class=ty>text</td><td class=req></td><td>When it was announced.</td><td class=egc><span class=eg>2023</span></td></tr><tr><td class=col>country</td><td class=ty>text</td><td class=req></td><td>Country involved.</td><td class=egc><span class=eg>Israel</span></td></tr><tr><td class=col>deal</td><td class=ty>text</td><td class=req></td><td>Deal value or scope where stated.</td><td class=egc><span class=eg>Rs 6,900 cr order (Mar 2025), 60% BF share (184 guns)</span></td></tr><tr><td class=col>insight</td><td class=ty>text</td><td class=req></td><td>What it means for KSSL.</td><td class=egc><span class=eg>KRAS is KSSL's deepest foreign JV and its entry ticket into precision-guided munitions; it converts Kalyani forging scale into missile-grade manufacturing credi</span></td></tr><tr><td class=col>mean</td><td class=ty>text</td><td class=req></td><td>Short reading of the tie.</td><td class=egc><span class=eg>&lt;b&gt;Role:&lt;/b&gt; KRAS is KSSL's deepest foreign JV and its entry ticket into precision-guided munitions; it converts Kalyani forging scale into missile-grade manufa</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-24 20:26:19.820219+00</span></td></tr><tr><td class=col>src</td><td class=ty>text</td><td class=req></td><td>URL of the document that states the tie. Revived rows carry one; a row without one was never republished.</td><td class=egc><span class=eg>https://www.bharatforge.com/media/press-release/2022/83/press_page</span></td></tr><tr><td class=col>srcnote</td><td class=ty>text</td><td class=req></td><td>Why that source clears the bar: official, or corroborated by N independent domains.</td><td class=egc><span class=eg>stated by an official source</span></td></tr></tbody></table></div>
+</div>
+<div class=step><h3>Geo footprint — activity by country</h3><p>Statements that place a company in a country. The bar is an <b>activity</b> &mdash; production, export, service, a partnership &mdash; not an address: a headquarters, a sales office or a round of talks is refused, because a map dot means presence, and presence is a claim.</p>
+<pre class=prompt>Below are extracted statements (with quotes) linking the defence company
+"%s" to %s. Summarise WHAT the company has or does THERE -- an order delivered, a plant,
+a partnership, exports, service support.
+
+If the statements do not actually place this company's BUSINESS in %s, reply exactly: NONE.
+A headquarters address, an office, or an executive's job title alone is NOT a presence.
+A discussion or exploratory talk is not an order -- describe it as what it is.
+
+Otherwise reply with ONLY this JSON, in ENGLISH:
+{"name": "&lt;what is there, max 60 chars, e.g. 'Carl-Gustaf M4 order'&gt;",
+ "note": "&lt;one line grounded in the quotes, stating no more than they state&gt;",
+ "act": "&lt;exactly one of: production | partnership | export | service | unclear&gt;",
+ "since": "&lt;4-digit year ONLY if stated, else null&gt;"}
+
+Statements:
+%s</pre>
+<p class=stores>Stored in <code>serving.geo_presence</code> &mdash; one row per company-country activity</p>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>comp_id</td><td class=ty>text</td><td class=req>required</td><td>Company the presence belongs to; keyed the same as geo_comp.id so the two actually join.</td><td class=egc><span class=eg>kalyani-strategic-systems</span></td></tr><tr><td class=col>comp_ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position of the company.</td><td class=egc><span class=eg>0</span></td></tr><tr><td class=col>country</td><td class=ty>text</td><td class=req>required</td><td>Country of the presence.</td><td class=egc><span class=eg>India</span></td></tr><tr><td class=col>country_ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position of the country.</td><td class=egc><span class=eg>0</span></td></tr><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position within the country.</td><td class=egc><span class=eg>2000</span></td></tr><tr><td class=col>name</td><td class=ty>text</td><td class=req>required</td><td>What the presence is called.</td><td class=egc><span class=eg>ATAGS / Bharat 52 (155/52)</span></td></tr><tr><td class=col>c</td><td class=ty>text</td><td class=req></td><td>Country code.</td><td class=egc><span class=eg>bf</span></td></tr><tr><td class=col>val</td><td class=ty>text</td><td class=req></td><td>Stated value of the activity.</td><td class=egc><span class=eg>offered</span></td></tr><tr><td class=col>since</td><td class=ty>text</td><td class=req></td><td>When the presence began.</td><td class=egc><span class=eg>developed</span></td></tr><tr><td class=col>qty</td><td class=ty>text</td><td class=req></td><td>Stated quantity.</td><td class=egc><span class=eg>programme</span></td></tr><tr><td class=col>stage</td><td class=ty>text</td><td class=req></td><td>Procurement stage: in talks, bidding, offered, in production, in delivery, inducted.</td><td class=egc><span class=eg>Offered / tested</span></td></tr><tr><td class=col>note</td><td class=ty>text</td><td class=req></td><td>What is happening there. An activity is only written when its own verb is stated: a supplier procurement is not local production.</td><td class=egc><span class=eg>KSSL artillery — direct overlap with Tata/L&amp;T.</span></td></tr><tr><td class=col>src</td><td class=ty>text</td><td class=req></td><td>URL of the statement actually used -- not the first statement in the group, which cited documents that never mentioned the claim.</td><td class=egc><span class=eg>https://www.bharatforge.com/AR2022/defence-business-progresses-with-indias-journey-of-self-reliance.html</span></td></tr><tr><td class=col>srcnote</td><td class=ty>text</td><td class=req></td><td>Label for the source.</td><td class=egc><span class=eg>stated by an official source</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-25 06:08:46.074132+00</span></td></tr></tbody></table></div>
+</div>
+<div class=step><h3>Tenders mentioned in the news</h3><p>Documents whose statements describe a procurement event. This is a cross-check only &mdash; the real tender feed comes from the APIs in the next section &mdash; and an intention or an unveiling is not a tender.</p>
+<pre class=prompt>You screen defence-news articles for procurement events relevant to
+KSSL (Kalyani Strategic Systems, Indian maker of artillery, ammunition, armoured
+vehicles, small arms, drones, naval systems, missiles, forgings). Below are the
+extracted statements of ONE article, with quotes.
+
+Does the article describe ONE procurement event -- a tender, solicitation, government
+order, or contract award for defence equipment? If not, reply exactly: NONE.
+If the equipment fits NONE of the listed categories, also reply NONE -- never stretch
+the nearest category. A stated intention or budget plan is not yet a tender.
+
+Otherwise reply with ONLY this JSON, in ENGLISH:
+{"title": "&lt;the procurement in one factual line, max 90 chars -- announced is not awarded&gt;",
+ "issuer": "&lt;the buying agency/ministry/armed force AS NAMED in the statements (not just
+            the country), else null&gt;",
+ "country": "&lt;the buying country, from the statements, else null&gt;",
+ "cat": "&lt;exactly one of: %s&gt;",
+ "value": "&lt;the monetary value VERBATIM with its currency ONLY if stated, else null&gt;",
+ "qty": "&lt;the quantity ONLY if stated, else null&gt;",
+ "deadline": "&lt;a bid/closing deadline ONLY if stated, else null&gt;",
+ "status": "&lt;awarded or closed ONLY if the statements say the contract was awarded or
+            the tender closed; open if it is an open solicitation; else null&gt;"}
+
+Rules: use ONLY the statements; no invented numbers; unstated fields are null.
+
+Article: %s (%s)
+Statements:
+%s</pre>
+<p class=stores>Stored in <code>serving.tender</code> &mdash; news-sourced rows (numeric ids), alongside the API rows</p>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>id</td><td class=ty>text</td><td class=req>required</td><td>Tender id. Text ids (sam_/ted_/gem_) come from the API fetch; numeric ids from the news cross-check. Each writer deletes only its own id space.</td><td class=egc><span class=eg>gem_9462610</span></td></tr><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position, renumbered by deadline.</td><td class=egc><span class=eg>1</span></td></tr><tr><td class=col>title</td><td class=ty>text</td><td class=req>required</td><td>Notice title as published by the issuing portal.</td><td class=egc><span class=eg>Integrated Counter UAS System — GEM/2026/B/7659473</span></td></tr><tr><td class=col>issuer</td><td class=ty>text</td><td class=req></td><td>Buying authority.</td><td class=egc><span class=eg>Ministry of Defence — Department of Military Affairs</span></td></tr><tr><td class=col>country</td><td class=ty>text</td><td class=req></td><td>Country of the buyer.</td><td class=egc><span class=eg>India</span></td></tr><tr><td class=col>cat</td><td class=ty>text</td><td class=req></td><td>KSSL category the notice maps to; from the main classification code only, not any secondary code.</td><td class=egc><span class=eg>UAVs &amp; Drones</span></td></tr><tr><td class=col>value</td><td class=ty>text</td><td class=req></td><td>Published value. Absent for most notices -- absent is not zero.</td><td class=egc><span class=eg>~₹6,500 cr</span></td></tr><tr><td class=col>qty</td><td class=ty>text</td><td class=req></td><td>Published quantity, where stated.</td><td class=egc><span class=eg>1 units</span></td></tr><tr><td class=col>deadline</td><td class=ty>text</td><td class=req></td><td>Submission deadline as published.</td><td class=egc><span class=eg>25 Aug 2026</span></td></tr><tr><td class=col>dl</td><td class=ty>integer</td><td class=req></td><td>Days remaining, for sorting.</td><td class=egc><span class=eg>9</span></td></tr><tr><td class=col>reqNote</td><td class=ty>text</td><td class=req></td><td>Note on the stated requirement.</td><td class=egc><span class=eg>Truck-mounted 155mm/52 gun system for rapid deployment, ≥45 km range, with a phased plan to build a majority of the system inside India.</span></td></tr><tr><td class=col>req</td><td class=ty>jsonb</td><td class=req></td><td>Requirement lines extracted from the notice.</td><td class=egc><span class=eg>[]</span></td></tr><tr><td class=col>matches</td><td class=ty>jsonb</td><td class=req></td><td>KSSL capabilities that match the requirement.</td><td class=egc><span class=eg>[]</span></td></tr><tr><td class=col>lean</td><td class=ty>text</td><td class=req></td><td>Fit verdict. NULL where no assessment was made -- a constant verdict stamped on every row is not a verdict.</td><td class=egc><span class=eg>maybe</span></td></tr><tr><td class=col>leanTxt</td><td class=ty>text</td><td class=req></td><td>Reasoning behind the fit verdict.</td><td class=egc><span class=eg>&lt;b&gt;Partial fit - qualify before committing.&lt;/b&gt; ATAGS meets the calibre and range bar on KSSL's own published figures, but the requirement is for a truck-mounte</span></td></tr><tr><td class=col>status</td><td class=ty>text</td><td class=req></td><td>open, awarded or closed. Only open notices are biddable.</td><td class=egc><span class=eg>open</span></td></tr><tr><td class=col>url</td><td class=ty>text</td><td class=req></td><td>Link to the notice.</td><td class=egc><span class=eg>https://bidplus.gem.gov.in/showbidDocument/9462610</span></td></tr><tr><td class=col>urlKind</td><td class=ty>text</td><td class=req></td><td>Whether the link reaches the notice itself or only a portal search page.</td><td class=egc><span class=eg>tender</span></td></tr><tr><td class=col>srcs</td><td class=ty>jsonb</td><td class=req></td><td>Source portal records.</td><td class=egc><span class=eg>[{"url": "https://bidplus.gem.gov.in/showbidDocument/9462610", "label": "GeM (India MoD)"}]</span></td></tr><tr><td class=col>stage</td><td class=ty>text</td><td class=req></td><td>Procurement stage.</td><td class=egc><span class=eg>AoN cleared · RFP stage</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-24 18:01:25.851358+00</span></td></tr></tbody></table></div>
+</div>
+<div class=step><h3>Innovation pipeline — capability advances</h3><p>Documents describing a technical advance, filed under one of the eight KSSL technology areas. Maturity is held to what the source says: demonstrated is not fielded, a concept is not a product. This rule alone refused most candidates.</p>
+<pre class=prompt>You screen defence-news articles for technology/R&amp;D advances relevant
+to KSSL (Kalyani Strategic Systems, the defence arm of Bharat Forge / Kalyani Group --
+Indian maker of artillery, ammunition, armoured vehicles, small arms, drones, naval
+systems, missiles, forgings). Below are the extracted statements of ONE article, with
+quotes.
+
+Does the article describe ONE concrete capability or R&amp;D advance -- a system
+demonstrated, a technical milestone, a new development? If not, reply exactly: NONE
+
+Otherwise reply with ONLY this JSON, in ENGLISH:
+{"area": "&lt;exactly one of: %s&gt;",
+ "t": "&lt;the advance in one factual line, max 90 chars -- demonstrated is not fielded,
+       a concept is not a product&gt;",
+ "mat": "&lt;exactly one of lab | dev | prod | fielded ONLY if the statements support it,
+         else null&gt;",
+ "driver": "&lt;the organization driving it, from the statements, else null&gt;",
+ "body": "&lt;2 sentences, ENGLISH: what was demonstrated/developed, grounded in the
+          statements&gt;",
+ "impact": "&lt;1-2 sentences: the SPECIFIC significance the statements support -- no
+            generic filler like 'could potentially set new standards'&gt;",
+ "horizon": "&lt;a stated timeframe (year / decade) ONLY if stated, else null&gt;"}
+
+The area ids mean: %s. Pick the single closest; if none fits, reply NONE -- never
+stretch the nearest area. Name the driver accurately even when it is
+Kalyani/KSSL/Bharat Forge -- the client group's own advances are filtered out of this
+feed afterwards, and mislabelling one as a rival is worse than dropping it.
+Rules: use ONLY the statements; no invented facts; unstated fields are null.
+
+Article: %s (%s)
+Statements:
+%s</pre>
+<p class=stores>Stored in <code>serving.innovation</code> &mdash; one row per advance, grouped by technology area</p>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>area</td><td class=ty>text</td><td class=req>required</td><td>Technology area.</td><td class=egc><span class=eg>missiles</span></td></tr><tr><td class=col>area_ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position of the area.</td><td class=egc><span class=eg>4</span></td></tr><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position within the area.</td><td class=egc><span class=eg>1001</span></td></tr><tr><td class=col>t</td><td class=ty>text</td><td class=req>required</td><td>Title of the development.</td><td class=egc><span class=eg>Development of a hypersonic BRAHMOS-II missile with scramjet engine</span></td></tr><tr><td class=col>mat</td><td class=ty>text</td><td class=req></td><td>Maturity: concept, dev, prod or fielded. Capped at dev when the source only shows an unveiling or a trade-show display.</td><td class=egc><span class=eg>dev</span></td></tr><tr><td class=col>gap</td><td class=ty>text</td><td class=req></td><td>Where KSSL stands against it.</td><td class=egc><span class=eg>parity</span></td></tr><tr><td class=col>driver</td><td class=ty>text</td><td class=req></td><td>Company driving it, canonicalised.</td><td class=egc><span class=eg>BrahMos Aerospace</span></td></tr><tr><td class=col>horizon</td><td class=ty>text</td><td class=req></td><td>Expected timeframe.</td><td class=egc><span class=eg>late-2020s</span></td></tr><tr><td class=col>body</td><td class=ty>text</td><td class=req></td><td>What the development is.</td><td class=egc><span class=eg>BrahMos Aerospace is developing BRAHMOS-II, a hypersonic missile with a scramjet engine, aiming for speeds above Mach 5. Initial groundwork is underway in colla</span></td></tr><tr><td class=col>impact</td><td class=ty>text</td><td class=req></td><td>Effect on KSSL.</td><td class=egc><span class=eg>BRAHMOS-II's advanced technology, including smart materials and niche technologies, positions it as a future game-changer in missile and aerospace science.</span></td></tr><tr><td class=col>whatsNew</td><td class=ty>text</td><td class=req></td><td>What changed relative to what was known before.</td><td class=egc><span class=eg>IIT Madras successfully tested the ramjet unit on 12 Jan 2026. Demonstrated range gains across platforms: ATAGS ~40km → ~70km, K9 Vajra 36 → 62km, Dhanush 30 → </span></td></tr><tr><td class=col>compNote</td><td class=ty>text</td><td class=req></td><td>Note on the competitor.</td><td class=egc><span class=eg>Tata (TASL) co-produces ATAGS and benefits from the same round; differentiation stays industrial (cost, capacity), not ballistic. Western ramjet shells (Nammo, </span></td></tr><tr><td class=col>action</td><td class=ty>text</td><td class=req></td><td>Recommended response.</td><td class=egc><span class=eg>Tie ATAGS export marketing to the extended-range roadmap; secure early access to qualified ramjet rounds to bundle range as a differentiator before competitors </span></td></tr><tr><td class=col>sources</td><td class=ty>text</td><td class=req></td><td>Source labels.</td><td class=egc><span class=eg>brahmos.com</span></td></tr><tr><td class=col>url</td><td class=ty>text</td><td class=req></td><td>Source article.</td><td class=egc><span class=eg>https://brahmos.com/page/brahmos-ii</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-24 20:26:52.343303+00</span></td></tr></tbody></table></div>
+</div>
+<div class=step><h3>Positioning &mdash; product matchups</h3><p>Rival products named in the corpus are paired against the KSSL product in the same category. This step writes no numbers it was not given: <code>specs</code> stays empty and <code>edge</code>, <code>verdict</code> stay NULL unless the corpus states a comparable figure &mdash; which defence news almost never does. The tab therefore shows real rival products with their evidence and an honest &ldquo;no measured gap&rdquo; state.</p><p class=stores>Stored in <code>serving.matchup</code> &mdash; 219 pipeline rows.</p><div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>matchup_id</td><td class=ty>integer</td><td class=req>required</td><td>Integer key. Id ranges separate the writers: enrich_serving owns below 20000, revive_matchups owns 20000+, and each deletes only its own range.</td><td class=egc><span class=eg>20000</span></td></tr><tr><td class=col>cat</td><td class=ty>text</td><td class=req>required</td><td>KSSL product category the comparison sits in.</td><td class=egc><span class=eg>Artillery</span></td></tr><tr><td class=col>anchor</td><td class=ty>text</td><td class=req></td><td>The KSSL product the category is anchored on.</td><td class=egc><span class=eg>MArG 155</span></td></tr><tr><td class=col>global</td><td class=ty>boolean</td><td class=req></td><td>True when the pairing is a global rather than India-specific comparison.</td><td class=egc><span class=eg>true</span></td></tr><tr><td class=col>dir</td><td class=ty>text</td><td class=req></td><td>threat or watch.</td><td class=egc><span class=eg>watch</span></td></tr><tr><td class=col>country</td><td class=ty>text</td><td class=req></td><td>Origin country of the competitor product.</td><td class=egc><span class=eg>France</span></td></tr><tr><td class=col>comp</td><td class=ty>text</td><td class=req></td><td>Competitor product, written "Maker - Product". The maker is not the product: grounding on the maker's name once sourced CAESAR's calibre to an article about a different gun.</td><td class=egc><span class=eg>KNDS · CAESAR 6x6</span></td></tr><tr><td class=col>compBy</td><td class=ty>text</td><td class=req></td><td>Company that makes the competitor product.</td><td class=egc><span class=eg>KNDS</span></td></tr><tr><td class=col>bf</td><td class=ty>text</td><td class=req></td><td>The KSSL product being compared.</td><td class=egc><span class=eg>KSSL · MArG 155</span></td></tr><tr><td class=col>bfBy</td><td class=ty>text</td><td class=req></td><td>KSSL entity that makes it.</td><td class=egc><span class=eg>Kalyani Strategic Systems</span></td></tr><tr><td class=col>ks_thin</td><td class=ty>boolean</td><td class=req></td><td>True when no specification could be sourced for this pairing; the row still shows, with nothing asserted.</td><td class=egc><span class=eg>false</span></td></tr><tr><td class=col>reason</td><td class=ty>text</td><td class=req></td><td>Why these two are compared, and how many specs were sourced versus dropped.</td><td class=egc><span class=eg>&lt;b&gt;CAESAR 6x6&lt;/b&gt; (KNDS) is compared with KSSL's &lt;b&gt;MArG 155&lt;/b&gt; in Artillery. 2 of the 7 specification(s) held for this pairing are shown; each one is either p</span></td></tr><tr><td class=col>edge</td><td class=ty>integer</td><td class=req></td><td>Percent of comparable fields the competitor leads on. NULL when nothing is comparable -- an edge of 0 would read as "leads on nothing", which is a different claim.</td><td class=egc><span class=eg>75</span></td></tr><tr><td class=col>specs</td><td class=ty>jsonb</td><td class=req></td><td>Spec rows. Each carries the rival value, the KSSL value, and srcC/srcK: the URL of the document that states each number next to the product it describes.</td><td class=egc><span class=eg>[{"l": "Calibre", "p": "s", "u": "mm", "cn": 0.155, "cv": "155/52", "hi": null, "kn": 0.155, "kp": "s", "kv": "155mm / 39 Cal", "srcC": ["https://www.defesaaere</span></td></tr><tr><td class=col>advComp</td><td class=ty>jsonb</td><td class=req></td><td>Competitor advantages, each grounded in stated text.</td><td class=egc><span class=eg>["PzH 2000, Caesar, Boxer house; Europe's land-systems consolidator"]</span></td></tr><tr><td class=col>advBf</td><td class=ty>jsonb</td><td class=req></td><td>KSSL advantages, same rule.</td><td class=egc><span class=eg>["Indigenous IP + forged barrel; made-in-India; lower unit cost", "155/39 on 4x4; shoot-and-scoot strength; US export interest"]</span></td></tr><tr><td class=col>det</td><td class=ty>jsonb</td><td class=req></td><td>Detail table: maker, origin, counterpart, how many specs were sourced, and provenance.</td><td class=egc><span class=eg>[["Competitor", "KNDS"], ["HQ / origin", "France"], ["Category", "Artillery"], ["KSSL counterpart", "MArG 155"], ["Specs shown", "2 of 7 held"], ["Sources", "13</span></td></tr><tr><td class=col>verdictH</td><td class=ty>text</td><td class=req></td><td>Heading above the verdict.</td><td class=egc><span class=eg>Positioning verdict — Artillery</span></td></tr><tr><td class=col>verdict</td><td class=ty>text</td><td class=req></td><td>Recomputed from surviving specs only. Copying a verdict written about ten specs onto the two that could be sourced would be worse than showing none.</td><td class=egc><span class=eg>&lt;b&gt;2 value(s) sourced, none comparable on both sides.&lt;/b&gt; A gap needs the same field published for both products, and the field has to have a better and a worse</span></td></tr><tr><td class=col>catKey</td><td class=ty>text</td><td class=req></td><td>Short category key used by the UI filters.</td><td class=egc><span class=eg>art</span></td></tr><tr><td class=col>srcs</td><td class=ty>jsonb</td><td class=req></td><td>Documents actually used to ground this row.</td><td class=egc><span class=eg>[{"url": "https://aviationweek.com/aerospace/idex-bharat-forge-eyes-export-market-artillery-systems", "label": "aviationweek.com"}, {"url": "https://en.wikipedi</span></td></tr><tr><td class=col>gen</td><td class=ty>boolean</td><td class=req></td><td>True when the pairing was generated rather than authored.</td><td class=egc><span class=eg>true</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-25 06:28:57.432494+00</span></td></tr></tbody></table></div></div>
+</section>
+<section id=s7><h2>8 &middot; Tenders (live APIs, not news)</h2>
+<p>News reports awards; it rarely publishes an open solicitation with a deadline and a value. So the Tender Pipeline is fed from procurement APIs directly &mdash; SAM.gov (US), TED (EU, by defence CPV codes), and India's GeM and CPPP &mdash; filtered to KSSL's portfolio and mapped onto the same nine categories.</p>
+
+<div class=tw><table class=data>
+<thead><tr><th>source</th><th>how it is queried</th><th>what is kept</th></tr></thead>
+<tbody>
+<tr><td>SAM.gov (US)</td><td>opportunities API, date-window slicing, ten rotating keys
+read from the TendPro environment at runtime</td><td>notices whose title matches the
+portfolio</td></tr>
+<tr><td>TED (EU)</td><td>search API restricted to defence CPV codes &mdash; weapons and
+ammunition, military vehicles, warships, military aircraft and UAVs</td>
+<td>English titles where the notice provides them</td></tr>
+<tr><td>GeM (India)</td><td>public bid-search API with the Ministry of Defence filter</td>
+<td>defence bids in KSSL categories</td></tr>
+<tr><td>CPPP (India)</td><td>the captcha-free pagers</td>
+<td>nothing, in the current window &mdash; those feeds are dominated by civil works;
+deeper defence rows need the captcha-gated search</td></tr>
+</tbody></table></div>
+<p>A tender is kept only if its <b>title</b> matches the portfolio; issuer names were disqualified as evidence after a company called &ldquo;Armoured Vehicles Nigam&rdquo; filed floor-tile tenders that the filter read as armoured vehicles. Bare words that look military but are not (&ldquo;cartridge&rdquo; in <i>cartridge-type heater</i>, &ldquo;armored&rdquo; in <i>Armored Brigade turf replacement</i>) are excluded by name.</p>
+<p class=note>Two writers share this table &mdash; the API fetcher (ids prefixed <code>sam_</code>, <code>ted_</code>, <code>gem_</code>) and the news step (numeric ids). Each deletes only its own id space; a blanket delete wiped the API feed once, which is why the boundary is now explicit.</p>
+<h3><code>serving.tender</code></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>id</td><td class=ty>text</td><td class=req>required</td><td>Tender id. Text ids (sam_/ted_/gem_) come from the API fetch; numeric ids from the news cross-check. Each writer deletes only its own id space.</td><td class=egc><span class=eg>gem_9462610</span></td></tr><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position, renumbered by deadline.</td><td class=egc><span class=eg>1</span></td></tr><tr><td class=col>title</td><td class=ty>text</td><td class=req>required</td><td>Notice title as published by the issuing portal.</td><td class=egc><span class=eg>Integrated Counter UAS System — GEM/2026/B/7659473</span></td></tr><tr><td class=col>issuer</td><td class=ty>text</td><td class=req></td><td>Buying authority.</td><td class=egc><span class=eg>Ministry of Defence — Department of Military Affairs</span></td></tr><tr><td class=col>country</td><td class=ty>text</td><td class=req></td><td>Country of the buyer.</td><td class=egc><span class=eg>India</span></td></tr><tr><td class=col>cat</td><td class=ty>text</td><td class=req></td><td>KSSL category the notice maps to; from the main classification code only, not any secondary code.</td><td class=egc><span class=eg>UAVs &amp; Drones</span></td></tr><tr><td class=col>value</td><td class=ty>text</td><td class=req></td><td>Published value. Absent for most notices -- absent is not zero.</td><td class=egc><span class=eg>~₹6,500 cr</span></td></tr><tr><td class=col>qty</td><td class=ty>text</td><td class=req></td><td>Published quantity, where stated.</td><td class=egc><span class=eg>1 units</span></td></tr><tr><td class=col>deadline</td><td class=ty>text</td><td class=req></td><td>Submission deadline as published.</td><td class=egc><span class=eg>25 Aug 2026</span></td></tr><tr><td class=col>dl</td><td class=ty>integer</td><td class=req></td><td>Days remaining, for sorting.</td><td class=egc><span class=eg>9</span></td></tr><tr><td class=col>reqNote</td><td class=ty>text</td><td class=req></td><td>Note on the stated requirement.</td><td class=egc><span class=eg>Truck-mounted 155mm/52 gun system for rapid deployment, ≥45 km range, with a phased plan to build a majority of the system inside India.</span></td></tr><tr><td class=col>req</td><td class=ty>jsonb</td><td class=req></td><td>Requirement lines extracted from the notice.</td><td class=egc><span class=eg>[]</span></td></tr><tr><td class=col>matches</td><td class=ty>jsonb</td><td class=req></td><td>KSSL capabilities that match the requirement.</td><td class=egc><span class=eg>[]</span></td></tr><tr><td class=col>lean</td><td class=ty>text</td><td class=req></td><td>Fit verdict. NULL where no assessment was made -- a constant verdict stamped on every row is not a verdict.</td><td class=egc><span class=eg>maybe</span></td></tr><tr><td class=col>leanTxt</td><td class=ty>text</td><td class=req></td><td>Reasoning behind the fit verdict.</td><td class=egc><span class=eg>&lt;b&gt;Partial fit - qualify before committing.&lt;/b&gt; ATAGS meets the calibre and range bar on KSSL's own published figures, but the requirement is for a truck-mounte</span></td></tr><tr><td class=col>status</td><td class=ty>text</td><td class=req></td><td>open, awarded or closed. Only open notices are biddable.</td><td class=egc><span class=eg>open</span></td></tr><tr><td class=col>url</td><td class=ty>text</td><td class=req></td><td>Link to the notice.</td><td class=egc><span class=eg>https://bidplus.gem.gov.in/showbidDocument/9462610</span></td></tr><tr><td class=col>urlKind</td><td class=ty>text</td><td class=req></td><td>Whether the link reaches the notice itself or only a portal search page.</td><td class=egc><span class=eg>tender</span></td></tr><tr><td class=col>srcs</td><td class=ty>jsonb</td><td class=req></td><td>Source portal records.</td><td class=egc><span class=eg>[{"url": "https://bidplus.gem.gov.in/showbidDocument/9462610", "label": "GeM (India MoD)"}]</span></td></tr><tr><td class=col>stage</td><td class=ty>text</td><td class=req></td><td>Procurement stage.</td><td class=egc><span class=eg>AoN cleared · RFP stage</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-24 18:01:25.851358+00</span></td></tr></tbody></table></div><p class=note>89 pipeline rows. <code>dl</code> is left NULL &mdash; the interface computes the countdown from <code>deadline</code>, and a tender with no stated deadline reads &ldquo;no deadline on record&rdquo; rather than a manufactured number.</p>
+</section>
+<section id=s8><h2>9 &middot; Serving tables, column by column</h2>
+<p>Everything the screen reads lives in these tables. The API assembles them into the shapes the interface expects; it computes rollups (patent totals, company order) but invents nothing.</p>
+<h3><code>serving.company_source</code> <span class=cnt>145 rows</span></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>company</td><td class=ty>text</td><td class=req>required</td><td>Company the source belongs to, by display name so it joins the roster.</td><td class=egc><span class=eg>Adani Defence</span></td></tr><tr><td class=col>comp_ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position of the company.</td><td class=egc><span class=eg>1001</span></td></tr><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position of the source.</td><td class=egc><span class=eg>1001</span></td></tr><tr><td class=col>url</td><td class=ty>text</td><td class=req>required</td><td>The source document.</td><td class=egc><span class=eg>https://www.adanidefence.com/media/media-release/Adani-Defence-and-Aerospace-and-Leonardo-Forge-Strategic-Partnership</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-24 20:26:18.572019+00</span></td></tr></tbody></table></div><p class=note>The documents each company was read from &mdash; this is what makes the &lsquo;sourced&rsquo; badges honest.</p>
+<h3><code>serving.geo_comp</code> <span class=cnt>29 rows</span></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>id</td><td class=ty>text</td><td class=req>required</td><td>Company id, matching geo_presence.comp_id.</td><td class=egc><span class=eg>adani-defence</span></td></tr><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position.</td><td class=egc><span class=eg>1001</span></td></tr><tr><td class=col>name</td><td class=ty>text</td><td class=req>required</td><td>Display name.</td><td class=egc><span class=eg>Adani Defence</span></td></tr><tr><td class=col>dir</td><td class=ty>text</td><td class=req></td><td>rival, client or other.</td><td class=egc><span class=eg>threat</span></td></tr><tr><td class=col>hq</td><td class=ty>text</td><td class=req></td><td>Headquarters country.</td><td class=egc><span class=eg>South Africa</span></td></tr><tr><td class=col>isBf</td><td class=ty>boolean</td><td class=req></td><td>True for the client group (Kalyani / KSSL / Bharat Forge), which is never rendered as a rival.</td><td class=egc><span class=eg>false</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-24 20:26:01.763435+00</span></td></tr></tbody></table></div><p class=note>The companies plotted on the map.</p>
+<h3><code>serving.patent</code> <span class=cnt>0 rows</span></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position.</td><td class=egc><span class=eg>0</span></td></tr><tr><td class=col>assignee_ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position of the assignee group.</td><td class=egc><span class=eg>0</span></td></tr><tr><td class=col>no</td><td class=ty>text</td><td class=req>required</td><td>Publication number from the registry. Must be a well-formed identifier: the archived dataset held invented numbers such as IN-2024-EST01 (est), which are refused here.</td><td class=egc><span class=eg>IN-2024-EST01 (est, grant verified)</span></td></tr><tr><td class=col>title</td><td class=ty>text</td><td class=req></td><td>Patent title as published.</td><td class=egc><span class=eg>Trigger Sensing System for weapon training simulators</span></td></tr><tr><td class=col>assignee</td><td class=ty>text</td><td class=req>required</td><td>Owner of record.</td><td class=egc><span class=eg>Zen Technologies Limited</span></td></tr><tr><td class=col>status</td><td class=ty>text</td><td class=req></td><td>granted or filed, from whether a grant date exists.</td><td class=egc><span class=eg>granted</span></td></tr><tr><td class=col>filed</td><td class=ty>text</td><td class=req></td><td>Filing date.</td><td class=egc><span class=eg>2022</span></td></tr><tr><td class=col>granted</td><td class=ty>text</td><td class=req></td><td>Grant date, empty when still pending.</td><td class=egc><span class=eg>2024-08</span></td></tr><tr><td class=col>country</td><td class=ty>text</td><td class=req></td><td>Jurisdiction, from the publication number prefix.</td><td class=egc><span class=eg>India</span></td></tr><tr><td class=col>ipc</td><td class=ty>jsonb</td><td class=req></td><td>IPC/CPC classification codes where the registry supplies them.</td><td class=egc><span class=eg>["F41A33/00", "G09B9/00"]</span></td></tr><tr><td class=col>abstract</td><td class=ty>text</td><td class=req></td><td>Abstract as published.</td><td class=egc><span class=eg>Sensor system that detects and characterizes trigger actuation on service weapons for live-simulation training feedback. 17th patent granted to Zen in CY2024.</span></td></tr><tr><td class=col>area</td><td class=ty>text</td><td class=req>required</td><td>KSSL category the patent bears on. A diversified forger's oil-and-gas patents are not defence patents.</td><td class=egc><span class=eg>Small Arms</span></td></tr><tr><td class=col>threat</td><td class=ty>text</td><td class=req></td><td>Threat rating, only where something measurable supports one.</td><td class=egc><span class=eg>medium</span></td></tr><tr><td class=col>relev</td><td class=ty>text</td><td class=req></td><td>Relevance to KSSL.</td><td class=egc><span class=eg>Training ecosystem lock-in around small arms KSSL wants to sell</span></td></tr><tr><td class=col>url</td><td class=ty>text</td><td class=req></td><td>Link to the registry record itself.</td><td class=egc><span class=eg>https://www.business-standard.com/markets/capital-market-news/zen-technologies-secures-india-patent-for-its-innovative-trigger-sensing-system-124082201303_1.htm</span></td></tr><tr><td class=col>p</td><td class=ty>text</td><td class=req></td><td>Short display label.</td><td class=egc><span class=eg>s</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>reference</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-24 08:36:44.330264+00</span></td></tr></tbody></table></div><p class=note>Empty by design &mdash; see section 11.</p>
+<h3><code>serving.source_registry</code> <span class=cnt>71 rows</span></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>ord</td><td class=ty>integer</td><td class=req>required</td><td>Sort position.</td><td class=egc><span class=eg>1001</span></td></tr><tr><td class=col>company</td><td class=ty>text</td><td class=req>required</td><td>Company the source is about.</td><td class=egc><span class=eg>Adani Defence</span></td></tr><tr><td class=col>label</td><td class=ty>text</td><td class=req></td><td>Human label for the source.</td><td class=egc><span class=eg>adanidefence.com</span></td></tr><tr><td class=col>url</td><td class=ty>text</td><td class=req>required</td><td>The source document.</td><td class=egc><span class=eg>https://www.adanidefence.com/media/media-release/Adani-Defence-and-Aerospace-and-Leonardo-Forge-Strategic-Partnership</span></td></tr><tr><td class=col>kind</td><td class=ty>text</td><td class=req></td><td>Kind of source: official, press, registry.</td><td class=egc><span class=eg>news</span></td></tr><tr><td class=col>origin</td><td class=ty>text</td><td class=req>required</td><td>pipeline or reference.</td><td class=egc><span class=eg>pipeline</span></td></tr><tr><td class=col>updated_at</td><td class=ty>timestamp with time zone</td><td class=req>required</td><td>When the row was last written.</td><td class=egc><span class=eg>2026-08-24 20:26:18.572019+00</span></td></tr></tbody></table></div><p class=note>Every outlet the corpus drew on, per company.</p>
+<h3><code>serving.ui_config</code> <span class=cnt>22 rows</span></h3>
+<div class=tw><table class=schema><thead><tr><th>column</th><th>type</th><th></th><th>what it holds</th><th>example from a real document</th></tr></thead><tbody><tr><td class=col>key</td><td class=ty>text</td><td class=req>required</td><td>Interface vocabulary key: category names, labels, ordering. Not data, so serving_live passes it through unfiltered.</td><td class=egc><span class=eg>POS_CATS</span></td></tr><tr><td class=col>value</td><td class=ty>jsonb</td><td class=req>required</td><td>The configuration value.</td><td class=egc><span class=eg>[["art", "Artillery"], ["ammo", "Ammunition"], ["sa", "Small Arms"], ["pav", "Protected &amp; Armoured Vehicles"], ["mro", "Armoured Vehicle MRO"], ["naval", "Marin</span></td></tr></tbody></table></div><p class=note>Interface vocabulary &mdash; category names, labels, synonyms, the chat suggestions. This is language, not data, so it is served regardless of origin.</p>
+<p class=rule>Every table above carries <code>origin</code>. The API reads <code>serving_live</code>, a set of views filtered to <code>origin='pipeline'</code>, so the archived demo data cannot leak onto the screen. Setting <code>KSSL_SERVE_ORIGIN=all</code> points the backend back at the raw tables to inspect the archive.</p></section>
+<section id=s9><h2>10 &middot; Which tab reads what</h2>
+
+<div class=tw><table class=data>
+<thead><tr><th>pillar &middot; tab</th><th>reads</th><th>what the reader sees</th></tr></thead>
+<tbody>
+<tr><td>Competitive &middot; Overview</td><td><code>signal_card</code> (lane
+competitive) + <code>signal_detail</code></td><td>rival moves, rivals ordered before
+anyone else, newest first within each group</td></tr>
+<tr><td>Competitive &middot; Positioning</td><td><code>matchup</code></td>
+<td>KSSL products against rival products by category, with the evidence behind each
+pairing</td></tr>
+<tr><td>Competitive &middot; Gap Analysis</td><td><code>matchup</code> (only rows with a
+measured edge)</td><td>currently empty &mdash; see section 11</td></tr>
+<tr><td>Competitive &middot; Partnerships</td><td><code>competitors</code>,
+<code>partner</code></td><td>the alliance network per company, and which ties KSSL
+shares</td></tr>
+<tr><td>Competitive &middot; Geo Footprint</td><td><code>geo_presence</code>,
+<code>geo_comp</code></td><td>a map of where rivals actually do something</td></tr>
+<tr><td>Competitive &middot; Patents</td><td><code>patent</code></td>
+<td>empty &mdash; see section 11</td></tr>
+<tr><td>Market &middot; Overview</td><td><code>signal_card</code> (lane market)</td>
+<td>demand and procurement signals</td></tr>
+<tr><td>Market &middot; Tender Pipeline / Awarded / Closed</td><td><code>tender</code></td>
+<td>live solicitations with countdowns, then awarded and expired ones</td></tr>
+<tr><td>Technology &middot; Overview</td><td><code>signal_card</code> (lane tech)</td>
+<td>capability signals</td></tr>
+<tr><td>Technology &middot; Innovation Pipeline</td><td><code>innovation</code></td>
+<td>advances grouped by technology area</td></tr>
+<tr><td>every tab</td><td><code>company_source</code>, <code>source_registry</code></td>
+<td>the source chips that let a reader open the original article</td></tr>
+</tbody></table></div>
+</section>
+<section id=s10><h2>11 &middot; What is deliberately empty</h2>
+<p>Two tabs are empty on purpose, and saying so is part of the design: an empty tab is a true statement about the corpus, whereas a filled one would be a false statement about the world.</p>
+
+<div class=tw><table class=data>
+<thead><tr><th>tab</th><th>why it is empty</th><th>what would fill it honestly</th></tr></thead>
+<tbody>
+<tr><td>Gap Analysis</td><td>it scores measured spec differences, and the corpus is news.
+Defence journalism reports that a howitzer was ordered, not its chamber pressure, so
+there is nothing to measure.</td>
+<td>manufacturer datasheets or a specification database, parsed into the matchup
+<code>specs</code> field</td></tr>
+<tr><td>Patents</td><td>no patent data exists in a news corpus, and no writer invents
+one.</td><td>a patent-office feed &mdash; EPO, WIPO or India's inPASS &mdash; with
+assignees resolved through the same identity layer</td></tr>
+</tbody></table></div>
+</section>
+<section id=s11><h2>12 &middot; One document, followed all the way</h2>
+<ol class=walk>
+<li><b>A page is fetched.</b> saab.com publishes a press release in Swedish: <i>Saab får order på granatgeväret Carl-Gustaf från Litauen</i>. It is stored whole as <code>doc_2c689e0660fe7b1c</code>, 1888 characters.</li>
+<li><b>Layer A reads it.</b> 214 spans are marked and 13 statements are extracted. The Swedish word <i>granatgeväret</i> is typed as a weapon system and glossed in English; the order value is typed as a money value.</li>
+<li><b>The gates run.</b> The URL is a press release, not a listing page. The article's own date proves the year. Saab is a tracked rival, so the document is on-portfolio. No earlier card has this title.</li>
+<li><b>The judge reads the statements &mdash; not the page.</b> It files the signal as <b>competitive</b>, category <b>Small Arms</b>, direction <b>threat</b>, and writes an English headline from a Swedish source: <i>Saab wins Carl-Gustaf M4 order from Lithuania</i></li>
+<li><b>The entailment check.</b> The card is shown its own quotes and asked whether they support it. This one passed &mdash; note the wording of the event line: <i>Saab received an order from Lithuania for Carl-Gustaf M4 rifles and training equipment, worth 460 million kronor.</i> The source says an order was received, so the card says received, not delivered.</li>
+<li><b>It is written to two rows.</b> <code>signal_card</code> holds the feed row (<code>lane=competitive</code>, <code>ord=1</code>, <code>rank=01</code>, <code>ago=2026</code>, <code>company=Saab</code>); <code>signal_detail</code> holds the panel.</li>
+<li><b>The screen reads those rows.</b> The card appears in the Competitive feed; clicking it opens the panel below.</li>
+</ol>
+<div class=example><div class=exhead>The panel, as stored</div><table class=kv><tr><td>Company</td><td>Saab</td></tr><tr><td>Category</td><td>Small Arms</td></tr><tr><td>Date</td><td>2026</td></tr><tr><td>Primary lens</td><td>Competitive</td></tr></table>
+<div class=exhead>Why it matters (the analyst reading)</div><p>This order strengthens Saab's position in the small arms market, potentially impacting KSSL's competitive standing in similar weapon systems.</p>
+<div class=exhead>Evidence, verbatim from the Swedish source</div>
+<p class=lens>Saab delivers axelburna granatgeväret Carl-Gustaf M4 — <i>&ldquo;Saab har fått en order från Litauen gällande det axelburna granatgeväret Carl-Gustaf M4 och tillhörande träningsutrustning.&rdquo;</i></p>
+<p class=lens>Saab delivers träningsutrustning — <i>&ldquo;Saab har fått en order från Litauen gällande det axelburna granatgeväret Carl-Gustaf M4 och tillhörande träningsutrustning.&rdquo;</i></p>
+<p class=lens>order is worth 460 miljoner kronor — <i>&ldquo;Ordervärdet är 460 miljoner kronor&rdquo;</i></p>
+<p class=note>The quotes are the original Swedish sentences, reproduced character for character from the stored document. That is the whole point of the offset contract: the analysis is in English, the proof is in the source language.</p></div>
+</section>
+</main>
+<footer><p>Generated from the running pipeline code and the live database by <code>docs/build_pipeline_doc.py</code>. Re-run it after any change to a prompt, a gate or a schema.</p></footer>

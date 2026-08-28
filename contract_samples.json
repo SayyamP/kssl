@@ -1,0 +1,2140 @@
+{
+ "POS_CATS": [
+  [
+   "art",
+   "Artillery"
+  ],
+  [
+   "ammo",
+   "Ammunition"
+  ]
+ ],
+ "CAT_KEY": {
+  "Artillery": "art",
+  "Ammunition": "ammo"
+ },
+ "TRACEIDS": {
+  "ADANI": [
+   [
+    "ISRAE",
+    "DRDO"
+   ],
+   [
+    "ELBIT",
+    "ISRAE",
+    "SPART",
+    "AIRBU"
+   ],
+   [
+    "ALPHA",
+    "GENER"
+   ]
+  ],
+  "BDL": [
+   [
+    "DRDO",
+    "BHARA"
+   ],
+   [
+    "MBDA",
+    "THALE",
+    "RAFAE",
+    "ROSOB",
+    "JAVEL"
+   ]
+  ]
+ },
+ "COMPSYN": {
+  "NIBE": {
+   "thesis": "NIBE is sprinting from a components fabricator into a full weapons-systems integrator — almost entirely by licensing or partnering for the IP. Three of its four flagship defence lines (Suryastra rockets, Sig Sauer small arms, Pinaka) rest on someone else's technology. That breadth is real, but the indigenous depth is thin and already under public scrutiny.",
+   "vulns": [
+    {
+     "title": "Borrowed-IP fragility across the entire weapons portfolio",
+     "from": [
+      "Elbit/Suryastra",
+      "Sig Sauer",
+      "DRDO/Pinaka",
+      "HBE forging"
+     ],
+     "intel": "Read together, NIBE's four weapons lines are ALL externally sourced — Suryastra (Elbit IP), small arms (Sig Sauer IP), Pinaka (DRDO licence), forging (HBE, planned). NIBE owns the factory and the integration; it owns almost none of the core technology. This isn't four independent partnerships — it's a single structural weakness repeated four times. A rival whose entire product line is licensed has no defensible moat: every line is exposed to a foreign partner's export-control, pricing, or withdrawal, and none can be independently upgraded.",
+     "exploit": ""
+    },
+    {
+     "title": "The emergency-procurement route is NIBE's only proven path to a contract — and it's politically exposed",
+     "from": [
+      "Elbit/Suryastra EP award + screwdriver-giri controversy"
+     ],
+     "intel": "NIBE's single biggest win (Suryastra, ₹293cr) came via emergency procurement, NOT a competitive trial — and it immediately drew public 'screwdriver giri' (foreign-design-relabelled) scrutiny. Pattern read: NIBE has not yet demonstrated it can win a contested, trial-based competition on merit. Its commercial model depends on the EP fast-track, which is discretionary, time-limited, and politically reversible.",
+     "exploit": ""
+    },
+    {
+     "title": "Divided focus — defence and space simultaneously",
+     "from": [
+      "8 of 12 ties are the EO-constellation venture"
+     ],
+     "intel": "Two-thirds of NIBE's partnership activity (8 of 12 ties) is a 40-satellite space venture, not weapons. A company this size building a full space business AND a full weapons-roll-up at once is spreading finite capital and management bandwidth across two capital-intensive fronts. NIBE's Q4 FY25 net profit fell 30% YoY — it is not a cash machine funding both comfortably.",
+     "exploit": ""
+    }
+   ],
+   "strat": {
+    "thesis": "NIBE is running a licence-and-assemble roll-up: acquire breadth fast by buying or licensing IP rather than developing it, then integrate under one roof.",
+    "pattern": "In ~18 months NIBE has assembled rockets (Elbit + DRDO), small arms (Sig Sauer), munitions (PEL majority JV), forging (HBE), and a space business — almost entirely through partnerships, not internal R&D. The signature is speed-over-ownership: every line is a partnership, the equity stake (Global Munition 51%) goes only where NIBE wants control of an existing capability, and the foreign ties go where the IP doesn't exist domestically.",
+    "sowhat": "This is a breadth play aimed at becoming a one-stop integrator the MoD can award across categories — competing on range-of-offering and Make-in-India optics rather than on any single best-in-class product. The strategy's strength is speed to market; its weakness is that roll-ups built on borrowed IP are fragile precisely at integration and at the moment a partner's terms change. NIBE is buying the appearance of a full-spectrum prime faster than it can build the substance of one."
+   },
+   "preds": [
+    "More foreign-OEM licences in any line where NIBE lacks IP — expect a loitering-munition or air-defence partner announcement next, completing the precision-fires stack.",
+    "NIBE will push hard for more emergency-procurement awards rather than contest open trials, because EP is its only proven win route.",
+    "The Pinaka licence will underdeliver relative to Solar/MIL/Yantra — NIBE is last in and resource-split."
+   ],
+   "moves": [
+    "Lead every NIBE head-to-head with the portfolio-wide indigenous-vs-licensed contrast, not a product spec — it's true across all four of their lines at once.",
+    "Get ahead of NIBE's next emergency-procurement attempt on precision fires with the foreign-IP-content argument early, while it can still affect the award.",
+    "Don't over-invest against NIBE on Pinaka specifically — the four-licensee pile-up will compress those margins without KSSL spending a rupee; let the rivals bleed each other there and hold fire for the gun-artillery and loitering lines NIBE is weakest in."
+   ]
+  },
+  "LT": {
+   "thesis": "L&T is the opposite of NIBE — it owns the manufacturing and platform IP, licenses only the weapon core, and is the one private rival with the serial-production maturity to actually out-execute KSSL on artillery.",
+   "vulns": [
+    {
+     "title": "Every weapon-core technology is foreign-licensed, even though the manufacturing is L&T's",
+     "from": [
+      "Hanwha/K9",
+      "MBDA/missiles",
+      "Navantia/submarines",
+      "IAI-ELTA/radar"
+     ],
+     "intel": "Across all four weapons lines the same split holds: L&T owns the factory, the integration and the platform engineering, but the weapon core is always someone else's — K9 is Hanwha's (Korea) gun, the missiles are MBDA's (Europe), the submarine AIP was Navantia's (Spain), the radar is IAI/ELTA's (Israel). L&T's moat is industrial (Hazira complex, serial production), not technological. It is a world-class builder of other people's weapons.",
+     "exploit": ""
+    },
+    {
+     "title": "The submarine bid failure exposes the ceiling of the licence-and-build model",
+     "from": [
+      "Navantia/P75I disqualified Jan 2025"
+     ],
+     "intel": "L&T-Navantia's ₹70,000cr P75(I) submarine bid was disqualified because Navantia's AIP was demonstrated on shore, not sea-proven — the foreign partner's tech wasn't mature enough to meet the spec. This is the licence model's structural ceiling: when the foreign partner's IP falls short, L&T has no indigenous fallback and loses the whole programme. L&T's industrial muscle could not compensate for the partner's technology gap.",
+     "exploit": ""
+    },
+    {
+     "title": "Artillery is a side-business inside a ₹2.5-lakh-crore infrastructure giant",
+     "from": [
+      "$4bn QatarEnergy LNG order (largest ever) vs defence",
+      "93 subsidiaries"
+     ],
+     "intel": "L&T's largest-ever order in 2025 was a $4bn Qatar LNG contract — not defence. Defence is one segment inside a sprawling conglomerate (93 subsidiaries) dominated by infrastructure, energy and IT. The K9 and missile lines are strategically real but commercially small relative to L&T's core. Management attention and capital allocation answer to infrastructure economics, not artillery.",
+     "exploit": ""
+    }
+   ],
+   "strat": {
+    "thesis": "L&T's game is industrial dominance, not technological ownership — be the indispensable Make-in-India manufacturing partner for any foreign OEM that wants to sell to India.",
+    "pattern": "Every defence JV follows the template: foreign OEM brings the weapon, L&T brings Hazira + serial-production credibility + the Indian-prime status the MoD requires. L&T won the K9 on proven delivery (batch 1 ahead of schedule), not on owning the gun. It's a manufacturing-platform strategy: become the channel through which Korean, European and Israeli weapons enter India.",
+    "sowhat": "L&T is the most dangerous artillery rival on EXECUTION — its Hazira serial-production maturity is real and hard to match — but the least sovereign on TECHNOLOGY. Its strength (industrial scale, MoD trust, proven delivery) is the maturity bar on big artillery orders; its weakness (no indigenous weapon IP, defence is a side-bet) is exactly where KSSL's focus and ATAGS ownership win."
+   },
+   "preds": [
+    "L&T will keep winning on manufacturing-execution bids (more K9 follow-ons likely) but will keep losing pure-technology competitions where indigenous IP is scored.",
+    "Expect L&T to pursue more foreign-OEM manufacturing tie-ups in new lines rather than develop indigenous weapons — it's a builder, not a designer.",
+    "L&T's artillery investment will track infrastructure-order cycles, not defence need — watch for under-investment when big LNG/energy orders compete for capital."
+   ],
+   "moves": [
+    "Match L&T on execution credibility, not just product — its Hazira serial-production record is the real threat; delivery maturity is the differentiator on big artillery orders against it.",
+    "On any contested bid, frame KSSL as the indigenous-IP owner vs L&T as the foreign-weapon assembler — true across K9, MBDA, Navantia, IAI alike.",
+    "Compete hardest where sustained, focused artillery investment decides the winner — L&T's defence arm answers to a conglomerate that prioritises $4bn energy orders; KSSL's whole business is this."
+   ]
+  }
+ },
+ "FIELDSYN": {
+  "patterns": [
+   {
+    "t": "The universal gap: almost no KSSL rival owns its core weapon IP",
+    "e": "NIBE (Elbit/Sig Sauer/DRDO-licensed), L&T (Hanwha/MBDA/Navantia/IAI), Adani (Elbit/IWI/Thales/EDGE), SMPP (KNDS), BEL (Safran/IAI/Thales), BDL (DRDO/foreign-OEM), IRRPL (Kalashnikov), Jindal (Taurus), AVNL (Russian), Mahindra (Anduril). Across the field, the dominant model is licence-and-integrate, not design-and-own.",
+    "s": "Indigenous weapon-IP is rare across the field: almost no rival owns its core weapon design. Most hold manufacturing or integration rights while the weapon core sits with a foreign OEM. The exceptions are Solar and Zen, which developed genuinely indigenous capability.",
+    "x": "Solar (owns energetics/chemistry) and Zen (genuinely indigenous software/sim) are the two real exceptions — the indigenous-IP gap does not apply to them. They differ on different grounds (platform vs Solar's chemistry; production-maturity vs Zen's hardware inexperience)."
+   },
+   {
+    "t": "Three distinct competitive archetypes — each beaten differently",
+    "e": "ROLL-UPS (NIBE, Adani, Zen, Jindal) buy breadth via acquisition/JV. SCALE-PSUs (BDL, BEL, AWEIL, MIL, Yantra, AVNL) leverage inherited capacity. NICHE-SPECIALISTS (Solar=energetics, SMPP=protection, MKU=soldier-gear, Raphe=drones, WIL=heavy-eng, JCBL=armouring) own one deep capability.",
+    "s": "The 23 rivals fall into three structural types: licence-and-assemble roll-ups (broad portfolios built on borrowed IP), scale PSUs (large installed capacity, design owned by DRDO), and niche specialists (deep in one domain). Each type has a different structural profile.",
+    "x": "L&T is a hybrid (scale + roll-up); Adani is a roll-up with PSU-rivalling capital."
+   },
+   {
+    "t": "Foreign-supplier chokepoints — sanctions and concentration risk across rivals",
+    "e": "Rosoboronexport/Russian IP sits under 6 rivals (IRRPL, AVNL, AWEIL, MIL, BDL, BEL legacy). Elbit (Israel) under 3 (NIBE, Adani, Ashok Leyland). IAI under 3 (BEL, L&T, PEL-adjacent). Thales/Safran (France) under 4 (BEL, NIBE, Adani, Raphe). KNDS under SMPP (dual-line).",
+    "s": "Foreign-supplier concentration is a field-wide structural feature. Six rivals carry Russian-origin IP exposed to sanctions at the parent level; a separate cluster (Elbit, IAI, Thales, Safran) concentrates Israeli/European dependence across multiple competitors.",
+    "x": "Solar and Zen (indigenous) sit outside the foreign-chokepoint map."
+   },
+   {
+    "t": "The Pinaka pile-up — rivals bleeding each other on rocket artillery",
+    "e": "DRDO Pinaka rights now span NIBE, Solar, MIL, Yantra (+Tata, L&T legacy). Four-plus KSSL competitors licensed on the SAME rocket programme.",
+    "s": "The Pinaka rocket programme now has four licensees building the same system, which structurally commoditises margins as those rivals compete against each other on the same product.",
+    "x": "None — the four-licensee structure is self-commoditising."
+   },
+   {
+    "t": "Consolidation underway — rivals merging into bigger rivals",
+    "e": "NIBE+PEL (Global Munition JV, NIBE majority) fuses two ammo rivals. Adani acquired PLR, Alpha, General Aeronautics. Zen acquired 6 firms. The mid-tier is combining.",
+    "s": "The field is consolidating: NIBE and PEL have combined into Global Munition, forming one larger ammunition entity rather than two separate ones. Combined entities are the more accurate unit of analysis than individual company press releases.",
+    "x": "PSUs (can't easily merge) and pure niches (MKU, WIL) stay standalone."
+   },
+   {
+    "t": "The one place a rival beat KSSL head-to-head — and why KSSL won anyway",
+    "e": "The carbine programme: Adani-IWI Jeet came L2 (₹1,100cr/170,085 units), KSSL DRDO-design came L1 (255,128 units). The only direct contract clash on record.",
+    "s": "On the one programme where a top private rival met KSSL directly — the Armed Forces carbine — KSSL's DRDO-design entry placed L1 (255,128 units) and Adani's IWI-derived Jeet placed L2 (₹1,100cr / 170,085 units). A factual, on-record outcome on a single contested line.",
+    "x": "None — this is KSSL's strongest single data point."
+   }
+  ],
+  "bottom": "Across 23 competitors, the field is broad but borrowed — most rivals have bought or licensed their way to capability and few own their core weapon IP. The notable indigenous exceptions are Solar (energetics) and Zen (anti-drone/training)."
+ },
+ "REL_LABEL": {
+  "jv": "Joint venture",
+  "tech": "Technology / ToT"
+ },
+ "geoCountries": [
+  "India",
+  "Africa"
+ ],
+ "actLabel": {
+  "lp": "Local production",
+  "pt": "Partnership / licence"
+ },
+ "tpAllCats": [
+  "Artillery",
+  "Ammunition"
+ ],
+ "techCats": [
+  {
+   "id": "artillery",
+   "name": "Artillery"
+  },
+  {
+   "id": "armoured",
+   "name": "Armoured"
+  }
+ ],
+ "innovations": {
+  "artillery": [
+   {
+    "t": "Ramjet-assisted 155mm projectile (for ATAGS)",
+    "mat": "dev",
+    "gap": "parity",
+    "driver": "DRDO / IIT Madras",
+    "horizon": "late-2020s",
+    "body": "A 155mm ramjet projectile is being developed to replace the base-bleed unit in in-service shells, extending range substantially. On 12 January 2026 IIT Madras conducted successful in-house tests of the ramjet unit fitted to a standard 155mm shell.",
+    "impact": "<b>[Analysis] Directly favourable to KSSL.</b> The round is built around KSSL's own ATAGS — if it matures, ATAGS gains far greater reach with no new platform.",
+    "whatsNew": "IIT Madras successfully tested the ramjet unit on 12 Jan 2026. Demonstrated range gains across platforms: ATAGS ~40km → ~70km, K9 Vajra 36 → 62km, Dhanush 30 → 55km.",
+    "compNote": "Tata (TASL) co-produces ATAGS and benefits from the same round; differentiation stays industrial (cost, capacity), not ballistic. Western ramjet shells (Nammo, Tiberius) claim up to ~150km but are not yet export-tender baselines in KSSL's markets.",
+    "action": "Tie ATAGS export marketing to the extended-range roadmap; secure early access to qualified ramjet rounds to bundle range as a differentiator before competitors localise it.",
+    "sources": "IIT Madras / DRDO trials (Dec 2025–Jan 2026); ATAGS programme reporting"
+   },
+   {
+    "t": "307-unit ATAGS domestic induction",
+    "mat": "fielded",
+    "gap": "ahead",
+    "driver": "Indian Army / DRDO / KSSL+TASL",
+    "horizon": "now",
+    "body": "The Army's first major domestic ATAGS order — 307 guns plus 327 6×6 towing vehicles — was formalised on 26 March 2025 (~₹6,900cr), with KSSL building 184 units (~₹3,000cr) and TASL 123. ATAGS debuted at the 2026 Republic Day parade.",
+    "impact": "<b>[Analysis] Anchor programme for KSSL artillery.</b> Converts a decade of co-development into scaled production and a domestic reference that strengthens every export bid.",
+    "whatsNew": "18 units delivered by Feb 2026; first two regiments being raised by March 2026. Jejuri facility (opened Apr 2025) is scaled to roughly one gun per day.",
+    "compNote": "KSSL holds the 60% majority share over TASL's 40%; KSSL was the lowest bidder. Army's longer-term need is cited at up to ~1,000–2,000 guns, so bulk follow-ons are the prize.",
+    "action": "Lock in production-line economics now to win follow-on tranches at lower unit cost; use the domestic induction as the credibility anchor for US/EU export ambitions.",
+    "sources": "CCS approval Mar 2025; ATAGS programme reporting (2025–26)"
+   },
+   {
+    "t": "Ultra-light & lighter towed gun (TGS) class",
+    "mat": "dev",
+    "gap": "parity",
+    "driver": "DRDO / private industry",
+    "horizon": "2027–2030",
+    "body": "DRDO is pursuing a lighter Towed Gun System (under ~15 tons) for mountain theatres, borrowing ATAGS servo-elevation and recoil tech. KSSL is iterating an ultra-light ATAGS derivative alongside its existing ultra-light howitzer (Bharat ULH).",
+    "impact": "<b>[Analysis] Protects KSSL's high-altitude relevance.</b> Mountain warfare demand (vs PLA) favours lighter guns; KSSL's ULH lineage is a head start.",
+    "whatsNew": "TGS timeline indicated as design freeze 2026–27, trials 2027–28, production post-2030 — a multi-year window KSSL can shape.",
+    "compNote": "TASL eyes a hybrid electric-hydraulic variant; Adani is pushing an upgraded Dhanush; AWEIL also bidding. Comparative Pokhran/mountain trials expected before bulk orders.",
+    "action": "Invest in the ultra-light derivative early to be trial-ready; position weight + mobility as the mountain-theatre differentiator.",
+    "sources": "DRDO TGS reporting; IDRW (Nov 2025)"
+   },
+   {
+    "t": "Mounted gun systems on high-mobility chassis (shoot-and-scoot)",
+    "mat": "dev",
+    "gap": "parity",
+    "driver": "Tata (TASL) / KSSL / KNDS / GDLS",
+    "horizon": "2026-28",
+    "body": "A wave of truck-mounted 155mm/52 gun systems entered demonstration in 2026 — Tata showcased a mounted-ATAGS variant (Mar 2026), KNDS/Rheinmetall RCH-155 won a £1.35bn UK order (May 2026), and GDLS unveiled the Grizzly 10x10 SPH (May 2026). Shoot-and-scoot mobility is becoming the expected configuration for survivable artillery.",
+    "impact": "<b>[Analysis] KSSL is ahead domestically, but the autonomy bar is rising.</b> KSSL fields its own Mounted Gun System (MGS on a BEML Tatra 8×8) that has completed mobility, performance AND firing trials — ahead of Tata's newer TMH entrant. The real pressure is from global RCH-155/Grizzly remote-turret autonomy, which is a generation beyond manually-crewed mounted guns.",
+    "whatsNew": "Tata mounted-ATAGS demonstrated Mar 2026; RCH-155 £1.35bn UK order May 2026; Grizzly 10x10 unveiled May 2026.",
+    "compNote": "RCH-155 is already a KSSL platform competitor; the remote-turret autonomy in these systems is a generation ahead of manually-crewed mounted guns.",
+    "action": "Accelerate KSSL's mounted-gun roadmap toward remote-turret/reduced-crew configurations; tie ATAGS-mounted differentiation to indigenous cost and sourcing before Tata locks the domestic reference.",
+    "sources": "IDRW (Tata mounted-ATAGS, Mar 2026); Reuters (RCH-155, May 2026); Army Recognition (Grizzly, May 2026)",
+    "url": "https://idrw.org/tata-advanced-systems-showcases-its-mounted-atags-variant/"
+   },
+   {
+    "t": "Very-long-range artillery (58-calibre extended range)",
+    "mat": "dev",
+    "gap": "parity",
+    "driver": "KNDS (LORAS) / global primes",
+    "horizon": "late-2020s",
+    "body": "KNDS unveiled the LORAS very-long-range artillery family (Jun 2026) built around 58-calibre gun technology and extended-range fire — pushing the achievable range ceiling well beyond current 52-cal systems and resetting the benchmark export tenders are scored against.",
+    "impact": "<b>[Analysis] A rising ceiling, but a distant one — and a possible partnership.</b> LORAS is a demonstrator targeting 2032-35 production (the US scrapped its own 58-cal ERCA in 2024 for barrel wear), so the threat is not near-term. Notably, KNDS is seeking ramjet-shell munitions partners — India's IIT-Madras/MIL ramjet path is a potential collaboration, not just a benchmark to chase.",
+    "whatsNew": "KNDS LORAS family announced Jun 2026 with 58-cal gun tech and digital fire-control.",
+    "compNote": "Pairs with the ramjet-round path (KSSL-relevant) — the range race is moving on both gun-calibre and projectile axes simultaneously.",
+    "action": "Track 58-cal feasibility for KSSL's next-gen gun; in the interim, lean on the ramjet-155mm range path to close the export-marketing gap on range.",
+    "sources": "KNDS press release (LORAS, Jun 2026)",
+    "url": "https://knds.com/en/press-releases/knds-unveils-a-new-main-battle-tank-generation-and-charts-the-future-of-very-long-range-artillery"
+   },
+   {
+    "t": "Gun-based counter-air / multi-role 155mm",
+    "mat": "dev",
+    "gap": "behind",
+    "driver": "BAE / global primes",
+    "horizon": "2027+",
+    "body": "A new concept is emerging where 155mm artillery doubles as a low-cost counter-drone and counter-cruise-missile layer using hypervelocity rounds — BAE's MDACS being the leading demonstrator. This expands what an artillery buyer expects a gun to do, blurring the line between fires and air defence.",
+    "impact": "<b>[Analysis] Capability-frontier shift for KSSL's pure-fires positioning.</b> If gun-based counter-air matures, KSSL's artillery (positioned purely for indirect fires) may need a counter-air narrative or risk looking single-role against multi-role rivals.",
+    "whatsNew": "BAE revealed (May 2026) MDACS 155mm can defeat drones/cruise missiles via hypervelocity rounds.",
+    "compNote": "Still early/demonstrator stage; the round economics vs dedicated air-defence are unproven, but the concept is gaining traction as drone saturation rises.",
+    "action": "Track whether gun-based counter-air becomes a tender requirement; assess if KSSL's guns can host hypervelocity/counter-air rounds without a redesign.",
+    "sources": "BAE Systems (MDACS, May 2026)",
+    "url": "https://www.baesystems.com/"
+   }
+  ],
+  "armoured": [
+   {
+    "t": "Indigenous hard-kill Active Protection System (APS)",
+    "mat": "dev",
+    "gap": "behind",
+    "driver": "DRDO CVRDE",
+    "horizon": "late-2020s",
+    "body": "DRDO (CVRDE) is developing an indigenous hard-kill APS for main battle tanks — multiple X-band AESA radars, traversable launchers, 360° coverage, short-range intercept. India has also issued an off-the-shelf APS request for its T-90S fleet.",
+    "impact": "<b>[Analysis] Survivability gap relevant to KSSL platforms.</b> APS is becoming an expectation on protected vehicles; KSSL builds platforms, not the APS effector.",
+    "whatsNew": "Indigenous APS shown at subsystem/prototype stage (2025); parallel off-the-shelf APS request for T-90S signals near-term demand.",
+    "compNote": "No Indian private prime fields a mature APS; this is open ground. Foreign APS (Trophy, Iron Fist) set the benchmark KSSL platforms may need to integrate.",
+    "action": "Partner for the radar/effector rather than build; offer KSSL vehicles in APS-ready configurations to stay competitive on survivability.",
+    "sources": "DRDO CVRDE / Aero India 2025; procurement reporting"
+   },
+   {
+    "t": "Lighter composite & modular armour",
+    "mat": "dev",
+    "gap": "parity",
+    "driver": "DRDO + private industry",
+    "horizon": "1–2 yrs",
+    "body": "Indian programmes are advancing lighter armour at equivalent protection for armoured fighting vehicles, alongside a cleared modernisation of protection for thousands of in-service vehicles.",
+    "impact": "<b>[Analysis] Aligns with KSSL's metallurgy strength.</b> Armour materials sit adjacent to KSSL's core forging/materials capability — a credible area to lead, not follow.",
+    "whatsNew": "Modernisation of protection cleared for 3,000+ in-service vehicles — a sizeable addressable retrofit market.",
+    "compNote": "Materials science is where KSSL's five-decade metallurgy base is hardest to replicate by assembly-led rivals.",
+    "action": "Bring an armour-materials offering to the in-service retrofit programme; treat it as a forging-adjacent margin opportunity.",
+    "sources": "DRDO / industry reporting (2023–25)"
+   },
+   {
+    "t": "Protected mobility induction (M4 / Maverick / mine-protected)",
+    "mat": "fielded",
+    "gap": "ahead",
+    "driver": "KSSL",
+    "horizon": "now",
+    "body": "KSSL's protected-vehicle range (Kalyani M4, Maverick, mine-protected variants) is in service, including with the Army for troop movement along the Line of Actual Control.",
+    "impact": "<b>[Analysis] Established revenue and reference base.</b> Diversifies KSSL beyond artillery and provides combat-proven credibility for export.",
+    "whatsNew": "Protected vehicles cited as a core diversification pillar within KSSL's ~₹10,000cr orderbook.",
+    "compNote": "Mahindra and Tata both field competing armoured platforms domestically; KSSL's edge is forged-structure manufacturing and combat references.",
+    "action": "Leverage LAC deployment references in export tenders (e.g. Philippines, Kenya, Morocco patrol-vehicle bids in the pipeline).",
+    "sources": "KSSL portfolio; Army induction reporting"
+   },
+   {
+    "t": "Autonomy + counter-UAS on light tactical vehicles",
+    "mat": "dev",
+    "gap": "parity",
+    "driver": "AM General / Mahindra / Patria",
+    "horizon": "2026-28",
+    "body": "Light tactical vehicles are gaining autonomy and counter-UAS capability: AM General showcased JLTV A2 with drive-by-wire autonomy + C-UAS (Jun 2026), Patria expanded CAVS 6x6 production on NATO demand (Jan 2026), and Mahindra unveiled a purpose-built tactical ATV (May 2026) — the wheeled-vehicle class KSSL's LTV/ULSV/M4 competes in.",
+    "impact": "<b>[Analysis] Capability migration into KSSL's vehicle class.</b> Drive-by-wire autonomy and integrated C-UAS are becoming standard expectations for light tactical vehicles; KSSL's ULSV/M4 roadmap must absorb these or fall behind on the modern-vehicle definition.",
+    "whatsNew": "JLTV A2 autonomy + C-UAS Jun 2026; Patria CAVS 6x6 expansion Jan 2026; Mahindra tactical ATV May 2026.",
+    "compNote": "JLTV and Patria AMV are already KSSL platform competitors; the autonomy/C-UAS layer is the new differentiator.",
+    "action": "Add autonomy-ready architecture and C-UAS integration provisions to KSSL's light-vehicle roadmap; partner for drive-by-wire where needed.",
+    "sources": "AM General (JLTV A2, Jun 2026); Business Insider (Patria CAVS, Jan 2026)",
+    "url": "https://www.amgeneral.com/am-general-focuses-on-future-driven-capabilities-at-eurosatory-2026/"
+   }
+  ]
+ },
+ "competitiveCards": [
+  {
+   "id": "cm1",
+   "dir": "threat",
+   "rank": "01",
+   "title": "Army plans 300 additional K9 Vajra self-propelled howitzers",
+   "meta": "Artillery · L&T+Hanwha · ~300 guns",
+   "company": "L&T / Hanwha",
+   "lens": "COMPETITIVE",
+   "sowhat": "KSSL's #1 artillery rival deepens its K9 Vajra franchise with a planned 300-gun buy + cold-weather/high-altitude variant — entrenching L&T at serial-production scale on the northern borders KSSL also targets.",
+   "sec": [
+    {
+     "lens": "MARKET / DEMAND",
+     "read": "India's largest-ever SPH acquisition confirms a massive domestic artillery demand pool."
+    },
+    {
+     "lens": "BENCHMARK",
+     "read": "300-gun scale sets a production-maturity and unit-cost reference KSSL's ATAGS line is measured against."
+    },
+    {
+     "lens": "POLICY / OFFSET",
+     "read": "Cold-weather/high-altitude variant locks L&T into the mountain-artillery niche KSSL's ULH targets."
+    }
+   ],
+   "url": "https://m.economictimes.com/news/defence/indian-army-plans-largest-ever-k9-vajra-acquisition-with-order-for-300-additional-guns-check-its-features/articleshow/131686453.cms",
+   "ago": "Jun 2026",
+   "tags": "threat"
+  },
+  {
+   "id": "cm3",
+   "dir": "threat",
+   "rank": "02",
+   "title": "Solar secures ~₹4,500cr in defence export orders (multiple contracts)",
+   "meta": "Ammunition/Loitering · Solar · ~₹4,500cr exports",
+   "company": "Solar Industries",
+   "lens": "MARKET / DEMAND",
+   "sowhat": "Stacked, verified export wins (₹1,400cr Nov-2025, ₹1,419cr Jan-2026, ₹1,076cr May-2026 — order book now >₹21,300cr) prove Solar has cracked international defence demand at scale, in the ammo/loitering space overlapping KSSL.",
+   "sec": [
+    {
+     "lens": "COMPETITIVE",
+     "read": "Solar (a KSSL ammunition + loitering competitor) is building a multi-year export book that overlaps in shared markets."
+    },
+    {
+     "lens": "TRAJECTORY",
+     "read": "Export momentum + ₹2,050cr FY27 capex funds Solar's multi-domain expansion (explosives → ammo → loitering → UAV)."
+    },
+    {
+     "lens": "CHANNEL / PARTNER",
+     "read": "Confidential international client relationships = export channels Solar now controls in KSSL-target regions."
+    }
+   ],
+   "url": "https://timesofindia.indiatimes.com/city/nagpur/solar-to-produce-10000-uavs-a-year-in-new-unit/articleshow/129229126.cms",
+   "ago": "2026",
+   "tags": "threat"
+  }
+ ],
+ "marketCards": [
+  {
+   "id": "m1",
+   "dir": "threat",
+   "rank": "01",
+   "title": "Armenia mounted-gun tender closing in 9 days",
+   "meta": "155mm SPH · ~₹4,000 cr · bid window open",
+   "sowhat": "KSSL has a live bid; submission closes in 9 days and a rival just set a price benchmark ~12% lower. Highest-urgency open opportunity.",
+   "ago": "9 days to close",
+   "tags": "deadline atstake"
+  },
+  {
+   "id": "m2",
+   "dir": "fav",
+   "rank": "02",
+   "title": "Philippines Akash batteries — KSSL component path opening",
+   "meta": "SAM programme · ~$200M · negotiation",
+   "sowhat": "Philippines is negotiating Akash batteries; KSSL’s missile/sub-system content could ride the deal. A favourable demand signal in a friendly Indo-Pacific buyer.",
+   "ago": "1d ago",
+   "tags": "opening"
+  }
+ ],
+ "techCards": [
+  {
+   "id": "ti12",
+   "dir": "threat",
+   "rank": "01",
+   "title": "FN Browning to acquire Accuracy International (precision rifles)",
+   "meta": "Small Arms · FN/AI · May 2026",
+   "company": "FN Browning Group",
+   "lens": "COMPETITIVE",
+   "sowhat": "A KSSL sniper-class rival (Accuracy International, maker of the AW/AXMC) is being absorbed into the larger FN Browning Group — consolidating precision-rifle capability under a better-resourced prime with global distribution. Deal announced 28 May 2026, still subject to regulatory approval.",
+   "sec": [
+    {
+     "lens": "CHANNEL / PARTNER",
+     "read": "AI retains its own brand, engineering and UK+US manufacturing under FN — and the deal is explicitly tied to UK MoD sovereign small-arms procurement into the 2030s, locking a major channel KSSL's sniper would find hard to enter."
+    },
+    {
+     "lens": "COMPETITIVE",
+     "read": "FN gains a precision-rifle foothold it lacked since the Ballista project; the combined portfolio is a stronger export competitor in KSSL's sniper/DMR class."
+    },
+    {
+     "lens": "TRAJECTORY",
+     "read": "Small-arms consolidation is accelerating (FN+AI, Adani+IWI licences, Zen+TISA) — KSSL is entering a segment that is professionalising and concentrating."
+    }
+   ],
+   "url": "https://fnherstal.com/en/news/fn-browning-group-and-accuracy-internationalannounce-a-strategic-acquisition-agreement/",
+   "ago": "28 May 2026",
+   "tags": "threat"
+  },
+  {
+   "id": "ti3",
+   "dir": "threat",
+   "rank": "02",
+   "title": "UK orders remote-controlled RCH-155 howitzers (£1.35bn)",
+   "meta": "Artillery · KNDS/Rheinmetall · May 2026",
+   "company": "KNDS / Rheinmetall",
+   "lens": "MARKET / DEMAND",
+   "sowhat": "£1.35bn order confirms strong NATO pull for remote-controlled wheeled 155mm — the exact mounted-gun class KSSL's MArG targets for export.",
+   "sec": [
+    {
+     "lens": "COMPETITIVE",
+     "read": "RCH-155 (already a KSSL platform competitor) gains a flagship Western reference customer, hardening its export credibility vs KSSL."
+    },
+    {
+     "lens": "BENCHMARK",
+     "read": "Sets the remote-turret/autonomy bar for mounted guns; KSSL's manually-crewed MArG looks a generation behind on this axis."
+    }
+   ],
+   "url": "https://www.reuters.com/business/aerospace-defense/uk-spend-135-billion-new-howitzers-british-army-2026-05-13/",
+   "ago": "13 May 2026",
+   "tags": "threat"
+  }
+ ],
+ "CAT_ALIASES": {
+  "artillery": "Artillery",
+  "gun": "Artillery"
+ },
+ "compOrder": [
+  "AWEIL",
+  "AVNL"
+ ],
+ "client": {
+  "id": "KSSL",
+  "name": "Kalyani Strategic Systems"
+ },
+ "matchups": {
+  "1": {
+   "cat": "Artillery",
+   "anchor": "MArG 155",
+   "global": true,
+   "dir": "watch",
+   "country": "France",
+   "comp": "KNDS · CAESAR 6x6",
+   "compBy": "KNDS",
+   "bf": "KSSL · MArG 155",
+   "bfBy": "Kalyani Strategic Systems",
+   "ks_thin": false,
+   "reason": "<b>CAESAR 6x6</b> (KNDS) is matched against KSSL's <b>MArG 155</b> because both are 155mm mounted/towed howitzers in the same role and weight class. Specifications for both sides are drawn from open published sources; the comparison below scores only directly equivalent measured fields.",
+   "edge": 45,
+   "specs": [
+    {
+     "l": "Calibre",
+     "cv": "155/52",
+     "cn": 155,
+     "kv": "155mm / 39 Cal",
+     "kn": 155,
+     "u": "mm",
+     "hi": null,
+     "p": "s",
+     "kp": "s"
+    },
+    {
+     "l": "Max range",
+     "cv": "40+ (55 guided)",
+     "cn": null,
+     "kv": "30 km (ERFB-BB)",
+     "kn": 30,
+     "u": "",
+     "hi": null,
+     "p": "s",
+     "kp": "s"
+    },
+    {
+     "l": "Weight",
+     "cv": "17.7",
+     "cn": 17.7,
+     "kv": "18 t",
+     "kn": 18000,
+     "hi": false,
+     "p": "s",
+     "kp": "s"
+    },
+    {
+     "l": "Rate of fire",
+     "cv": "6 rds/min",
+     "cn": 6,
+     "kv": "not published",
+     "kn": null,
+     "u": "",
+     "hi": null,
+     "p": "s",
+     "kp": "s"
+    },
+    {
+     "l": "Loading",
+     "cv": "manual",
+     "cn": null,
+     "kv": "no published figure",
+     "kn": null,
+     "u": "",
+     "hi": null,
+     "p": "s",
+     "kp": "s"
+    },
+    {
+     "l": "Mobility",
+     "cv": "90km/h, 600km road",
+     "cn": 90,
+     "kv": "4x4 wheeled, 18 rds Zone 5",
+     "kn": null,
+     "u": "",
+     "hi": null,
+     "p": "s",
+     "kp": "s"
+    },
+    {
+     "l": "Crew",
+     "cv": "3-5",
+     "cn": 3,
+     "kv": "6 (2+4 armoured cab)",
+     "kn": 6,
+     "hi": false,
+     "p": "s",
+     "kp": "s"
+    }
+   ],
+   "advComp": [
+    "Leads on Crew (3-5)",
+    "KNDS — established maker in this class",
+    "PzH 2000, Caesar, Boxer house; Europe's land-systems consolidator"
+   ],
+   "advBf": [
+    "Indigenous IP + forged barrel; made-in-India; lower unit cost",
+    "155/39 on 4x4; shoot-and-scoot strength; US export interest"
+   ],
+   "det": [
+    [
+     "Competitor",
+     "KNDS"
+    ],
+    [
+     "HQ / origin",
+     "France"
+    ],
+    [
+     "Category",
+     "Artillery"
+    ],
+    [
+     "KSSL counterpart",
+     "MArG 155"
+    ],
+    [
+     "Joint venture / partner",
+     "Includes Nexter + KMW (RCH-155 with KMW)"
+    ],
+    [
+     "Provenance",
+     "Open published sources"
+    ]
+   ],
+   "verdictH": "Positioning verdict · Artillery",
+   "verdict": "<b>Near-parity on measured specs.</b> CAESAR 6x6 and KSSL's MArG 155 trade leads evenly.",
+   "catKey": "art"
+  },
+  "2": {
+   "cat": "Artillery",
+   "anchor": "ATAGS",
+   "global": true,
+   "dir": "hold",
+   "country": "France",
+   "comp": "KNDS · CAESAR 6x6",
+   "compBy": "KNDS",
+   "bf": "KSSL · ATAGS",
+   "bfBy": "Kalyani Strategic Systems",
+   "ks_thin": false,
+   "reason": "<b>CAESAR 6x6</b> (KNDS) is matched against KSSL's <b>ATAGS</b> because both are 155mm/52 towed artillery pieces in the same role and weight class. Specifications for both sides are drawn from open published sources; the comparison below scores only directly equivalent measured fields.",
+   "edge": 63,
+   "specs": [
+    {
+     "l": "Calibre",
+     "cv": "155/52",
+     "cn": 155,
+     "kv": "155/52",
+     "kn": 155,
+     "hi": null,
+     "p": "s"
+    },
+    {
+     "l": "Max range",
+     "cv": "40+ (55 guided)",
+     "cn": null,
+     "kv": "48.07 km",
+     "kn": 48.07,
+     "u": "",
+     "hi": null,
+     "p": "s",
+     "kp": "s"
+    },
+    {
+     "l": "Weight",
+     "cv": "17.7",
+     "cn": 17.7,
+     "kv": "18 t",
+     "kn": 18000,
+     "hi": false,
+     "p": "s",
+     "kp": "s"
+    },
+    {
+     "l": "Rate of fire",
+     "cv": "6 rds/min",
+     "cn": 6,
+     "kv": "6 rds/30s burst",
+     "kn": null,
+     "u": "",
+     "hi": null,
+     "p": "s"
+    },
+    {
+     "l": "Loading",
+     "cv": "manual",
+     "cn": null,
+     "kv": "automatic (AHS), Zone 7",
+     "kn": null,
+     "u": "",
+     "hi": null,
+     "p": "s",
+     "kp": "s"
+    },
+    {
+     "l": "Mobility",
+     "cv": "90km/h, 600km",
+     "cn": 90,
+     "kv": "towed, SP 18 km/h, tow 80",
+     "kn": 18,
+     "u": "",
+     "hi": null,
+     "p": "s",
+     "kp": "s"
+    },
+    {
+     "l": "Crew",
+     "cv": "3-5",
+     "cn": 3,
+     "kv": "6-8",
+     "kn": 6,
+     "hi": false,
+     "p": "s",
+     "kp": "s"
+    }
+   ],
+   "advComp": [
+    "Leads on Crew (3-5)",
+    "KNDS — established maker in this class",
+    "PzH 2000, Caesar, Boxer house; Europe's land-systems consolidator"
+   ],
+   "advBf": [
+    "Indigenous IP + forged barrel; made-in-India; lower unit cost",
+    "DRDO co-developed 155/52; 48 km range lead; Armenia first export"
+   ],
+   "det": [
+    [
+     "Competitor",
+     "KNDS"
+    ],
+    [
+     "HQ / origin",
+     "France"
+    ],
+    [
+     "Category",
+     "Artillery"
+    ],
+    [
+     "KSSL counterpart",
+     "ATAGS"
+    ],
+    [
+     "Joint venture / partner",
+     "Includes Nexter + KMW (RCH-155 with KMW)"
+    ],
+    [
+     "Provenance",
+     "Open published sources"
+    ]
+   ],
+   "verdictH": "Positioning verdict · Artillery",
+   "verdict": "<b>KSSL leads on measured specs.</b> KSSL's ATAGS leads CAESAR 6x6 on 2 of 3 compared fields. Real specs both sides.",
+   "catKey": "art"
+  }
+ },
+ "details": {
+  "ti12": {
+   "rank": "Technology Signal · 01",
+   "dir": "threat",
+   "title": "FN Browning to acquire Accuracy International (precision rifles)",
+   "facts": [
+    [
+     "Company",
+     "FN Browning Group"
+    ],
+    [
+     "Category",
+     "Small Arms"
+    ],
+    [
+     "Date",
+     "28 May 2026"
+    ],
+    [
+     "Primary lens",
+     "Competitive"
+    ]
+   ],
+   "what": "FN Browning Group and Accuracy International entered a strategic acquisition agreement (28 May 2026), pending regulatory approval; AI retains its brand and UK+US manufacturing. Tied to UK MoD sovereign small-arms procurement into the 2030s.",
+   "why": "A KSSL sniper-class rival (Accuracy International, maker of the AW/AXMC) is being absorbed into the larger FN Browning Group — consolidating precision-rifle capability under a better-resourced prime with global distribution. Deal announced 28 May 2026, still subject to regulatory approval.",
+   "lens": [
+    [
+     "CHANNEL / PARTNER",
+     "AI retains its own brand, engineering and UK+US manufacturing under FN — and the deal is explicitly tied to UK MoD sovereign small-arms procurement into the 2030s, locking a major channel KSSL's sniper would find hard to enter."
+    ],
+    [
+     "COMPETITIVE",
+     "FN gains a precision-rifle foothold it lacked since the Ballista project; the combined portfolio is a stronger export competitor in KSSL's sniper/DMR class."
+    ],
+    [
+     "TRAJECTORY",
+     "Small-arms consolidation is accelerating (FN+AI, Adani+IWI licences, Zen+TISA) — KSSL is entering a segment that is professionalising and concentrating."
+    ]
+   ],
+   "actions": [
+    [
+     "Counter",
+     "Brief BD on this move; assess KSSL position in the affected category before the next bid cycle."
+    ],
+    [
+     "Channel",
+     "Map whether KSSL can supply into or partner on this — may be an opening, not only a threat."
+    ]
+   ],
+   "url": "https://fnherstal.com/en/news/fn-browning-group-and-accuracy-internationalannounce-a-strategic-acquisition-agreement/",
+   "suggest": [
+    "What does this mean for KSSL?",
+    "What should KSSL do here?",
+    "Show the full-spectrum read"
+   ]
+  },
+  "ti3": {
+   "rank": "Technology Signal · 02",
+   "dir": "threat",
+   "title": "UK orders remote-controlled RCH-155 howitzers (£1.35bn)",
+   "facts": [
+    [
+     "Company",
+     "KNDS / Rheinmetall"
+    ],
+    [
+     "Category",
+     "Artillery"
+    ],
+    [
+     "Date",
+     "13 May 2026"
+    ],
+    [
+     "Primary lens",
+     "Market / Demand"
+    ]
+   ],
+   "what": "The UK MoD ordered 72 RCH-155 remote-controlled wheeled howitzers (13 May 2026) via OCCAR/ARTEC, valued near £1bn (~$1.35bn). First deliveries 2028; replaces AS-90 fleet donated to Ukraine.",
+   "why": "£1.35bn order confirms strong NATO pull for remote-controlled wheeled 155mm — the exact mounted-gun class KSSL's MArG targets for export.",
+   "lens": [
+    [
+     "COMPETITIVE",
+     "RCH-155 (already a KSSL platform competitor) gains a flagship Western reference customer, hardening its export credibility vs KSSL."
+    ],
+    [
+     "BENCHMARK",
+     "Sets the remote-turret/autonomy bar for mounted guns; KSSL's manually-crewed MArG looks a generation behind on this axis."
+    ]
+   ],
+   "actions": [
+    [
+     "Counter",
+     "Brief BD on this move; assess KSSL position in the affected category before the next bid cycle."
+    ],
+    [
+     "Benchmark",
+     "Re-check KSSL pricing/spec against the new reference this sets."
+    ]
+   ],
+   "url": "https://www.reuters.com/business/aerospace-defense/uk-spend-135-billion-new-howitzers-british-army-2026-05-13/",
+   "suggest": [
+    "What does this mean for KSSL?",
+    "What should KSSL do here?",
+    "Show the full-spectrum read"
+   ]
+  }
+ },
+ "overviewConfig": {
+  "competitive": {
+   "title": "Competitive Intelligence",
+   "cnt": "12 competitor moves · multi-lens · sorted threats first",
+   "metrics": [
+    {
+     "act": "threat",
+     "l": "Competitive threats",
+     "dot": "var(--threat)",
+     "v": "6",
+     "sub": "rivals scaling in KSSL space"
+    },
+    {
+     "act": "watch",
+     "l": "Watch signals",
+     "v": "6",
+     "sub": "trajectory / consolidation"
+    },
+    {
+     "act": "all",
+     "l": "Companies tracked",
+     "v": "12",
+     "sub": "real 2026 movements"
+    },
+    {
+     "act": "all",
+     "l": "Analytical lenses",
+     "v": "9",
+     "sub": "full-spectrum read per move"
+    },
+    {
+     "act": "all",
+     "l": "All signals",
+     "v": "12",
+     "sub": "reset feed"
+    }
+   ],
+   "groups": [
+    {
+     "n": 6,
+     "h": "Priority — Competitive Threats",
+     "s": "— rivals winning scale in KSSL categories"
+    },
+    {
+     "n": 99,
+     "h": "Competitive Movement",
+     "s": "— adjacency moves, consolidation, emerging rivals"
+    }
+   ],
+   "dirWord": {
+    "threat": "Threat",
+    "watch": "Watch",
+    "fav": "Favourable"
+   },
+   "filters": [
+    {
+     "f": "all",
+     "l": "All"
+    },
+    {
+     "f": "threat",
+     "l": "Threat",
+     "c": "var(--threat)"
+    },
+    {
+     "f": "watch",
+     "l": "Watch",
+     "c": "var(--watch)"
+    }
+   ]
+  },
+  "market": {
+   "title": "Market Intelligence",
+   "cnt": "6 demand signals · sorted by urgency",
+   "metrics": [
+    {
+     "act": "atstake",
+     "l": "Live bid value",
+     "v": "73,895",
+     "unit": "cr",
+     "sub": "open tenders · foreign values converted to ₹"
+    },
+    {
+     "act": "fav",
+     "l": "Open opportunities",
+     "dot": "var(--fav)",
+     "v": "7",
+     "sub": "demand KSSL can still pursue"
+    },
+    {
+     "act": "deadline",
+     "l": "Already concluded",
+     "dot": "var(--threat)",
+     "v": "15",
+     "sub": "of 22 tracked — awarded, not biddable"
+    },
+    {
+     "act": "all",
+     "l": "Markets tracked",
+     "v": "14",
+     "sub": "countries · 7 categories"
+    },
+    {
+     "act": "all",
+     "l": "All signals",
+     "v": "6",
+     "sub": "reset feed"
+    }
+   ],
+   "groups": [
+    {
+     "n": 3,
+     "h": "Live Opportunities",
+     "s": "— open tenders & demand KSSL can act on now"
+    },
+    {
+     "n": 99,
+     "h": "Emerging Demand",
+     "s": "— market signals to track for future bids"
+    }
+   ],
+   "dirWord": {
+    "threat": "Urgent",
+    "watch": "Emerging",
+    "fav": "Opportunity"
+   },
+   "filters": [
+    {
+     "f": "all",
+     "l": "All"
+    },
+    {
+     "f": "fav",
+     "l": "Opportunities",
+     "c": "var(--fav)"
+    },
+    {
+     "f": "threat",
+     "l": "Live Bids",
+     "c": "var(--threat)"
+    },
+    {
+     "f": "watch",
+     "l": "Emerging Demand",
+     "c": "var(--watch)"
+    }
+   ]
+  }
+ },
+ "tenders": [
+  {
+   "id": 1,
+   "title": "155mm 52-cal Mounted Gun System",
+   "issuer": "Ministry of Defence",
+   "country": "India",
+   "cat": "Artillery",
+   "value": "~₹6,500 cr",
+   "qty": "100 units",
+   "deadline": "9 days",
+   "dl": 9,
+   "reqNote": "Truck-mounted 155mm/52 gun system for rapid deployment, ≥45 km range, with a phased plan to build a majority of the system inside India.",
+   "req": [
+    [
+     "System",
+     "155mm / 52-cal mounted gun"
+    ],
+    [
+     "Quantity",
+     "100 units + 10-yr support"
+    ],
+    [
+     "Range",
+     "≥ 45 km"
+    ],
+    [
+     "Rate of fire",
+     "≥ 5 rds/min"
+    ],
+    [
+     "Made-in-India share",
+     "≥ 50% of build value"
+    ],
+    [
+     "Vendor eligibility",
+     "DAP-2020 compliant"
+    ]
+   ],
+   "matches": [
+    {
+     "n": "ATAGS / Bharat 52",
+     "fit": "partial",
+     "pct": "62%",
+     "lines": [
+      [
+       "up",
+       "ATAGS 48.07 km clears the 45 km bar (KSSL sheet)"
+      ],
+      [
+       "up",
+       "155mm/52-cal calibre length matches the requirement"
+      ],
+      [
+       "down",
+       "Requirement is truck-MOUNTED; ATAGS and Bharat 52 are towed"
+      ],
+      [
+       "down",
+       "MArG 155 is the mounted gun but 39-cal, 30 km - below the bar"
+      ],
+      [
+       "down",
+       "No published sustained rate of fire; sheets state burst only"
+      ],
+      [
+       "down",
+       "Indigenous share ~42% today - below the 50% bar"
+      ]
+     ]
+    }
+   ],
+   "lean": "maybe",
+   "leanTxt": "<b>Partial fit - qualify before committing.</b> ATAGS meets the calibre and range bar on KSSL's own published figures, but the requirement is for a truck-mounted system and ATAGS is towed; the mounted product, MArG 155, is a 39-cal gun that does not reach 45 km. Closing this needs a mounted 52-cal answer plus the indigenous-content gap, not a repackaging of the existing line.",
+   "status": "open",
+   "url": "https://www.janes.com/osint-insights/defence-news/defence/india-clears-acquisition-of-mounted-gun-system",
+   "urlKind": "notice",
+   "srcs": [
+    {
+     "label": "Janes",
+     "url": "https://www.janes.com/osint-insights/defence-news/defence/india-clears-acquisition-of-mounted-gun-system"
+    }
+   ],
+   "stage": "AoN cleared · RFP stage"
+  },
+  {
+   "id": 2,
+   "title": "8×8 Wheeled Armoured Fighting Vehicle",
+   "issuer": "MoD · Procurement Wing",
+   "country": "India",
+   "cat": "Protected & Armoured Vehicles",
+   "value": "~₹9,200 cr",
+   "qty": "200 units",
+   "deadline": "22 days",
+   "dl": 22,
+   "reqNote": "Protected mobility platform to STANAG Level 4, amphibious capability preferred, with phased indigenisation of the hull and drivetrain.",
+   "req": [
+    [
+     "Platform",
+     "8×8 wheeled armoured vehicle"
+    ],
+    [
+     "Quantity",
+     "200 units"
+    ],
+    [
+     "Protection",
+     "STANAG Level 4"
+    ],
+    [
+     "Payload",
+     "≥ 12 t"
+    ],
+    [
+     "Amphibious",
+     "Preferred (not mandatory)"
+    ],
+    [
+     "Made-in-India share",
+     "≥ 60% of build value"
+    ]
+   ],
+   "matches": [
+    {
+     "n": "Kalyani M4 / Maverick",
+     "fit": "high",
+     "pct": "82%",
+     "lines": [
+      [
+       "up",
+       "STANAG 4 protection — meets requirement"
+      ],
+      [
+       "up",
+       "~78% indigenous content — exceeds 60%"
+      ],
+      [
+       "down",
+       "Not amphibious — a preferred, not mandatory, item"
+      ]
+     ]
+    }
+   ],
+   "lean": "go",
+   "leanTxt": "<b>Excellent fit, pursue.</b> Meets protection and beats the indigenous-content bar. Position on survivability pedigree and made-in-India share.",
+   "status": "open",
+   "url": "https://www.globalsecurity.org/military/world/india/kestrel.htm",
+   "urlKind": "notice",
+   "srcs": [
+    {
+     "label": "GlobalSecurity (WhAP 8x8 / WH AFV programme)",
+     "url": "https://www.globalsecurity.org/military/world/india/kestrel.htm"
+    }
+   ],
+   "stage": "RFI / pre-RFP stage"
+  }
+ ],
+ "tpAllCountries": [
+  "Armenia",
+  "Brazil"
+ ],
+ "competitors": {
+  "AWEIL": {
+   "name": "AWEIL",
+   "dir": "threat",
+   "sector": "Artillery · Ammunition · Small Arms",
+   "hq": "Kanpur, Uttar Pradesh, India",
+   "threat": "AWEIL - 5 mapped partnership(s), 5 touching KSSL core lines. Lead: DRDO - CORE OVERLAP (artillery): Advanced Weapons and Equipment India Limited gains artillery capability via DRDO — directly contests KSSL's artillery line(s)",
+   "assess": "5/5 core-relevant; 0 OSINT-enriched. Domestic tie; the relevant differentiators are indigenous IP, forging scale and trials-maturity",
+   "updates": "All file relationships mapped (none dropped). Each tagged by KSSL-line relevance.",
+   "center": {
+    "id": "AWEIL",
+    "label": "AWEIL"
+   },
+   "partners": [
+    {
+     "id": "DRDO",
+     "label": "DRDO",
+     "kind": "Domestic",
+     "rel": "tech",
+     "sig": 3,
+     "ptype": "Technology / ToT",
+     "note": "Weapon, artillery and defence-equipment development ecosystem",
+     "date": "n/d",
+     "country": "India",
+     "deal": "n/d",
+     "insight": "<b>[CORE]</b> Weapon, artillery and defence-equipment development ecosystem",
+     "mean": "<b>Threat:</b> CORE OVERLAP (artillery): Advanced Weapons and Equipment India Limited gains artillery capability via DRDO — directly contests KSSL's artillery line(s) <b>Opening:</b> Domestic tie; the relevant differentiators are indigenous IP, forging scale and trials-maturity <b>Dependency:</b> Domestic partner (DRDO) — lower sanctions risk, but shows Advanced Weapons and Equipment India Limited building artillery depth <span style='opacity:.6'>· file-sourced</span>"
+    },
+    {
+     "id": "MUNIT",
+     "label": "Munitions India Limited",
+     "kind": "Domestic",
+     "rel": "tech",
+     "sig": 3,
+     "ptype": "Supply / customer",
+     "note": "Ordnance, ammunition and weapon-system manufacturing ecosystem",
+     "date": "n/d",
+     "country": "India",
+     "deal": "n/d",
+     "insight": "<b>[CORE]</b> Ordnance, ammunition and weapon-system manufacturing ecosystem",
+     "mean": "<b>Threat:</b> CORE OVERLAP (ammunition/propellants): Advanced Weapons and Equipment India Limited gains ammunition/propellants capability via Munitions India Limited — directly contests KSSL's ammunition/propellants line(s) <b>Opening:</b> Domestic tie; the relevant differentiators are indigenous IP, forging scale and trials-maturity <b>Dependency:</b> Domestic partner (Munitions India Limited) — lower sanctions risk, but shows Advanced Weapons and Equipment India Limited building ammunition/propellants depth <span style='opacity:.6'>· file-sourced</span>"
+    },
+    {
+     "id": "INDIA",
+     "label": "Indian Army",
+     "kind": "Domestic",
+     "rel": "supply",
+     "sig": 3,
+     "ptype": "Supply / customer",
+     "note": "Supply of artillery, weapons and military equipment",
+     "date": "n/d",
+     "country": "India",
+     "deal": "n/d",
+     "insight": "<b>[CORE]</b> Supply of artillery, weapons and military equipment",
+     "mean": "<b>Threat:</b> CORE OVERLAP (artillery): Advanced Weapons and Equipment India Limited gains artillery capability via Indian Army — directly contests KSSL's artillery line(s) <b>Opening:</b> Domestic tie; the relevant differentiators are indigenous IP, forging scale and trials-maturity <b>Dependency:</b> Domestic partner (Indian Army) — lower sanctions risk, but shows Advanced Weapons and Equipment India Limited building artillery depth <span style='opacity:.6'>· file-sourced</span>"
+    },
+    {
+     "id": "SAAB",
+     "label": "Saab",
+     "kind": "Foreign OEM",
+     "rel": "tech",
+     "sig": 3,
+     "ptype": "Supplier / Contract",
+     "note": "Manufacture of Carl-Gustaf recoilless rifle weapon system and ammunition in India",
+     "date": "n/d",
+     "country": "Sweden",
+     "deal": "n/d",
+     "insight": "<b>[CORE]</b> Manufacture of Carl-Gustaf recoilless rifle weapon system and ammunition in India",
+     "mean": "<b>Threat:</b> CORE OVERLAP (ammunition/propellants, small arms): Advanced Weapons and Equipment India Limited gains ammunition/propellants, small arms capability via Saab — directly contests KSSL's ammunition/propellants, small arms line(s) <b>Opening:</b> Foreign-IP dependent (Sweden) — export-control/sanctions exposure is a structural factor; the relevant differentiators are indigenous IP, forging scale and trials-maturity <b>Dependency:</b> Saab (Sweden) holds the ammunition/propellants, small arms IP <span style='opacity:.6'>· file-sourced</span>"
+    },
+    {
+     "id": "KALAS",
+     "label": "Kalashnikov Concern / Rosoboronexport",
+     "kind": "Foreign OEM",
+     "rel": "jv",
+     "sig": 3,
+     "ptype": "Joint Venture",
+     "note": "Equity stake in Indo-Russian Rifles Pvt Ltd for AK-203 assault rifle manufacturing",
+     "date": "n/d",
+     "country": "Russia",
+     "deal": "n/d",
+     "insight": "<b>[CORE]</b> Equity stake in Indo-Russian Rifles Pvt Ltd for AK-203 assault rifle manufacturing",
+     "mean": "<b>Threat:</b> CORE OVERLAP (small arms): Advanced Weapons and Equipment India Limited gains small arms capability via Kalashnikov Concern / Rosoboronexport — directly contests KSSL's small arms line(s) <b>Opening:</b> Foreign-IP dependent (Russia) — export-control/sanctions exposure is a structural factor; the relevant differentiators are indigenous IP, forging scale and trials-maturity <b>Dependency:</b> Kalashnikov Concern / Rosoboronexport (Russia) holds the small arms IP <span style='opacity:.6'>· file-sourced</span>"
+    }
+   ],
+   "site": "https://www.aweil.in/",
+   "srcs": [
+    {
+     "label": "AWEIL",
+     "url": "https://www.aweil.in/"
+    }
+   ],
+   "products": [],
+   "threatNote": "5/5 core-relevant; 0 OSINT-enriched."
+  },
+  "AVNL": {
+   "name": "AVNL",
+   "dir": "threat",
+   "sector": "Armoured/Mobility",
+   "hq": "Chennai, Tamil Nadu, India",
+   "threat": "AVNL - 2 mapped partnership(s), 1 touching KSSL core lines. Lead: MIDHANI (Mishra Dhatu Nigam Ltd) - CORE OVERLAP (armoured/protected mobility): Armoured Vehicles Nigam Limited gains armoured/protected mobility capability via MIDHANI (Mishra Dhatu Nigam Ltd) — directly c",
+   "assess": "1/2 core-relevant; 0 OSINT-enriched. Domestic tie; the relevant differentiators are indigenous IP, forging scale and trials-maturity",
+   "updates": "All file relationships mapped (none dropped). Each tagged by KSSL-line relevance.",
+   "center": {
+    "id": "AVNL",
+    "label": "AVNL"
+   },
+   "partners": [
+    {
+     "id": "MIDHA",
+     "label": "MIDHANI (Mishra Dhatu Nigam Ltd)",
+     "kind": "Domestic",
+     "rel": "mou",
+     "sig": 3,
+     "ptype": "Memorandum of Understanding",
+     "note": "MoU for joint design, development and marketing of armoured vehicles",
+     "date": "n/d",
+     "country": "India",
+     "deal": "n/d",
+     "insight": "<b>[CORE]</b> MoU for joint design, development and marketing of armoured vehicles",
+     "mean": "<b>Threat:</b> CORE OVERLAP (armoured/protected mobility): Armoured Vehicles Nigam Limited gains armoured/protected mobility capability via MIDHANI (Mishra Dhatu Nigam Ltd) — directly contests KSSL's armoured/protected mobility line(s) <b>Opening:</b> Domestic tie; the relevant differentiators are indigenous IP, forging scale and trials-maturity <b>Dependency:</b> Domestic partner (MIDHANI (Mishra Dhatu Nigam Ltd)) — lower sanctions risk, but shows Armoured Vehicles Nigam Limited building armoured/protected mobility depth <span style='opacity:.6'>· file-sourced</span>"
+    },
+    {
+     "id": "ROSOB",
+     "label": "Rosoboronexport / High Precision Systems",
+     "kind": "Foreign OEM",
+     "rel": "jv",
+     "sig": 1,
+     "ptype": "Joint Venture (proposed)",
+     "note": "Planned Indo-Russia JV to develop the “Zorawar” light battle tank",
+     "date": "n/d",
+     "country": "Russia",
+     "deal": "n/d",
+     "insight": "<i>[context]</i> Planned Indo-Russia JV to develop the “Zorawar” light battle tank",
+     "mean": "<b>Threat:</b> PERIPHERAL: Armoured Vehicles Nigam Limited-Rosoboronexport / High Precision Systems work (non-core defence/space work) sits outside KSSL's product lines — mapped for completeness of Armoured Vehicles Nigam Limited's partner web, not as a KSSL threat <b>Opening:</b> No direct KSSL overlap; context for understanding Armoured Vehicles Nigam Limited's broader alliances and resource base <b>Dependency:</b> Rosoboronexport / High Precision Systems (Russia) — non-core relationship <span style='opacity:.6'>· file-sourced</span>"
+    }
+   ],
+   "site": "https://avnl.co.in/",
+   "srcs": [
+    {
+     "label": "AVNL",
+     "url": "https://avnl.co.in/"
+    }
+   ],
+   "products": [],
+   "threatNote": "1/2 core-relevant; 0 OSINT-enriched."
+  }
+ },
+ "geoComps": [
+  {
+   "id": "KSSL",
+   "name": "Kalyani Strategic Systems",
+   "dir": "fav",
+   "hq": "India",
+   "isBf": true
+  },
+  {
+   "id": "TATA",
+   "name": "Tata Advanced Systems",
+   "dir": "watch",
+   "hq": "India",
+   "isBf": false
+  }
+ ],
+ "geoData": {
+  "KSSL": {
+   "India": [
+    {
+     "name": "ATAGS / Bharat 52 (155/52)",
+     "c": "bf",
+     "val": "offered",
+     "since": "developed",
+     "qty": "programme",
+     "stage": "Offered / tested",
+     "note": "KSSL artillery — direct overlap with Tata/L&T.",
+     "src": "src",
+     "srcnote": "KSSL portfolio"
+    },
+    {
+     "name": "Kalyani M4 / Maverick",
+     "c": "bf",
+     "val": "in service",
+     "since": "production",
+     "qty": "fielded",
+     "stage": "In production",
+     "note": "MRAP-class protected mobility, deployed incl. LAC.",
+     "src": "src",
+     "srcnote": "KSSL portfolio"
+    },
+    {
+     "name": "Bharat 150 / Omega",
+     "c": "bf",
+     "val": "portfolio",
+     "since": "developing",
+     "qty": "family",
+     "stage": "Portfolio",
+     "note": "KSSL UAV line: Bharat 150 and Omega tactical ISR. AAROK is a Turgis & Gaillard MALE design offered under a 2025 MoU, not a KSSL product.",
+     "src": "src",
+     "srcnote": "KSSL portfolio"
+    },
+    {
+     "name": "Underwater systems / MRAUV",
+     "c": "bf",
+     "val": "contracted",
+     "since": "2025",
+     "qty": "₹2,500mn",
+     "stage": "In delivery",
+     "note": "Navy fast-track order; delivery by Nov 2026. MRAUV is the KSSL underwater product; the GRSE AUV work is a co-development MoU with no designation.",
+     "src": "src",
+     "srcnote": "open-source"
+    }
+   ],
+   "Saudi Arabia": [
+    {
+     "name": "Artillery / forgings (offered)",
+     "c": "ex",
+     "val": "estimate",
+     "since": "estimate",
+     "qty": "estimate",
+     "stage": "Offered",
+     "note": "Illustrative export pitch in a target market.",
+     "src": "syn",
+     "srcnote": ""
+    }
+   ],
+   "Europe": [
+    {
+     "name": "Forgings / components supply",
+     "c": "ex",
+     "val": "estimate",
+     "since": "estimate",
+     "qty": "estimate",
+     "stage": "Export",
+     "note": "KSSL global forgings footprint — an analytical estimate for defence components.",
+     "src": "syn",
+     "srcnote": ""
+    }
+   ]
+  },
+  "TATA": {
+   "India": [
+    {
+     "name": "WhAP 8×8 amphibious ICV",
+     "c": "lp",
+     "val": "n/d",
+     "since": "developed",
+     "qty": "flagship",
+     "stage": "Army evaluation",
+     "note": "Indigenous amphibious 8×8 ICV.",
+     "src": "src",
+     "srcnote": "tataadvancedsystems.com"
+    },
+    {
+     "name": "ALS-50 loitering munition",
+     "c": "lp",
+     "val": "n/d",
+     "since": "2023",
+     "qty": "100 units (IAF)",
+     "stage": "Delivered",
+     "note": "VTOL loitering munition delivered to IAF.",
+     "src": "src",
+     "srcnote": "open-source"
+    },
+    {
+     "name": "Apache fuselages (Boeing)",
+     "c": "lp",
+     "val": "n/d",
+     "since": "2015–25",
+     "qty": "300th delivered",
+     "stage": "In production",
+     "note": "Exclusive global Apache fuselage source.",
+     "src": "src",
+     "srcnote": "Wikipedia/TASL"
+    }
+   ],
+   "USA": [
+    {
+     "name": "Aerostructures (C-130J, F-16, Apache)",
+     "c": "ex",
+     "val": "~$2.8bn (sector)",
+     "since": "ongoing",
+     "qty": "major",
+     "stage": "Export",
+     "note": "Components into Boeing/Lockheed global supply chains.",
+     "src": "src",
+     "srcnote": "open-source"
+    },
+    {
+     "name": "S-92 helicopter cabins (Sikorsky)",
+     "c": "ex",
+     "val": "n/d",
+     "since": "ongoing",
+     "qty": "single-source",
+     "stage": "Export",
+     "note": "Indigenous S-92 cabins to Sikorsky.",
+     "src": "src",
+     "srcnote": "open-source"
+    }
+   ],
+   "Africa": [
+    {
+     "name": "Logistics & armoured vehicles",
+     "c": "ex",
+     "val": "estimate",
+     "since": "stated",
+     "qty": "20+ countries",
+     "stage": "Export",
+     "note": "File states logistics products in 20+ countries; specific markets an analytical estimate.",
+     "src": "syn",
+     "srcnote": ""
+    }
+   ]
+  }
+ },
+ "CAT_META": {
+  "art": {
+   "label": "Artillery",
+   "kw": [
+    "155",
+    "howitzer",
+    "artillery",
+    "atags",
+    "caesar",
+    "pzh",
+    "k9",
+    "vajra",
+    "marg",
+    "trajan",
+    "gun system",
+    "towed",
+    "sph",
+    "rocket",
+    "mlrs",
+    "chunmoo",
+    "puls",
+    "pinaka",
+    "ulh",
+    "105mm"
+   ],
+   "desc": "Towed, mounted and self-propelled guns; rocket artillery."
+  },
+  "ammo": {
+   "label": "Ammunition",
+   "kw": [
+    "ammunition",
+    "ammo",
+    "5.56",
+    "23mm",
+    "fmj",
+    "shell",
+    "round",
+    "propellant",
+    "explosive",
+    "warhead fill",
+    "fuze"
+   ],
+   "desc": "Large- and small-calibre ammunition, explosives and fuzes."
+  }
+ },
+ "counterRules": [
+  {
+   "band": "art",
+   "label": "Artillery",
+   "product": "ATAGS / Bharat 52 (155/52)",
+   "note": "KSSL's towed/mounted 155 — competes on cost, weight & ramjet range."
+  },
+  {
+   "band": "ammo",
+   "label": "Ammunition",
+   "product": "155mm / large-calibre ammunition",
+   "note": "KSSL forged shell bodies — competes on conventional large-calibre cost."
+  }
+ ],
+ "KSSL_CATS": [
+  "Artillery",
+  "Ammunition"
+ ],
+ "KSSL_PARTNERS": [
+  {
+   "id": "RAFAEL",
+   "label": "Rafael Advanced Defense Systems (KRAS JV)",
+   "kind": "Foreign OEM",
+   "rel": "jv",
+   "sig": 3,
+   "ptype": "Missiles & air defence JV partner",
+   "note": "Kalyani Rafael Advanced Systems (KRAS), Hyderabad, makes Spike ATGM sections, MRSAM/Barak-8 kits and Spice bomb assemblies.",
+   "date": "2015",
+   "country": "Israel",
+   "deal": "$100M Rafael order (2022); Rs 287 cr Spike ATGM order (2023)",
+   "insight": "KRAS is KSSL's deepest foreign JV and its entry ticket into precision-guided munitions; it converts Kalyani forging scale into missile-grade manufacturing credibility.",
+   "mean": "<b>Role:</b> KRAS is KSSL's deepest foreign JV and its entry ticket into precision-guided munitions; it converts Kalyani forging scale into missile-grade manufacturing credibility."
+  },
+  {
+   "id": "ELBIT",
+   "label": "Elbit Systems (BF Elbit Advanced Systems)",
+   "kind": "Foreign OEM",
+   "rel": "jv",
+   "sig": 2,
+   "ptype": "Artillery & mortar systems JV",
+   "note": "BF Elbit Advanced Systems JV (2013) brought ATHOS/ATMOS-derived 155mm technology and mortars into the Kalyani artillery portfolio.",
+   "date": "2013",
+   "country": "Israel",
+   "deal": "n/d",
+   "insight": "Elbit tech seeded Kalyani's towed/mounted gun family; the know-how underpins Bharat 52 and the group's claim to be a full-spectrum artillery house.",
+   "mean": "<b>Role:</b> Elbit tech seeded Kalyani's towed/mounted gun family; the know-how underpins Bharat 52 and the group's claim to be a full-spectrum artillery house."
+  }
+ ],
+ "PATENTS": {
+  "techAreas": [
+   "Loitering munitions",
+   "Guided artillery / precision fires",
+   "Rocket artillery (MBRL)",
+   "Armour & protected mobility",
+   "Small arms & ammunition",
+   "Air defence & C-UAS",
+   "Missiles & seekers",
+   "Energetics & propellants",
+   "UAV / ISR platforms"
+  ],
+  "byArea": {
+   "Small Arms": [
+    {
+     "no": "IN-2024-EST01 (est, grant verified)",
+     "title": "Trigger Sensing System for weapon training simulators",
+     "assignee": "Zen Technologies Limited",
+     "status": "granted",
+     "filed": "2022",
+     "granted": "2024-08",
+     "country": "India",
+     "ipc": [
+      "F41A33/00",
+      "G09B9/00"
+     ],
+     "abstract": "Sensor system that detects and characterizes trigger actuation on service weapons for live-simulation training feedback. 17th patent granted to Zen in CY2024.",
+     "area": "Small Arms",
+     "threat": "medium",
+     "relev": "Training ecosystem lock-in around small arms KSSL wants to sell",
+     "url": "https://www.business-standard.com/markets/capital-market-news/zen-technologies-secures-india-patent-for-its-innovative-trigger-sensing-system-124082201303_1.html",
+     "p": "s"
+    },
+    {
+     "no": "IN-EST14 (est)",
+     "title": "Uncooled thermal imaging core and weapon sight architectures",
+     "assignee": "Tonbo Imaging",
+     "status": "filed",
+     "filed": "n/d",
+     "granted": null,
+     "country": "India/USA",
+     "ipc": [
+      "H04N5/33",
+      "F41G1/32"
+     ],
+     "abstract": "Tonbo has filed patents around advanced imaging/sensor processing for surveillance, targeting and guidance payloads.",
+     "area": "Small Arms",
+     "threat": "low",
+     "relev": "Sight/sensor IP KSSL would need for weapon system completeness",
+     "url": "https://www.cbinsights.com/company/tonbo-imaging-patents",
+     "p": "e"
+    }
+   ],
+   "Unmanned Systems & Drones": [
+    {
+     "no": "IN-2025-EST02 (est, grant verified)",
+     "title": "Automated Hard-Kill Firearm Mounting System (counter-drone)",
+     "assignee": "Zen Technologies Limited",
+     "status": "granted",
+     "filed": "2022-10",
+     "granted": "2025",
+     "country": "India",
+     "ipc": [
+      "F41A23/00",
+      "F41H11/02"
+     ],
+     "abstract": "Automated stabilized firearm mount for hard-kill engagement of small UAS; protected until Oct 2042.",
+     "area": "Unmanned Systems & Drones",
+     "threat": "high",
+     "relev": "Anti-drone hard-kill overlaps KSSL gun-based C-UAS ambitions",
+     "url": "https://www.defencestar.in/defence-industry/defence-company/india-zen-technologies-automated-hard-kill-firearm-mounting-system/8785/",
+     "p": "s"
+    },
+    {
+     "no": "EP3386853A1",
+     "title": "Multi-rotor aerial vehicle with single arm failure redundancy",
+     "assignee": "ideaForge Technology",
+     "status": "granted",
+     "filed": "2015-12",
+     "granted": "2021",
+     "country": "EP/India",
+     "ipc": [
+      "B64C27/08",
+      "B64D45/00"
+     ],
+     "abstract": "Multi-rotor UAV architecture that maintains controlled flight after loss of one rotor arm; core ideaForge reliability IP.",
+     "area": "Unmanned Systems & Drones",
+     "threat": "medium",
+     "relev": "Reliability IP raises bar for any KSSL small-UAV entry",
+     "url": "https://patents.google.com/patent/EP3386853A1",
+     "p": "s"
+    },
+    {
+     "no": "US10562625B2",
+     "title": "Drone device (VTOL UAV)",
+     "assignee": "ideaForge Technology Pvt. Ltd.",
+     "status": "granted",
+     "filed": "2016",
+     "granted": "2020-02",
+     "country": "USA",
+     "ipc": [
+      "B64C39/02"
+     ],
+     "abstract": "US-granted design/utility protection for ideaForge VTOL drone configuration; part of a portfolio now at 100 filings and 52 grants globally.",
+     "area": "Unmanned Systems & Drones",
+     "threat": "medium",
+     "relev": "ideaForge patenting in the US targets export markets KSSL eyes",
+     "url": "https://uspto.report/company/Ideaforge-Technology-Pvt-L-T-D",
+     "p": "s"
+    },
+    {
+     "no": "IN-2023-EST09 (est)",
+     "title": "Nagastra-1 loitering munition system and warhead integration",
+     "assignee": "Economic Explosives Ltd (Solar Industries)",
+     "status": "filed",
+     "filed": "2023",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "F42B12/36",
+      "B64C39/02"
+     ],
+     "abstract": "Man-portable loitering munition with warhead developed with DRDO backing and inducted by the Indian Army; representative IP record.",
+     "area": "Unmanned Systems & Drones",
+     "threat": "high",
+     "relev": "Solar beat KSSL to fielded loitering munitions with the Army",
+     "url": "https://digest.groww.in/p/how-solar-industries-broke-into-indias",
+     "p": "e"
+    },
+    {
+     "no": "IN-EST19 (est)",
+     "title": "Carbon-fiber composite UAV airframe co-cured manufacturing",
+     "assignee": "Raphe mPhibr",
+     "status": "filed",
+     "filed": "n/d",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "B29C70/30",
+      "B64C39/02"
+     ],
+     "abstract": "Raphe's vertically integrated composite fabrication (Kevlar, ceramics, honeycomb, 3D printing) for its mR-series UAVs; representative IP record.",
+     "area": "Unmanned Systems & Drones",
+     "threat": "medium",
+     "relev": "Composite mastery challenges Kalyani's materials edge in UAVs",
+     "url": "https://www.raphe.com/",
+     "p": "e"
+    },
+    {
+     "no": "IN-EST20 (est)",
+     "title": "Loitering munition (SkyStriker-derived) production engineering",
+     "assignee": "Adani Defence & Aerospace",
+     "status": "filed",
+     "filed": "n/d",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "B64C39/02",
+      "F42B12/36"
+     ],
+     "abstract": "Adani-Elbit Hyderabad line produces SkyStriker loitering munitions and Hermes UAV aerostructures; representative record of localized process IP.",
+     "area": "Unmanned Systems & Drones",
+     "threat": "high",
+     "relev": "Adani fields loitering munitions the Army has already bought",
+     "url": "https://www.adanidefence.com/",
+     "p": "e"
+    }
+   ],
+   "Artillery Systems": [
+    {
+     "no": "IN-2025-EST03 (est, grant verified)",
+     "title": "60 mm Mortar Simulator",
+     "assignee": "Zen Technologies Limited",
+     "status": "granted",
+     "filed": "n/d",
+     "granted": "2025-12",
+     "country": "India",
+     "ipc": [
+      "G09B9/00"
+     ],
+     "abstract": "Complete training solution for high-angle-fire weapons; 8th Indian patent granted to Zen in 2025, taking it to 57 Indian / 85 global patents.",
+     "area": "Artillery Systems",
+     "threat": "medium",
+     "relev": "Simulator moat around mortar/artillery training adjacent to KSSL guns",
+     "url": "https://www.business-standard.com/amp/markets/news/zen-technologies-gets-indian-patent-for-60-mm-mortar-simulator-stock-up-2-125122300183_1.html",
+     "p": "s"
+    },
+    {
+     "no": "IN-EST12 (est)",
+     "title": "Electro-optical fire-control and sighting system for artillery/AFVs",
+     "assignee": "Bharat Electronics Limited",
+     "status": "granted",
+     "filed": "n/d",
+     "granted": "n/d",
+     "country": "India",
+     "ipc": [
+      "F41G3/06"
+     ],
+     "abstract": "Representative BEL electro-optics/fire-control patent family; BEL supplies sights and FCS across Indian artillery and armour programs.",
+     "area": "Artillery Systems",
+     "threat": "medium",
+     "relev": "Controls the electronics layer of KSSL's own gun platforms",
+     "url": "https://insights.greyb.com/bharat-electronics-patents/",
+     "p": "e"
+    },
+    {
+     "no": "IN-EST17 (est)",
+     "title": "Automated ammunition-handling and loading system for 155mm SP guns",
+     "assignee": "Larsen & Toubro Limited",
+     "status": "filed",
+     "filed": "n/d",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "F41A9/00"
+     ],
+     "abstract": "Representative of L&T's engineering IP from K9 Vajra co-production (hull, turret, handling systems, >50% indigenization).",
+     "area": "Artillery Systems",
+     "threat": "high",
+     "relev": "L&T is KSSL's principal artillery rival with a fielded SP gun",
+     "url": "",
+     "p": "e"
+    }
+   ],
+   "Armoured & Protected Vehicles": [
+    {
+     "no": "IN-2025-EST04 (est, grant verified)",
+     "title": "Containerized Driving Simulator System for T-90 tank (T-90 DS)",
+     "assignee": "Zen Technologies Limited",
+     "status": "granted",
+     "filed": "2022-03",
+     "granted": "2025-03",
+     "country": "India",
+     "ipc": [
+      "G09B9/04"
+     ],
+     "abstract": "Portable containerized high-fidelity driving simulator replicating T-90 MBT operation; third T-90 simulator patent, valid to March 2042.",
+     "area": "Armoured & Protected Vehicles",
+     "threat": "medium",
+     "relev": "Owns armoured-crew training layer for platforms KSSL/AVNL support",
+     "url": "https://idrw.org/zen-technologies-secures-third-patent-for-t-90-tank-simulator/",
+     "p": "s"
+    },
+    {
+     "no": "IN-2024-EST05 (est, grant verified)",
+     "title": "T-90 Basic Gunnery Simulator (BGS) and Crew Gunnery Simulator (CGS)",
+     "assignee": "Zen Technologies Limited",
+     "status": "granted",
+     "filed": "n/d",
+     "granted": "2024",
+     "country": "India",
+     "ipc": [
+      "G09B9/00"
+     ],
+     "abstract": "Patented gunnery training simulators for T-90 crews, part of Zen's tank-simulation family.",
+     "area": "Armoured & Protected Vehicles",
+     "threat": "medium",
+     "relev": "Entrenches Zen in Army armoured training budgets",
+     "url": "https://www.angelone.in/news/zen-technologies-secures-patent-for-t90-simulator",
+     "p": "s"
+    },
+    {
+     "no": "IN-2024-EST06 (est, grant verified)",
+     "title": "T-72 Tank Simulator",
+     "assignee": "Zen Technologies Limited",
+     "status": "granted",
+     "filed": "n/d",
+     "granted": "2024",
+     "country": "India",
+     "ipc": [
+      "G09B9/04"
+     ],
+     "abstract": "Simulator patents tailored to T-72 and BMP-II crew training variants.",
+     "area": "Armoured & Protected Vehicles",
+     "threat": "low",
+     "relev": "Legacy-fleet training adjacency to KSSL BMP upgrade plays",
+     "url": "https://defence.in/threads/zen-technologies-secures-patent-for-advanced-t-72-tank-simulator-strengthening-indias-defence-training-capabilities.12340/",
+     "p": "s"
+    },
+    {
+     "no": "IN-EST22 (est)",
+     "title": "Modular vehicle armouring cabin and ballistic kit integration",
+     "assignee": "JCBL Armouring Solutions",
+     "status": "filed",
+     "filed": "n/d",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "F41H7/04"
+     ],
+     "abstract": "Representative record of JCBL's CEN BR6/BR7-certified armouring integration on Ashok Leyland and Tata platforms using SSAB Armox steels.",
+     "area": "Armoured & Protected Vehicles",
+     "threat": "low",
+     "relev": "Low-end armouring competitor to Kalyani M4/MPV segment",
+     "url": "https://jcblarmouringsolutions.com/",
+     "p": "e"
+    }
+   ],
+   "Armour & Protection Materials": [
+    {
+     "no": "WO2009047795A2",
+     "title": "Bolt Free Helmet",
+     "assignee": "MKU Pvt. Ltd.",
+     "status": "granted",
+     "filed": "2008-10",
+     "granted": null,
+     "country": "India (PCT)",
+     "ipc": [
+      "F41H1/04"
+     ],
+     "abstract": "Ballistic helmet construction eliminating through-shell bolts to remove weak points and reduce trauma; basis of MKU's patented bolt-free helmet line.",
+     "area": "Armour & Protection Materials",
+     "threat": "medium",
+     "relev": "Personal armour IP in a segment KSSL touches via protection materials",
+     "url": "https://patents.google.com/patent/WO2009047795A2",
+     "p": "s"
+    },
+    {
+     "no": "US2016/0187104A1",
+     "title": "Trauma Resistant Anti-Ballistic Helmet (TRABH)",
+     "assignee": "MKU Pvt. Ltd.",
+     "status": "filed",
+     "filed": "2015",
+     "granted": null,
+     "country": "USA",
+     "ipc": [
+      "F41H1/04"
+     ],
+     "abstract": "Helmet with shell, back-face-deformation shields and ballistic fabric sheet to cut behind-helmet blunt trauma (RHT technology).",
+     "area": "Armour & Protection Materials",
+     "threat": "medium",
+     "relev": "Shows Indian armour players filing abroad; export competition signal",
+     "url": "https://www.freepatentsonline.com/y2016/0187104.html",
+     "p": "s"
+    },
+    {
+     "no": "IN-EST15 (est)",
+     "title": "Lightweight ceramic-composite ballistic armour plate",
+     "assignee": "SMPP Limited",
+     "status": "filed",
+     "filed": "n/d",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "F41H5/04"
+     ],
+     "abstract": "Representative record for SMPP's boron-carbide/ceramic body armour and vehicle armour products supplied at scale to Indian forces and UN.",
+     "area": "Armour & Protection Materials",
+     "threat": "medium",
+     "relev": "Competes with Kalyani armour materials business",
+     "url": "https://smgroupindia.com/",
+     "p": "e"
+    }
+   ],
+   "Ammunition & Explosives": [
+    {
+     "no": "IN-2024-EST07 (est)",
+     "title": "SEBEX 2 high-energy HMX-based castable explosive composition",
+     "assignee": "Economic Explosives Ltd (Solar Industries)",
+     "status": "filed",
+     "filed": "2024",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "C06B25/34"
+     ],
+     "abstract": "Indigenous explosive formulation with TNT equivalence of 2.01, certified June 2024, for higher-lethality warheads, bombs and 155mm shells. Patent status representative; formulation and certification are documented.",
+     "area": "Ammunition & Explosives",
+     "threat": "high",
+     "relev": "Directly boosts Solar's 155mm ammunition edge against KSSL shells",
+     "url": "https://www.indiatvnews.com/news/india/solar-industries-develops-indigenous-game-changing-explosives-for-indian-armed-forces-sebex-2-2024-07-02-939819",
+     "p": "e"
+    },
+    {
+     "no": "IN-2024-EST08 (est)",
+     "title": "SITBEX-1 / SIMEX-4 thermobaric and insensitive munition explosives",
+     "assignee": "Economic Explosives Ltd (Solar Industries)",
+     "status": "filed",
+     "filed": "2024",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "C06B25/00"
+     ],
+     "abstract": "Thermobaric and insensitive-munition formulations developed alongside SEBEX 2, including performance explosives for the Indian Navy.",
+     "area": "Ammunition & Explosives",
+     "threat": "high",
+     "relev": "Broadens Solar's energetic-materials moat KSSL must buy or match",
+     "url": "https://www.thehitavada.com/Encyc/2024/7/1/Solar-Industries-develops-performance-explosives-for-Indian-Navy.html",
+     "p": "e"
+    },
+    {
+     "no": "IN-2025-EST16 (est)",
+     "title": "Counter-UAV hard-kill ammunition (proximity-fragmentation round)",
+     "assignee": "Munitions India Limited (with Astr Defence)",
+     "status": "filed",
+     "filed": "2025",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "F42B12/00"
+     ],
+     "abstract": "MIL-Astr Defence partnership (Aero India 2025) to co-develop counter-UAV munitions and next-generation rounds; representative IP record.",
+     "area": "Ammunition & Explosives",
+     "threat": "medium",
+     "relev": "DPSU pushing into smart ammunition where KSSL wants premium share",
+     "url": "",
+     "p": "e"
+    }
+   ],
+   "Missiles & Precision Guidance": [
+    {
+     "no": "IN-EST10 (est)",
+     "title": "Solid propellant grain and motor casing processing for MR-SAM/LR-SAM",
+     "assignee": "Premier Explosives Limited",
+     "status": "filed",
+     "filed": "n/d",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "C06B21/00"
+     ],
+     "abstract": "Process know-how for large solid propellant grains under IAI/Rafael technology-transfer agreements; representative record of PEL proprietary processes.",
+     "area": "Missiles & Precision Guidance",
+     "threat": "medium",
+     "relev": "PEL owns propellant niche adjacent to KRAS missile work",
+     "url": "https://www.pelgel.com/",
+     "p": "e"
+    },
+    {
+     "no": "IN-EST13 (est)",
+     "title": "Missile canisterization and launcher integration mechanisms",
+     "assignee": "Bharat Dynamics Limited",
+     "status": "filed",
+     "filed": "n/d",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "F41F3/04"
+     ],
+     "abstract": "Representative record: BDL works with NRDC on IPR/patent filing for internally developed missile production and launcher technologies.",
+     "area": "Missiles & Precision Guidance",
+     "threat": "medium",
+     "relev": "BDL is the incumbent KRAS challenges in missile integration",
+     "url": "https://nrdcindia.com/NationalProjectDetail/6",
+     "p": "e"
+    }
+   ],
+   "Naval Systems": [
+    {
+     "no": "IN-EST11 (est)",
+     "title": "Naval fire-control radar signal processing methods",
+     "assignee": "Bharat Electronics Limited",
+     "status": "granted",
+     "filed": "n/d",
+     "granted": "n/d",
+     "country": "India",
+     "ipc": [
+      "G01S13/00"
+     ],
+     "abstract": "Representative of BEL's granted Indian patents (13 granted of 216 filings per patent analytics) spanning radar, sonar and EW.",
+     "area": "Naval Systems",
+     "threat": "medium",
+     "relev": "BEL electronics IP is what KSSL must import for fire control",
+     "url": "https://insights.greyb.com/bharat-electronics-patents/",
+     "p": "e"
+    },
+    {
+     "no": "IN-EST21 (est)",
+     "title": "Autonomous unmanned surface vessel navigation and swarm control",
+     "assignee": "Sagar Defence Engineering",
+     "status": "filed",
+     "filed": "n/d",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "B63B35/00",
+      "G05D1/02"
+     ],
+     "abstract": "Matangi USV completed 850 nm autonomous transit under Navy iDEX SPRINT; co-developing weaponized boat swarms with IAI; representative IP record.",
+     "area": "Naval Systems",
+     "threat": "low",
+     "relev": "Marine autonomy niche where KSSL has no current play",
+     "url": "",
+     "p": "e"
+    }
+   ],
+   "Precision Manufacturing & Forging": [
+    {
+     "no": "IN-EST18 (est)",
+     "title": "Shell forging and cartridge-case deep-draw manufacturing process",
+     "assignee": "Yantra India Limited",
+     "status": "filed",
+     "filed": "n/d",
+     "granted": null,
+     "country": "India",
+     "ipc": [
+      "B21K21/06"
+     ],
+     "abstract": "Representative record of YIL process know-how in shell casings, steel forgings and rotating bands for T-90/T-72 fleet ammunition hardware.",
+     "area": "Precision Manufacturing & Forging",
+     "threat": "medium",
+     "relev": "Direct DPSU overlap with Bharat Forge's core forging franchise",
+     "url": "",
+     "p": "e"
+    }
+   ]
+  }
+ },
+ "techAreaMeta": {
+  "artillery": {
+   "area": "Artillery",
+   "desc": "6 sourced technology developments relevant to KSSL programmes.",
+   "maturity": "in development",
+   "position": "parity",
+   "trend": "rising",
+   "reason": "Position is from the sourced competitor developments and the corresponding KSSL capability on file.",
+   "why": "Track: Ramjet-assisted 155mm projectile (for ATAGS); 307-unit ATAGS domestic induction; Ultra-light & lighter towed gun (TGS) class."
+  },
+  "armoured": {
+   "area": "Armoured",
+   "desc": "4 sourced technology developments relevant to KSSL programmes.",
+   "maturity": "in development",
+   "position": "parity",
+   "trend": "rising",
+   "reason": "Position is from the sourced competitor developments and the corresponding KSSL capability on file.",
+   "why": "Track: Indigenous hard-kill Active Protection System (APS); Lighter composite & modular armour; Protected mobility induction (M4 / Maverick / mine-protected)."
+  }
+ },
+ "sourceRegistry": [
+  {
+   "company": "AWEIL",
+   "label": "AWEIL",
+   "url": "https://www.aweil.in/",
+   "kind": "company_site"
+  },
+  {
+   "company": "AVNL",
+   "label": "AVNL",
+   "url": "https://avnl.co.in/",
+   "kind": "company_site"
+  }
+ ],
+ "companySources": {
+  "AWEIL": [
+   "https://www.aweil.in/"
+  ],
+  "AVNL": [
+   "https://avnl.co.in/"
+  ]
+ },
+ "chatSuggest": {
+  "overview": [
+   "Who competes with KSSL in artillery?",
+   "Which tenders fit KSSL best?",
+   "Where is KSSL behind on technology?"
+  ],
+  "positioning": [
+   "How does ATAGS compare on range?",
+   "Which rival leads in armoured vehicles?"
+  ]
+ },
+ "overviewMetrics": {
+  "competitive": [],
+  "market": []
+ }
+}

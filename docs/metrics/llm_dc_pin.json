@@ -1,0 +1,48 @@
+{
+  "label": "datacentre 20-29 pinned, crawl running",
+  "cores_visible": 40,
+  "prompt_chars": 2820,
+  "npredict": 600,
+  "results": [
+    {
+      "model": "qwen2.5:7b",
+      "runs": [
+        {
+          "ok": true,
+          "call_s": 571.43,
+          "load_s": 403.27,
+          "prompt_tokens": 619,
+          "prompt_tok_s": 9.7,
+          "gen_tokens": 163,
+          "gen_tok_s": 1.57
+        },
+        {
+          "ok": true,
+          "call_s": 102.39,
+          "load_s": 0.0,
+          "prompt_tokens": 619,
+          "prompt_tok_s": 798.33,
+          "gen_tokens": 163,
+          "gen_tok_s": 1.6
+        },
+        {
+          "ok": true,
+          "call_s": 175.1,
+          "load_s": 0.0,
+          "prompt_tokens": 619,
+          "prompt_tok_s": 959.47,
+          "gen_tokens": 163,
+          "gen_tok_s": 1.63
+        }
+      ],
+      "summary": {
+        "cold_load_s": 403.27,
+        "gen_tok_s": 1.61,
+        "prompt_tok_s": 878.9,
+        "call_s": 138.75,
+        "gen_tokens": 163,
+        "rss_gb": 5.5
+      }
+    }
+  ]
+}

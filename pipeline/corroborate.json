@@ -1,0 +1,272 @@
+[
+ {
+  "product": "ASMI",
+  "maker": "Defence Research & Development Organisation",
+  "field": "Effective range",
+  "value": "100-200 m",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "ASMI",
+  "maker": "Defence Research & Development Organisation",
+  "field": "Weight",
+  "value": "~2 kg",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "ATAGS",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Crew",
+  "value": "6-8",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Bharat ULH",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Weight",
+  "value": "6.8 t",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Cobra II",
+  "maker": "Otokar",
+  "field": "Power / speed",
+  "value": "281hp / 110km/h",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Cougar (4x4)",
+  "maker": "Force Protection",
+  "field": "Crew / pax",
+  "value": "2+8",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Dhanush",
+  "maker": "Advanced Weapons and Equipment India Limited",
+  "field": "Crew",
+  "value": "6-8",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Dhanush 155/45",
+  "maker": "Advanced Weapons and Equipment India Limited",
+  "field": "Weight",
+  "value": "13000 kg",
+  "have": [
+   "armyrecognition.com"
+  ]
+ },
+ {
+  "product": "Dhanush-52",
+  "maker": "Advanced Weapons and Equipment India Limited",
+  "field": "Crew",
+  "value": "6-8",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Drishti-10 Starliner",
+  "maker": "Adani Defence & Aerospace",
+  "field": "Payload / ceiling",
+  "value": "450kg / 30000ft, STANAG4671",
+  "have": [
+   "armyrecognition.com"
+  ]
+ },
+ {
+  "product": "Galil ACE",
+  "maker": "Adani Defence & Aerospace",
+  "field": "Effective range",
+  "value": "500 m",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "K9 Thunder",
+  "maker": "Hanwha Aerospace",
+  "field": "Weight",
+  "value": "47",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "K9 Thunder",
+  "maker": "Hanwha Aerospace",
+  "field": "Crew",
+  "value": "5",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "K9 Vajra-T",
+  "maker": "Larsen & Toubro",
+  "field": "Max range",
+  "value": "40+",
+  "have": [
+   "economictimes.indiatimes.com"
+  ]
+ },
+ {
+  "product": "LBPV",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Combat weight",
+  "value": "6 t (min combat GVM)",
+  "have": [
+   "tanks-encyclopedia.com"
+  ]
+ },
+ {
+  "product": "LBPV 4x4",
+  "maker": "Ashok Leyland",
+  "field": "Combat weight",
+  "value": "6000 kg",
+  "have": [
+   "tanks-encyclopedia.com"
+  ]
+ },
+ {
+  "product": "LBPV 4x4",
+  "maker": "Ashok Leyland",
+  "field": "Crew / pax",
+  "value": "2+",
+  "have": [
+   "tanks-encyclopedia.com"
+  ]
+ },
+ {
+  "product": "M4",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Crew / pax",
+  "value": "2+2+6",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Marauder",
+  "maker": "Paramount Group",
+  "field": "Combat weight",
+  "value": "15000 kg",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Marauder",
+  "maker": "Paramount Group",
+  "field": "Crew / pax",
+  "value": "2+8",
+  "have": [
+   "euro-sd.com"
+  ]
+ },
+ {
+  "product": "Marauder",
+  "maker": "Paramount Group",
+  "field": "Power / speed",
+  "value": "300hp / 100km/h",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Negev NG-7 LMG",
+  "maker": "Adani Defence & Aerospace",
+  "field": "Effective range",
+  "value": "1000 m",
+  "have": [
+   "timesofindia.indiatimes.com"
+  ]
+ },
+ {
+  "product": "Nora B-52",
+  "maker": "Yugoimport SDPR",
+  "field": "Weight",
+  "value": "28",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "PzH 2000",
+  "maker": "KNDS",
+  "field": "Crew",
+  "value": "5",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Senator MRAP",
+  "maker": "Roshel",
+  "field": "Power / speed",
+  "value": "330hp / 110km/h",
+  "have": [
+   "armyrecognition.com"
+  ]
+ },
+ {
+  "product": "Stallion Kavach",
+  "maker": "Ashok Leyland",
+  "field": "Combat weight",
+  "value": "12000 kg",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "T-155 Firtina",
+  "maker": "Mechanical and Chemical Industry Corporation",
+  "field": "Crew",
+  "value": "5",
+  "have": [
+   "armyrecognition.com"
+  ]
+ },
+ {
+  "product": "TRG-42 / M10",
+  "maker": "Sako",
+  "field": "Weight",
+  "value": "5.1 kg",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ },
+ {
+  "product": "Trajan",
+  "maker": "Nexter",
+  "field": "Weight",
+  "value": "~13",
+  "have": [
+   "armyrecognition.com"
+  ]
+ },
+ {
+  "product": "WhAP 8x8",
+  "maker": "Tata Advanced Systems",
+  "field": "Combat weight",
+  "value": "24000-26000 kg",
+  "have": [
+   "en.wikipedia.org"
+  ]
+ }
+]

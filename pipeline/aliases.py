@@ -1,0 +1,266 @@
+"""One shared company-identity layer for the KSSL pipeline.
+
+    python aliases.py --demo
+
+The corpus spells one company many ways -- 'Bharat Forge' / 'Bharat Forge Limited' /
+'Kalyani group'; 'Rafael' with Defence and Defense; 'HAL' and 'Hindustan Aeronautics'.
+Every place that compared names grew its own rule (serving_fill._CLIENT substrings,
+enrich_serving.merge_candidates containment, slug equality), so the same firm split
+into parallel profiles, escaped dedupe, or ordered wrongly. This module is the single
+answer both serving_fill.py and enrich_serving.py import:
+
+  * fold(name)       -- casefold + accent-strip + punctuation-collapse + legal-suffix strip
+  * canonical(name)  -- one display name per identity (explicit alias map, then folding)
+  * is_client(name)  -- Kalyani / KSSL / Bharat Forge are ONE identity: the CLIENT GROUP.
+                        Never a rival, never a 'threat', never in the competitor roster.
+  * is_force(name)   -- a country / government / ministry / armed force is NOT a company.
+                        The competitor roster and the partnership sides both refuse one.
+  * is_one_org(name) -- 'X and Y' in a single-organization field is TWO orgs, refused.
+  * same(a, b)       -- identity equality under canonical()
+  * merge(names)     -- spellings -> {canonical: set(spellings)}, canonical first, then
+                        word-boundary containment ('Saab' absorbs 'Saab Bofors Dynamics')
+
+Kept deliberately small: the alias map holds only identities the corpus/reference data
+actually confuses -- it is not a gazetteer.
+"""
+import re
+import unicodedata
+
+CLIENT_CANON = "Kalyani Strategic Systems"
+
+# Any of these appearing in a name marks the CLIENT GROUP (substring on folded text --
+# 'Kalyani group', 'Bharat Forge Ltd', 'KSSL (Kalyani Strategic Systems)' all hit).
+_CLIENT_MARKS = ("kalyani", "kssl", "bharat forge")
+
+# Trailing legal/corporate suffix tokens stripped by fold(); repeated so
+# 'Ltd.' after 'Pvt' also goes. Identity-bearing words (Industries, Group,
+# Aerospace, Dynamics...) are NOT here -- stripping those would merge
+# different firms.
+_SUFFIX = {"limited", "ltd", "pvt", "private", "plc", "inc", "incorporated",
+           "corp", "corporation", "co", "company", "ag", "gmbh", "sa", "ab",
+           "asa", "oyj", "bv", "nv", "spa", "llc", "llp"}
+
+# folded form -> canonical display name. Only pairs the corpus or the reference
+# dataset actually produces.
+ALIASES = {
+    "kalyani strategic systems": CLIENT_CANON,        # client group: one identity
+    "rafael": "Rafael Advanced Defense Systems",
+    "rafael advanced defence systems": "Rafael Advanced Defense Systems",
+    "rafael advanced defense systems": "Rafael Advanced Defense Systems",
+    "hal": "Hindustan Aeronautics",
+    "hindustan aeronautics": "Hindustan Aeronautics",
+    "iai": "Israel Aerospace Industries",
+    "israel aerospace industries": "Israel Aerospace Industries",
+    "l and t": "Larsen & Toubro",
+    "lt": "Larsen & Toubro",
+    "larsen and toubro": "Larsen & Toubro",
+    "tasl": "Tata Advanced Systems",
+    "tata advanced systems": "Tata Advanced Systems",
+    "bel": "Bharat Electronics",
+    "bharat electronics": "Bharat Electronics",
+    "bdl": "Bharat Dynamics",
+    "bharat dynamics": "Bharat Dynamics",
+    "brahmos": "BrahMos Aerospace",
+    "brahmos aerospace": "BrahMos Aerospace",
+    "gdls": "General Dynamics Land Systems",
+    "general dynamics land systems": "General Dynamics Land Systems",
+    "mahindra defence": "Mahindra Defence",
+    "mahindra defense": "Mahindra Defence",
+    "hanwha defense": "Hanwha Aerospace",       # merged into Hanwha Aerospace (2022)
+    "hanwha defence": "Hanwha Aerospace",
+    "hanwha": "Hanwha Aerospace",
+}
+
+
+def fold(name):
+    """'Bharat Forge Ltd.' -> 'bharat forge'; 'Kalyani Straté-gic' loses accents.
+    '&' survives as 'and' so 'L&T' and 'L and T' fold together."""
+    s = unicodedata.normalize("NFKD", str(name or ""))
+    s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+    s = s.replace("&", " and ").replace(".", "")   # 'S.A.' -> 'sa'
+    s = re.sub(r"[^a-z0-9]+", " ", s).strip()
+    toks = s.split()
+    while toks and toks[-1] in _SUFFIX:
+        toks.pop()
+    return " ".join(toks)
+
+
+def is_client(name):
+    """The client group is ONE identity across all its spellings."""
+    return any(m in fold(name) for m in _CLIENT_MARKS)
+
+
+def client_led(text):
+    """Is the CLIENT the actor in this headline, whoever the story is filed under?
+
+    `is_client` reads one company field, and that missed the joint announcements:
+    two cards titled "Kalyani and Paramount unveil Simha 4x4" were filed under
+    "Paramount" and "Paramount Group" and reached the technology feed as rival
+    intelligence. The client group is checked in the FIRST HALF of the headline --
+    naming the actor -- so a genuine rival move that merely mentions the client
+    ("Rheinmetall beats KSSL to a Polish order") is still rival intelligence.
+    """
+    f = fold(text)
+    if not f:
+        return False
+    head = f[: max(12, len(f) // 2)]
+    return any(m in head for m in _CLIENT_MARKS)
+
+
+def canonical(name):
+    """One display name per identity. Unknown names keep their own spelling,
+    minus the legal suffix (original casing preserved token-wise)."""
+    if is_client(name):
+        return CLIENT_CANON
+    f = fold(name)
+    if f in ALIASES:
+        return ALIASES[f]
+    # keep the caller's casing for the surviving tokens
+    kept = [t for t in str(name or "").split()
+            if t.lower().strip(".,()").replace(".", "") not in _SUFFIX]
+    return " ".join(kept) or str(name or "").strip()
+
+
+# A country, a government, a ministry or an armed force is not a company. The profile
+# prompt already says to reply NONE for one, but a prompt is not a gate: 'US Navy' came
+# back as a profiled 'competitor'. Multilingual, because the corpus is (the Swedish
+# 'den brasilianska regeringen' was accepted as a named partner organization).
+_FORCE_RX = re.compile(
+    r"(?<!\w)("
+    r"navy|army|air ?force|armed forces|coast ?guard|marine corps|"
+    r"defence forces|defense forces|national guard|"
+    r"ministry|ministries|ministere|ministero|ministerio|ministerstvo|"
+    r"minist[eè]re|departments? of|department for|"
+    r"government|governments|gouvernement|regierung|regering|regeringen|regeringens|"
+    r"gobierno|governo|hallitus|vlada|rzad|kormany|kormanya|pravitelstvo"
+    r")(?!\w)|"
+    r"\w*minister(?:ium|iet|iat)(?:s|e|en)?(?!\w)", re.I)   # German/Nordic compounds
+
+
+def is_force(name):
+    """A country/government/ministry/armed force -- never a company profile, never a
+    named partner organization. Folded first, so accents and legal suffixes cannot
+    hide the word ('den brasilianska regeringen', 'Ministerstvo obrany')."""
+    f = fold(name)
+    if not f:
+        return False
+    return bool(_FORCE_RX.search(f))
+
+
+def is_one_org(name):
+    """False when a single-organization field holds two ('Kalyani and Paramount',
+    'Arquus and Daimler Truck'). Only the conjunction splits it -- '&' does not,
+    because 'L&T' and 'Kongsberg Defence & Aerospace' are ONE org each."""
+    s = str(name or "").strip()
+    if not s:
+        return False
+    return not re.search(r"\s+(and|und|et|y|e|och|ja|oraz|i)\s+", s, re.I)
+
+
+def has_proper_name(name):
+    """A named organization carries at least one capitalised token (or an
+    alphanumeric designator). 'den brasilianska regeringen' has neither; it is a
+    noun phrase, and the prompt asks for a NAMED organization."""
+    for tok in re.findall(r"[^\W_]+", str(name or ""), re.UNICODE):
+        if tok[:1].isupper() or any(c.isdigit() for c in tok):
+            return True
+    return False
+
+
+def same(a, b):
+    return fold(canonical(a)) == fold(canonical(b)) and bool(fold(a))
+
+
+def _contains_word(short, long_):
+    """word-boundary containment on folded text: 'saab' in 'saab bofors dynamics'
+    but never 'mil' in 'military'."""
+    return re.search(r"(?<!\w)" + re.escape(short) + r"(?!\w)", long_) is not None
+
+
+def merge(names):
+    """spellings -> {canonical: set(original spellings)}. First by canonical(),
+    then a containment pass folds 'Saab Bofors Dynamics' into 'Saab' when the
+    short form (>=4 chars) is a whole-word prefix set of the longer."""
+    by_canon = {}
+    for n in names:
+        if not str(n or "").strip():
+            continue
+        by_canon.setdefault(canonical(n), set()).add(n)
+    out = {}
+    for canon in sorted(by_canon, key=lambda c: (len(fold(c)), c)):
+        fc = fold(canon)
+        home = None
+        for existing in out:
+            fe = fold(existing)
+            if len(fe) >= 4 and fe != fc and _contains_word(fe, fc):
+                home = existing
+                break
+        if home:
+            out[home] |= by_canon[canon]
+        else:
+            out[canon] = set(by_canon[canon])
+    return out
+
+
+def _demo():
+    assert fold("Bharat Forge Limited") == "bharat forge"
+    assert fold("Saab AB") == "saab" and fold("Rafael  Advanced Defence Systems") \
+        == "rafael advanced defence systems"
+    assert fold("L&T") == "l and t"
+    assert fold("Nexter S.A.") == "nexter"
+    assert is_client("Bharat Forge Ltd") and is_client("KSSL") \
+        and is_client("Kalyani Group") and is_client("kalyani strategic systems limited")
+    assert not is_client("Saab") and not is_client("Bharat Electronics")
+    # the client as ACTOR, whatever the company column says
+    assert client_led("Kalyani and Paramount unveil Simha 4x4 multi-purpose platform")
+    assert client_led("KSSL and Paramount unveil Simha 4x4 armoured vehicle")
+    assert client_led("Bharat Forge Develops Advanced Indigenous FICVs")
+    assert not client_led("Rheinmetall Demonstrates FV-014 LM from CML")
+    # ...but a rival's move that merely mentions the client is still rival news
+    assert not client_led("Rheinmetall wins the Polish order that KSSL also bid for")
+    assert not client_led("") and not client_led(None)
+    assert canonical("Bharat Forge Limited") == CLIENT_CANON
+    assert canonical("Kalyani") == CLIENT_CANON
+    assert canonical("Rafael Advanced Defence Systems") \
+        == "Rafael Advanced Defense Systems", "Defence/Defense spellings unify"
+    assert canonical("HAL") == "Hindustan Aeronautics"
+    assert canonical("Saab AB") == "Saab", "unknown names lose only the legal suffix"
+    assert canonical("Unheard-of Corp") == "Unheard-of"
+    assert same("Bharat Forge", "Kalyani Strategic Systems Limited")
+    assert same("Saab", "Saab AB") and not same("Saab", "Thales")
+    assert not same("", "")
+    m = merge({"Bharat Forge", "Bharat Forge Limited", "Kalyani", "Saab",
+               "Saab Bofors Dynamics", "Munitions India"})
+    assert m[CLIENT_CANON] == {"Bharat Forge", "Bharat Forge Limited", "Kalyani"}
+    assert m["Saab"] == {"Saab", "Saab Bofors Dynamics"}, "containment folds"
+    assert "Munitions India" in m
+    assert canonical("Hanwha Defense") == canonical("Hanwha Aerospace"),         "the corpus splits Hanwha two ways"
+    # a country / government / ministry / armed force is not a company (audit M9/M10)
+    assert is_force("US Navy") and is_force("Indian Army") and is_force("U.S. Air Force")
+    assert is_force("Ministry of Defence") and is_force("Ministerstvo obrany")
+    assert is_force("US Department of State") and is_force("Department for Transport")
+    assert is_force("den brasilianska regeringen"), "the Swedish 'the Brazilian government'"
+    assert is_force("Bundesministerium der Verteidigung"), "German compounds fold in too"
+    assert not is_force("Saab") and not is_force("Bharat Forge")         and not is_force("Northrop Grumman"), "real companies must survive the check"
+    assert not is_force("Armscor"), "'arm' must not match inside a word"
+    # one field, one organization
+    assert not is_one_org("Kalyani and Paramount") and not is_one_org("Arquus and Daimler Truck")
+    assert not is_one_org("Rheinmetall och Leonardo"), "the conjunction is multilingual too"
+    assert is_one_org("Kongsberg Defence & Aerospace"), "'&' is one org, not two"
+    assert is_one_org("Larsen & Toubro") and is_one_org("Saab") and not is_one_org("")
+    assert has_proper_name("Aalto-yliopisto") and has_proper_name("BrahMos")
+    assert has_proper_name("155mm barrels"), "an alphanumeric designator names a thing"
+    assert not has_proper_name("den brasilianska regeringen")
+    assert not has_proper_name("circuit cards") and not has_proper_name("logistics trucks")
+    m2 = merge({"MIL", "Military Vehicles Corp"})
+    assert len(m2) == 2, "short forms never absorb by substring, whole word only"
+    assert _contains_word("saab", "saab bofors") and not _contains_word("mil", "military")
+    print("ok")
+
+
+if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--demo", action="store_true")
+    ap.parse_args()
+    _demo()

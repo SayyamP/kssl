@@ -1,0 +1,2 @@
+# doc ids ruled out by audit; serving_fill skips them
+doc_20e6855f840991e7  # F7: aspiration stated as fact, off-portfolio (runway matting)

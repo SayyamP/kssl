@@ -1,0 +1,1468 @@
+{
+ "POS_CATS": {
+  "shape": {
+   "kind": "list",
+   "n": 9,
+   "item": {
+    "kind": "list",
+    "n": 2,
+    "item": {
+     "kind": "str",
+     "example": "art"
+    }
+   }
+  }
+ },
+ "CAT_KEY": {
+  "shape": {
+   "kind": "dict",
+   "n": 9,
+   "value": {
+    "kind": "str",
+    "example": "art"
+   },
+   "sample_keys": [
+    "Artillery",
+    "Ammunition",
+    "Small Arms",
+    "Protected & Armoured Vehicles",
+    "Armoured Vehicle MRO",
+    "Marine / Naval"
+   ]
+  }
+ },
+ "TRACEIDS": {
+  "shape": {
+   "kind": "dict",
+   "n": 14,
+   "value": {
+    "kind": "list",
+    "n": 3,
+    "item": {
+     "kind": "list",
+     "n": 2,
+     "item": {
+      "kind": "str",
+      "example": "ISRAE"
+     }
+    }
+   },
+   "sample_keys": [
+    "ADANI",
+    "BDL",
+    "NIBE",
+    "LT",
+    "BEL",
+    "SOLAR"
+   ]
+  }
+ },
+ "COMPSYN": {
+  "shape": {
+   "kind": "dict",
+   "n": 14,
+   "value": {
+    "kind": "dict",
+    "n": 5,
+    "value": {
+     "kind": "str",
+     "example": "NIBE is sprinting from a components fabricator into a full weapons-systems integ"
+    },
+    "sample_keys": [
+     "thesis",
+     "vulns",
+     "strat",
+     "preds",
+     "moves"
+    ]
+   },
+   "sample_keys": [
+    "NIBE",
+    "LT",
+    "ADANI",
+    "BEL",
+    "BDL",
+    "MAHINDRA"
+   ]
+  },
+  "fields": {
+   "thesis": {
+    "type": "str",
+    "example": "\"NIBE is sprinting from a components fabricator into a full weapons-systems integrator — almost enti"
+   },
+   "vulns": {
+    "type": "list",
+    "example": "[{\"title\": \"Borrowed-IP fragility across the entire weapons portfolio\", \"from\": [\"Elbit/Suryastra\", "
+   },
+   "strat": {
+    "type": "dict",
+    "example": "{\"thesis\": \"NIBE is running a licence-and-assemble roll-up: acquire breadth fast by buying or licens"
+   },
+   "preds": {
+    "type": "list",
+    "example": "[\"More foreign-OEM licences in any line where NIBE lacks IP — expect a loitering-munition or air-def"
+   },
+   "moves": {
+    "type": "list",
+    "example": "[\"Lead every NIBE head-to-head with the portfolio-wide indigenous-vs-licensed contrast, not a produc"
+   }
+  }
+ },
+ "FIELDSYN": {
+  "shape": {
+   "kind": "dict",
+   "n": 2,
+   "value": {
+    "kind": "list",
+    "n": 6,
+    "item": {
+     "kind": "dict",
+     "n": 4,
+     "value": {
+      "kind": "str",
+      "example": "The universal gap: almost no KSSL rival owns its core weapon IP"
+     },
+     "sample_keys": [
+      "t",
+      "e",
+      "s",
+      "x"
+     ]
+    }
+   },
+   "sample_keys": [
+    "patterns",
+    "bottom"
+   ]
+  }
+ },
+ "REL_LABEL": {
+  "shape": {
+   "kind": "dict",
+   "n": 5,
+   "value": {
+    "kind": "str",
+    "example": "Joint venture"
+   },
+   "sample_keys": [
+    "jv",
+    "tech",
+    "supply",
+    "mou",
+    "acq"
+   ]
+  }
+ },
+ "geoCountries": {
+  "shape": {
+   "kind": "list",
+   "n": 25,
+   "item": {
+    "kind": "str",
+    "example": "India"
+   }
+  }
+ },
+ "actLabel": {
+  "shape": {
+   "kind": "dict",
+   "n": 5,
+   "value": {
+    "kind": "str",
+    "example": "Local production"
+   },
+   "sample_keys": [
+    "lp",
+    "pt",
+    "ex",
+    "sv",
+    "bf"
+   ]
+  }
+ },
+ "tpAllCats": {
+  "shape": {
+   "kind": "list",
+   "n": 7,
+   "item": {
+    "kind": "str",
+    "example": "Artillery"
+   }
+  }
+ },
+ "techCats": {
+  "shape": {
+   "kind": "list",
+   "n": 8,
+   "item": {
+    "kind": "dict",
+    "n": 2,
+    "value": {
+     "kind": "str",
+     "example": "artillery"
+    },
+    "sample_keys": [
+     "id",
+     "name"
+    ]
+   }
+  },
+  "fields": {
+   "id": {
+    "type": "str",
+    "example": "\"artillery\""
+   },
+   "name": {
+    "type": "str",
+    "example": "\"Artillery\""
+   }
+  }
+ },
+ "innovations": {
+  "shape": {
+   "kind": "dict",
+   "n": 8,
+   "value": {
+    "kind": "list",
+    "n": 6,
+    "item": {
+     "kind": "dict",
+     "n": 11,
+     "value": {
+      "kind": "str",
+      "example": "Ramjet-assisted 155mm projectile (for ATAGS)"
+     },
+     "sample_keys": [
+      "t",
+      "mat",
+      "gap",
+      "driver",
+      "horizon",
+      "body"
+     ]
+    }
+   },
+   "sample_keys": [
+    "artillery",
+    "armoured",
+    "smallarms",
+    "ammunition",
+    "missiles",
+    "naval"
+   ]
+  }
+ },
+ "competitiveCards": {
+  "shape": {
+   "kind": "list",
+   "n": 12,
+   "item": {
+    "kind": "dict",
+    "n": 12,
+    "value": {
+     "kind": "str",
+     "example": "cm1"
+    },
+    "sample_keys": [
+     "id",
+     "dir",
+     "rank",
+     "title",
+     "meta",
+     "company"
+    ]
+   }
+  },
+  "fields": {
+   "id": {
+    "type": "str",
+    "example": "\"cm1\""
+   },
+   "dir": {
+    "type": "str",
+    "example": "\"threat\""
+   },
+   "rank": {
+    "type": "str",
+    "example": "\"01\""
+   },
+   "title": {
+    "type": "str",
+    "example": "\"Army plans 300 additional K9 Vajra self-propelled howitzers\""
+   },
+   "meta": {
+    "type": "str",
+    "example": "\"Artillery · L&T+Hanwha · ~300 guns\""
+   },
+   "company": {
+    "type": "str",
+    "example": "\"L&T / Hanwha\""
+   },
+   "lens": {
+    "type": "str",
+    "example": "\"COMPETITIVE\""
+   },
+   "sowhat": {
+    "type": "str",
+    "example": "\"KSSL's #1 artillery rival deepens its K9 Vajra franchise with a planned 300-gun buy + cold-weather/"
+   },
+   "sec": {
+    "type": "list",
+    "example": "[{\"lens\": \"MARKET / DEMAND\", \"read\": \"India's largest-ever SPH acquisition confirms a massive domest"
+   },
+   "url": {
+    "type": "str",
+    "example": "\"https://m.economictimes.com/news/defence/indian-army-plans-largest-ever-k9-vajra-acquisition-with-o"
+   },
+   "ago": {
+    "type": "str",
+    "example": "\"Jun 2026\""
+   },
+   "tags": {
+    "type": "str",
+    "example": "\"threat\""
+   }
+  }
+ },
+ "marketCards": {
+  "shape": {
+   "kind": "list",
+   "n": 6,
+   "item": {
+    "kind": "dict",
+    "n": 8,
+    "value": {
+     "kind": "str",
+     "example": "m1"
+    },
+    "sample_keys": [
+     "id",
+     "dir",
+     "rank",
+     "title",
+     "meta",
+     "sowhat"
+    ]
+   }
+  },
+  "fields": {
+   "id": {
+    "type": "str",
+    "example": "\"m1\""
+   },
+   "dir": {
+    "type": "str",
+    "example": "\"threat\""
+   },
+   "rank": {
+    "type": "str",
+    "example": "\"01\""
+   },
+   "title": {
+    "type": "str",
+    "example": "\"Armenia mounted-gun tender closing in 9 days\""
+   },
+   "meta": {
+    "type": "str",
+    "example": "\"155mm SPH · ~₹4,000 cr · bid window open\""
+   },
+   "sowhat": {
+    "type": "str",
+    "example": "\"KSSL has a live bid; submission closes in 9 days and a rival just set a price benchmark ~12% lower."
+   },
+   "ago": {
+    "type": "str",
+    "example": "\"9 days to close\""
+   },
+   "tags": {
+    "type": "str",
+    "example": "\"deadline atstake\""
+   }
+  }
+ },
+ "techCards": {
+  "shape": {
+   "kind": "list",
+   "n": 26,
+   "item": {
+    "kind": "dict",
+    "n": 12,
+    "value": {
+     "kind": "str",
+     "example": "ti12"
+    },
+    "sample_keys": [
+     "id",
+     "dir",
+     "rank",
+     "title",
+     "meta",
+     "company"
+    ]
+   }
+  },
+  "fields": {
+   "id": {
+    "type": "str",
+    "example": "\"ti12\""
+   },
+   "dir": {
+    "type": "str",
+    "example": "\"threat\""
+   },
+   "rank": {
+    "type": "str",
+    "example": "\"01\""
+   },
+   "title": {
+    "type": "str",
+    "example": "\"FN Browning to acquire Accuracy International (precision rifles)\""
+   },
+   "meta": {
+    "type": "str",
+    "example": "\"Small Arms · FN/AI · May 2026\""
+   },
+   "company": {
+    "type": "str",
+    "example": "\"FN Browning Group\""
+   },
+   "lens": {
+    "type": "str",
+    "example": "\"COMPETITIVE\""
+   },
+   "sowhat": {
+    "type": "str",
+    "example": "\"A KSSL sniper-class rival (Accuracy International, maker of the AW/AXMC) is being absorbed into the"
+   },
+   "sec": {
+    "type": "list",
+    "example": "[{\"lens\": \"CHANNEL / PARTNER\", \"read\": \"AI retains its own brand, engineering and UK+US manufacturin"
+   },
+   "url": {
+    "type": "str",
+    "example": "\"https://fnherstal.com/en/news/fn-browning-group-and-accuracy-internationalannounce-a-strategic-acqu"
+   },
+   "ago": {
+    "type": "str",
+    "example": "\"28 May 2026\""
+   },
+   "tags": {
+    "type": "str",
+    "example": "\"threat\""
+   }
+  }
+ },
+ "CAT_ALIASES": {
+  "shape": {
+   "kind": "dict",
+   "n": 29,
+   "value": {
+    "kind": "str",
+    "example": "Artillery"
+   },
+   "sample_keys": [
+    "artillery",
+    "gun",
+    "howitzer",
+    "atags",
+    "ammunition",
+    "ammo"
+   ]
+  }
+ },
+ "compOrder": {
+  "shape": {
+   "kind": "list",
+   "n": 28,
+   "item": {
+    "kind": "str",
+    "example": "AWEIL"
+   }
+  }
+ },
+ "client": {
+  "shape": {
+   "kind": "dict",
+   "n": 8,
+   "value": {
+    "kind": "str",
+    "example": "KSSL"
+   },
+   "sample_keys": [
+    "id",
+    "name",
+    "short",
+    "sector",
+    "website",
+    "currency"
+   ]
+  }
+ },
+ "matchups": {
+  "shape": {
+   "kind": "dict",
+   "n": 507,
+   "value": {
+    "kind": "dict",
+    "n": 19,
+    "value": {
+     "kind": "str",
+     "example": "Artillery"
+    },
+    "sample_keys": [
+     "cat",
+     "anchor",
+     "global",
+     "dir",
+     "country",
+     "comp"
+    ]
+   },
+   "sample_keys": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6"
+   ]
+  },
+  "fields": {
+   "cat": {
+    "type": "str",
+    "example": "\"Artillery\""
+   },
+   "anchor": {
+    "type": "str",
+    "example": "\"MArG 155\""
+   },
+   "global": {
+    "type": "bool",
+    "example": "true"
+   },
+   "dir": {
+    "type": "str",
+    "example": "\"watch\""
+   },
+   "country": {
+    "type": "str",
+    "example": "\"France\""
+   },
+   "comp": {
+    "type": "str",
+    "example": "\"KNDS · CAESAR 6x6\""
+   },
+   "compBy": {
+    "type": "str",
+    "example": "\"KNDS\""
+   },
+   "bf": {
+    "type": "str",
+    "example": "\"KSSL · MArG 155\""
+   },
+   "bfBy": {
+    "type": "str",
+    "example": "\"Kalyani Strategic Systems\""
+   },
+   "ks_thin": {
+    "type": "bool",
+    "example": "false"
+   },
+   "reason": {
+    "type": "str",
+    "example": "\"<b>CAESAR 6x6</b> (KNDS) is matched against KSSL's <b>MArG 155</b> because both are 155mm mounted/t"
+   },
+   "edge": {
+    "type": "int",
+    "example": "45"
+   },
+   "specs": {
+    "type": "list",
+    "example": "[{\"l\": \"Calibre\", \"cv\": \"155/52\", \"cn\": 155, \"kv\": \"155mm / 39 Cal\", \"kn\": 155, \"u\": \"mm\", \"hi\": nul"
+   },
+   "advComp": {
+    "type": "list",
+    "example": "[\"Leads on Crew (3-5)\", \"KNDS — established maker in this class\", \"PzH 2000, Caesar, Boxer house; Eu"
+   },
+   "advBf": {
+    "type": "list",
+    "example": "[\"Indigenous IP + forged barrel; made-in-India; lower unit cost\", \"155/39 on 4x4; shoot-and-scoot st"
+   },
+   "det": {
+    "type": "list",
+    "example": "[[\"Competitor\", \"KNDS\"], [\"HQ / origin\", \"France\"], [\"Category\", \"Artillery\"], [\"KSSL counterpart\", "
+   },
+   "verdictH": {
+    "type": "str",
+    "example": "\"Positioning verdict · Artillery\""
+   },
+   "verdict": {
+    "type": "str",
+    "example": "\"<b>Near-parity on measured specs.</b> CAESAR 6x6 and KSSL's MArG 155 trade leads evenly.\""
+   },
+   "catKey": {
+    "type": "str",
+    "example": "\"art\""
+   },
+   "srcs": {
+    "type": "list",
+    "example": "[{\"label\": \"Shephard Media — India receives first ALS-50 batch\", \"url\": \"https://www.shephardmedia.c"
+   }
+  }
+ },
+ "details": {
+  "shape": {
+   "kind": "dict",
+   "n": 50,
+   "value": {
+    "kind": "dict",
+    "n": 10,
+    "value": {
+     "kind": "str",
+     "example": "Technology Signal · 01"
+    },
+    "sample_keys": [
+     "rank",
+     "dir",
+     "title",
+     "facts",
+     "what",
+     "why"
+    ]
+   },
+   "sample_keys": [
+    "ti12",
+    "ti3",
+    "ti4",
+    "ti5",
+    "ti6",
+    "ti7"
+   ]
+  },
+  "fields": {
+   "rank": {
+    "type": "str",
+    "example": "\"Technology Signal · 01\""
+   },
+   "dir": {
+    "type": "str",
+    "example": "\"threat\""
+   },
+   "title": {
+    "type": "str",
+    "example": "\"FN Browning to acquire Accuracy International (precision rifles)\""
+   },
+   "facts": {
+    "type": "list",
+    "example": "[[\"Company\", \"FN Browning Group\"], [\"Category\", \"Small Arms\"], [\"Date\", \"28 May 2026\"], [\"Primary le"
+   },
+   "what": {
+    "type": "str",
+    "example": "\"FN Browning Group and Accuracy International entered a strategic acquisition agreement (28 May 2026"
+   },
+   "why": {
+    "type": "str",
+    "example": "\"A KSSL sniper-class rival (Accuracy International, maker of the AW/AXMC) is being absorbed into the"
+   },
+   "lens": {
+    "type": "list",
+    "example": "[[\"CHANNEL / PARTNER\", \"AI retains its own brand, engineering and UK+US manufacturing under FN — and"
+   },
+   "actions": {
+    "type": "list",
+    "example": "[[\"Counter\", \"Brief BD on this move; assess KSSL position in the affected category before the next b"
+   },
+   "url": {
+    "type": "str",
+    "example": "\"https://fnherstal.com/en/news/fn-browning-group-and-accuracy-internationalannounce-a-strategic-acqu"
+   },
+   "suggest": {
+    "type": "list",
+    "example": "[\"What does this mean for KSSL?\", \"What should KSSL do here?\", \"Show the full-spectrum read\"]"
+   },
+   "kind": {
+    "type": "str",
+    "example": "\"tender\""
+   },
+   "match": {
+    "type": "list",
+    "example": "[{\"n\": \"ATAGS / Bharat 52 (155/52)\", \"fit\": \"high\", \"pct\": \"88%\", \"lines\": [[\"up\", \"~70 km with ramj"
+   },
+   "pursue": {
+    "type": "dict",
+    "example": "{\"label\": \"Pursue this tender\", \"title\": \"Armenia 155mm mounted-gun tender\", \"issuer\": \"MoD · Armeni"
+   }
+  }
+ },
+ "overviewConfig": {
+  "shape": {
+   "kind": "dict",
+   "n": 3,
+   "value": {
+    "kind": "dict",
+    "n": 6,
+    "value": {
+     "kind": "str",
+     "example": "Competitive Intelligence"
+    },
+    "sample_keys": [
+     "title",
+     "cnt",
+     "metrics",
+     "groups",
+     "dirWord",
+     "filters"
+    ]
+   },
+   "sample_keys": [
+    "competitive",
+    "market",
+    "technology"
+   ]
+  },
+  "fields": {
+   "title": {
+    "type": "str",
+    "example": "\"Competitive Intelligence\""
+   },
+   "cnt": {
+    "type": "str",
+    "example": "\"12 competitor moves · multi-lens · sorted threats first\""
+   },
+   "metrics": {
+    "type": "list",
+    "example": "[{\"act\": \"threat\", \"l\": \"Competitive threats\", \"dot\": \"var(--threat)\", \"v\": \"6\", \"sub\": \"rivals scal"
+   },
+   "groups": {
+    "type": "list",
+    "example": "[{\"n\": 6, \"h\": \"Priority — Competitive Threats\", \"s\": \"— rivals winning scale in KSSL categories\"}, "
+   },
+   "dirWord": {
+    "type": "dict",
+    "example": "{\"threat\": \"Threat\", \"watch\": \"Watch\", \"fav\": \"Favourable\"}"
+   },
+   "filters": {
+    "type": "list",
+    "example": "[{\"f\": \"all\", \"l\": \"All\"}, {\"f\": \"threat\", \"l\": \"Threat\", \"c\": \"var(--threat)\"}, {\"f\": \"watch\", \"l\":"
+   }
+  }
+ },
+ "tenders": {
+  "shape": {
+   "kind": "list",
+   "n": 22,
+   "item": {
+    "kind": "dict",
+    "n": 19,
+    "value": {
+     "kind": "int",
+     "example": "1"
+    },
+    "sample_keys": [
+     "id",
+     "title",
+     "issuer",
+     "country",
+     "cat",
+     "value"
+    ]
+   }
+  },
+  "fields": {
+   "id": {
+    "type": "int",
+    "example": "1"
+   },
+   "title": {
+    "type": "str",
+    "example": "\"155mm 52-cal Mounted Gun System\""
+   },
+   "issuer": {
+    "type": "str",
+    "example": "\"Ministry of Defence\""
+   },
+   "country": {
+    "type": "str",
+    "example": "\"India\""
+   },
+   "cat": {
+    "type": "str",
+    "example": "\"Artillery\""
+   },
+   "value": {
+    "type": "str",
+    "example": "\"~₹6,500 cr\""
+   },
+   "qty": {
+    "type": "str",
+    "example": "\"100 units\""
+   },
+   "deadline": {
+    "type": "str",
+    "example": "\"9 days\""
+   },
+   "dl": {
+    "type": "int",
+    "example": "9"
+   },
+   "reqNote": {
+    "type": "str",
+    "example": "\"Truck-mounted 155mm/52 gun system for rapid deployment, ≥45 km range, with a phased plan to build a"
+   },
+   "req": {
+    "type": "list",
+    "example": "[[\"System\", \"155mm / 52-cal mounted gun\"], [\"Quantity\", \"100 units + 10-yr support\"], [\"Range\", \"≥ 4"
+   },
+   "matches": {
+    "type": "list",
+    "example": "[{\"n\": \"ATAGS / Bharat 52\", \"fit\": \"partial\", \"pct\": \"62%\", \"lines\": [[\"up\", \"ATAGS 48.07 km clears "
+   },
+   "lean": {
+    "type": "str",
+    "example": "\"maybe\""
+   },
+   "leanTxt": {
+    "type": "str",
+    "example": "\"<b>Partial fit - qualify before committing.</b> ATAGS meets the calibre and range bar on KSSL's own"
+   },
+   "status": {
+    "type": "str",
+    "example": "\"open\""
+   },
+   "url": {
+    "type": "str",
+    "example": "\"https://www.janes.com/osint-insights/defence-news/defence/india-clears-acquisition-of-mounted-gun-s"
+   },
+   "urlKind": {
+    "type": "str",
+    "example": "\"notice\""
+   },
+   "srcs": {
+    "type": "list",
+    "example": "[{\"label\": \"Janes\", \"url\": \"https://www.janes.com/osint-insights/defence-news/defence/india-clears-a"
+   },
+   "stage": {
+    "type": "str",
+    "example": "\"AoN cleared · RFP stage\""
+   }
+  }
+ },
+ "tpAllCountries": {
+  "shape": {
+   "kind": "list",
+   "n": 14,
+   "item": {
+    "kind": "str",
+    "example": "Armenia"
+   }
+  }
+ },
+ "competitors": {
+  "shape": {
+   "kind": "dict",
+   "n": 28,
+   "value": {
+    "kind": "dict",
+    "n": 13,
+    "value": {
+     "kind": "str",
+     "example": "AWEIL"
+    },
+    "sample_keys": [
+     "name",
+     "dir",
+     "sector",
+     "hq",
+     "threat",
+     "assess"
+    ]
+   },
+   "sample_keys": [
+    "AWEIL",
+    "AVNL",
+    "SOLAR",
+    "MIL",
+    "PEL",
+    "ZEN"
+   ]
+  },
+  "fields": {
+   "name": {
+    "type": "str",
+    "example": "\"AWEIL\""
+   },
+   "dir": {
+    "type": "str",
+    "example": "\"threat\""
+   },
+   "sector": {
+    "type": "str",
+    "example": "\"Artillery · Ammunition · Small Arms\""
+   },
+   "hq": {
+    "type": "str",
+    "example": "\"Kanpur, Uttar Pradesh, India\""
+   },
+   "threat": {
+    "type": "str",
+    "example": "\"AWEIL - 5 mapped partnership(s), 5 touching KSSL core lines. Lead: DRDO - CORE OVERLAP (artillery):"
+   },
+   "assess": {
+    "type": "str",
+    "example": "\"5/5 core-relevant; 0 OSINT-enriched. Domestic tie; the relevant differentiators are indigenous IP, "
+   },
+   "updates": {
+    "type": "str",
+    "example": "\"All file relationships mapped (none dropped). Each tagged by KSSL-line relevance.\""
+   },
+   "center": {
+    "type": "dict",
+    "example": "{\"id\": \"AWEIL\", \"label\": \"AWEIL\"}"
+   },
+   "partners": {
+    "type": "list",
+    "example": "[{\"id\": \"DRDO\", \"label\": \"DRDO\", \"kind\": \"Domestic\", \"rel\": \"tech\", \"sig\": 3, \"ptype\": \"Technology /"
+   },
+   "site": {
+    "type": "str",
+    "example": "\"https://www.aweil.in/\""
+   },
+   "srcs": {
+    "type": "list",
+    "example": "[{\"label\": \"AWEIL\", \"url\": \"https://www.aweil.in/\"}]"
+   },
+   "products": {
+    "type": "list",
+    "example": "[]"
+   },
+   "threatNote": {
+    "type": "str",
+    "example": "\"5/5 core-relevant; 0 OSINT-enriched.\""
+   }
+  }
+ },
+ "geoComps": {
+  "shape": {
+   "kind": "list",
+   "n": 19,
+   "item": {
+    "kind": "dict",
+    "n": 5,
+    "value": {
+     "kind": "str",
+     "example": "KSSL"
+    },
+    "sample_keys": [
+     "id",
+     "name",
+     "dir",
+     "hq",
+     "isBf"
+    ]
+   }
+  },
+  "fields": {
+   "id": {
+    "type": "str",
+    "example": "\"KSSL\""
+   },
+   "name": {
+    "type": "str",
+    "example": "\"Kalyani Strategic Systems\""
+   },
+   "dir": {
+    "type": "str",
+    "example": "\"fav\""
+   },
+   "hq": {
+    "type": "str",
+    "example": "\"India\""
+   },
+   "isBf": {
+    "type": "bool",
+    "example": "true"
+   }
+  }
+ },
+ "geoData": {
+  "shape": {
+   "kind": "dict",
+   "n": 19,
+   "value": {
+    "kind": "dict",
+    "n": 3,
+    "value": {
+     "kind": "list",
+     "n": 4,
+     "item": {
+      "kind": "dict",
+      "n": 9,
+      "value": null,
+      "sample_keys": [
+       "name",
+       "c",
+       "val",
+       "since",
+       "qty",
+       "stage"
+      ]
+     }
+    },
+    "sample_keys": [
+     "India",
+     "Saudi Arabia",
+     "Europe"
+    ]
+   },
+   "sample_keys": [
+    "KSSL",
+    "TATA",
+    "LT",
+    "ADANI",
+    "MAH",
+    "BEL"
+   ]
+  },
+  "fields": {
+   "India": {
+    "type": "list",
+    "example": "[{\"name\": \"ATAGS / Bharat 52 (155/52)\", \"c\": \"bf\", \"val\": \"offered\", \"since\": \"developed\", \"qty\": \"p"
+   },
+   "Saudi Arabia": {
+    "type": "list",
+    "example": "[{\"name\": \"Artillery / forgings (offered)\", \"c\": \"ex\", \"val\": \"estimate\", \"since\": \"estimate\", \"qty\""
+   },
+   "Europe": {
+    "type": "list",
+    "example": "[{\"name\": \"Forgings / components supply\", \"c\": \"ex\", \"val\": \"estimate\", \"since\": \"estimate\", \"qty\": "
+   },
+   "USA": {
+    "type": "list",
+    "example": "[{\"name\": \"Aerostructures (C-130J, F-16, Apache)\", \"c\": \"ex\", \"val\": \"~$2.8bn (sector)\", \"since\": \"o"
+   },
+   "Africa": {
+    "type": "list",
+    "example": "[{\"name\": \"Logistics & armoured vehicles\", \"c\": \"ex\", \"val\": \"estimate\", \"since\": \"stated\", \"qty\": \""
+   },
+   "Armenia": {
+    "type": "list",
+    "example": "[{\"name\": \"MArG 155mm wheeled howitzer\", \"c\": \"ex\", \"val\": \"part of pkg\", \"since\": \"2023–25\", \"qty\":"
+   },
+   "Vietnam": {
+    "type": "list",
+    "example": "[{\"name\": \"Naval / patrol platforms (offered)\", \"c\": \"ex\", \"val\": \"estimate\", \"since\": \"estimate\", \""
+   },
+   "Israel": {
+    "type": "list",
+    "example": "[{\"name\": \"Hermes 900 UAVs (export)\", \"c\": \"ex\", \"val\": \"n/d\", \"since\": \"2020–24\", \"qty\": \"20+ deliv"
+   },
+   "UAE": {
+    "type": "list",
+    "example": "[{\"name\": \"Armoured vehicle (export variant)\", \"c\": \"ex\", \"val\": \"estimate\", \"since\": \"stated\", \"qty"
+   },
+   "Sri Lanka": {
+    "type": "list",
+    "example": "[{\"name\": \"Radar / EW systems\", \"c\": \"ex\", \"val\": \"n/d\", \"since\": \"supplied\", \"qty\": \"supplied\", \"st"
+   },
+   "Philippines": {
+    "type": "list",
+    "example": "[{\"name\": \"Akash batteries (negotiation)\", \"c\": \"ex\", \"val\": \"~$200mn\", \"since\": \"2025\", \"qty\": \"neg"
+   },
+   "Egypt": {
+    "type": "list",
+    "example": "[{\"name\": \"Tejas / helicopter offers\", \"c\": \"ex\", \"val\": \"estimate\", \"since\": \"talks\", \"qty\": \"estim"
+   },
+   "Argentina": {
+    "type": "list",
+    "example": "[{\"name\": \"Dhruv / aircraft (offers)\", \"c\": \"ex\", \"val\": \"estimate\", \"since\": \"talks\", \"qty\": \"estim"
+   },
+   "Germany": {
+    "type": "list",
+    "example": "[{\"name\": \"PzH 2000 155mm SPH\", \"c\": \"lp\", \"val\": \"multi-€bn\", \"since\": \"in service\", \"qty\": \"fleet\""
+   },
+   "Ukraine": {
+    "type": "list",
+    "example": "[{\"name\": \"PzH 2000 + ammunition\", \"c\": \"ex\", \"val\": \"major\", \"since\": \"2022–\", \"qty\": \"combat-prove"
+   },
+   "France": {
+    "type": "list",
+    "example": "[{\"name\": \"CAESAR 6×6 155mm SPH\", \"c\": \"lp\", \"val\": \"multi-€bn\", \"since\": \"in service\", \"qty\": \"flee"
+   },
+   "South Korea": {
+    "type": "list",
+    "example": "[{\"name\": \"K9 Thunder 155mm SPH\", \"c\": \"lp\", \"val\": \"n/d\", \"since\": \"in service\", \"qty\": \"fleet\", \"s"
+   },
+   "Poland": {
+    "type": "list",
+    "example": "[{\"name\": \"K9 howitzers (mega-deal)\", \"c\": \"ex\", \"val\": \"multi-$bn\", \"since\": \"2022–\", \"qty\": \"670+ "
+   },
+   "Australia": {
+    "type": "list",
+    "example": "[{\"name\": \"AS9 Huntsman SPH\", \"c\": \"ex\", \"val\": \"~A$1bn\", \"since\": \"2021–\", \"qty\": \"30+ guns\", \"stag"
+   },
+   "UK": {
+    "type": "list",
+    "example": "[{\"name\": \"Archer / M777 / naval\", \"c\": \"lp\", \"val\": \"multi-£bn\", \"since\": \"in service\", \"qty\": \"fle"
+   },
+   "Sweden": {
+    "type": "list",
+    "example": "[{\"name\": \"Archer 155mm SPH\", \"c\": \"ex\", \"val\": \"n/d\", \"since\": \"in service\", \"qty\": \"fielded\", \"sta"
+   },
+   "Canada": {
+    "type": "list",
+    "example": "[{\"name\": \"LAV 6 (8×8)\", \"c\": \"lp\", \"val\": \"n/d\", \"since\": \"in service\", \"qty\": \"fleet\", \"stage\": \"I"
+   },
+   "Italy": {
+    "type": "list",
+    "example": "[{\"name\": \"Helicopters / naval guns\", \"c\": \"lp\", \"val\": \"multi-€bn\", \"since\": \"in service\", \"qty\": \""
+   },
+   "China": {
+    "type": "list",
+    "example": "[{\"name\": \"SH-15 155mm / VT-series tanks\", \"c\": \"lp\", \"val\": \"n/d\", \"since\": \"in service\", \"qty\": \"f"
+   },
+   "Pakistan": {
+    "type": "list",
+    "example": "[{\"name\": \"SH-15 howitzers / armour\", \"c\": \"ex\", \"val\": \"major\", \"since\": \"ongoing\", \"qty\": \"fleet\","
+   }
+  }
+ },
+ "CAT_META": {
+  "shape": {
+   "kind": "dict",
+   "n": 9,
+   "value": {
+    "kind": "dict",
+    "n": 3,
+    "value": {
+     "kind": "str",
+     "example": "Artillery"
+    },
+    "sample_keys": [
+     "label",
+     "kw",
+     "desc"
+    ]
+   },
+   "sample_keys": [
+    "art",
+    "ammo",
+    "sa",
+    "pav",
+    "mro",
+    "naval"
+   ]
+  },
+  "fields": {
+   "label": {
+    "type": "str",
+    "example": "\"Artillery\""
+   },
+   "kw": {
+    "type": "list",
+    "example": "[\"155\", \"howitzer\", \"artillery\", \"atags\", \"caesar\", \"pzh\", \"k9\", \"vajra\", \"marg\", \"trajan\", \"gun sys"
+   },
+   "desc": {
+    "type": "str",
+    "example": "\"Towed, mounted and self-propelled guns; rocket artillery.\""
+   }
+  }
+ },
+ "counterRules": {
+  "shape": {
+   "kind": "list",
+   "n": 9,
+   "item": {
+    "kind": "dict",
+    "n": 4,
+    "value": {
+     "kind": "str",
+     "example": "art"
+    },
+    "sample_keys": [
+     "band",
+     "label",
+     "product",
+     "note"
+    ]
+   }
+  },
+  "fields": {
+   "band": {
+    "type": "str",
+    "example": "\"art\""
+   },
+   "label": {
+    "type": "str",
+    "example": "\"Artillery\""
+   },
+   "product": {
+    "type": "str",
+    "example": "\"ATAGS / Bharat 52 (155/52)\""
+   },
+   "note": {
+    "type": "str",
+    "example": "\"KSSL's towed/mounted 155 — competes on cost, weight & ramjet range.\""
+   }
+  }
+ },
+ "KSSL_CATS": {
+  "shape": {
+   "kind": "list",
+   "n": 9,
+   "item": {
+    "kind": "str",
+    "example": "Artillery"
+   }
+  }
+ },
+ "KSSL_PARTNERS": {
+  "shape": {
+   "kind": "list",
+   "n": 11,
+   "item": {
+    "kind": "dict",
+    "n": 12,
+    "value": {
+     "kind": "str",
+     "example": "RAFAEL"
+    },
+    "sample_keys": [
+     "id",
+     "label",
+     "kind",
+     "rel",
+     "sig",
+     "ptype"
+    ]
+   }
+  },
+  "fields": {
+   "id": {
+    "type": "str",
+    "example": "\"RAFAEL\""
+   },
+   "label": {
+    "type": "str",
+    "example": "\"Rafael Advanced Defense Systems (KRAS JV)\""
+   },
+   "kind": {
+    "type": "str",
+    "example": "\"Foreign OEM\""
+   },
+   "rel": {
+    "type": "str",
+    "example": "\"jv\""
+   },
+   "sig": {
+    "type": "int",
+    "example": "3"
+   },
+   "ptype": {
+    "type": "str",
+    "example": "\"Missiles & air defence JV partner\""
+   },
+   "note": {
+    "type": "str",
+    "example": "\"Kalyani Rafael Advanced Systems (KRAS), Hyderabad, makes Spike ATGM sections, MRSAM/Barak-8 kits an"
+   },
+   "date": {
+    "type": "str",
+    "example": "\"2015\""
+   },
+   "country": {
+    "type": "str",
+    "example": "\"Israel\""
+   },
+   "deal": {
+    "type": "str",
+    "example": "\"$100M Rafael order (2022); Rs 287 cr Spike ATGM order (2023)\""
+   },
+   "insight": {
+    "type": "str",
+    "example": "\"KRAS is KSSL's deepest foreign JV and its entry ticket into precision-guided munitions; it converts"
+   },
+   "mean": {
+    "type": "str",
+    "example": "\"<b>Role:</b> KRAS is KSSL's deepest foreign JV and its entry ticket into precision-guided munitions"
+   }
+  }
+ },
+ "PATENTS": {
+  "shape": {
+   "kind": "dict",
+   "n": 4,
+   "value": {
+    "kind": "list",
+    "n": 9,
+    "item": {
+     "kind": "str",
+     "example": "Loitering munitions"
+    }
+   },
+   "sample_keys": [
+    "techAreas",
+    "byArea",
+    "byAssignee",
+    "_meta"
+   ]
+  }
+ },
+ "techAreaMeta": {
+  "shape": {
+   "kind": "dict",
+   "n": 8,
+   "value": {
+    "kind": "dict",
+    "n": 7,
+    "value": {
+     "kind": "str",
+     "example": "Artillery"
+    },
+    "sample_keys": [
+     "area",
+     "desc",
+     "maturity",
+     "position",
+     "trend",
+     "reason"
+    ]
+   },
+   "sample_keys": [
+    "artillery",
+    "armoured",
+    "smallarms",
+    "ammunition",
+    "missiles",
+    "naval"
+   ]
+  },
+  "fields": {
+   "area": {
+    "type": "str",
+    "example": "\"Artillery\""
+   },
+   "desc": {
+    "type": "str",
+    "example": "\"6 sourced technology developments relevant to KSSL programmes.\""
+   },
+   "maturity": {
+    "type": "str",
+    "example": "\"in development\""
+   },
+   "position": {
+    "type": "str",
+    "example": "\"parity\""
+   },
+   "trend": {
+    "type": "str",
+    "example": "\"rising\""
+   },
+   "reason": {
+    "type": "str",
+    "example": "\"Position is from the sourced competitor developments and the corresponding KSSL capability on file."
+   },
+   "why": {
+    "type": "str",
+    "example": "\"Track: Ramjet-assisted 155mm projectile (for ATAGS); 307-unit ATAGS domestic induction; Ultra-light"
+   }
+  }
+ },
+ "sourceRegistry": {
+  "shape": {
+   "kind": "list",
+   "n": 23,
+   "item": {
+    "kind": "dict",
+    "n": 4,
+    "value": {
+     "kind": "str",
+     "example": "AWEIL"
+    },
+    "sample_keys": [
+     "company",
+     "label",
+     "url",
+     "kind"
+    ]
+   }
+  },
+  "fields": {
+   "company": {
+    "type": "str",
+    "example": "\"AWEIL\""
+   },
+   "label": {
+    "type": "str",
+    "example": "\"AWEIL\""
+   },
+   "url": {
+    "type": "str",
+    "example": "\"https://www.aweil.in/\""
+   },
+   "kind": {
+    "type": "str",
+    "example": "\"company_site\""
+   }
+  }
+ },
+ "companySources": {
+  "shape": {
+   "kind": "dict",
+   "n": 23,
+   "value": {
+    "kind": "list",
+    "n": 1,
+    "item": {
+     "kind": "str",
+     "example": "https://www.aweil.in/"
+    }
+   },
+   "sample_keys": [
+    "AWEIL",
+    "AVNL",
+    "Solar Industries",
+    "Munitions India",
+    "Premier Explosives",
+    "Zen Technologies"
+   ]
+  }
+ },
+ "chatSuggest": {
+  "shape": {
+   "kind": "dict",
+   "n": 7,
+   "value": {
+    "kind": "list",
+    "n": 3,
+    "item": {
+     "kind": "str",
+     "example": "Who competes with KSSL in artillery?"
+    }
+   },
+   "sample_keys": [
+    "overview",
+    "positioning",
+    "geo",
+    "innovation",
+    "partnerships",
+    "patents"
+   ]
+  }
+ },
+ "overviewMetrics": {
+  "shape": {
+   "kind": "dict",
+   "n": 3,
+   "value": {
+    "kind": "list",
+    "n": 0,
+    "item": null
+   },
+   "sample_keys": [
+    "competitive",
+    "market",
+    "technology"
+   ]
+  }
+ }
+}

@@ -1,0 +1,21 @@
+# Credentials. .env.example is the template and IS committed; .env never is.
+.env
+*.pem
+*.key
+
+# Build output and caches
+frontend/node_modules/
+frontend/dist/
+**/__pycache__/
+*.pyc
+
+# Logs and scratch from pipeline runs
+*.log
+pipeline/corpus/
+
+# never: transient files that have held a DSN
+.vpsdsn
+*.dsn
+
+# data-centre deployment env (VPS + corpus passwords)
+deploy/datacentre/dc.env

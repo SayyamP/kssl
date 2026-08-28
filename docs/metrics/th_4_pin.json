@@ -1,0 +1,48 @@
+{
+  "label": "4c pinned threads",
+  "cores_visible": 8,
+  "prompt_chars": 2820,
+  "npredict": 600,
+  "results": [
+    {
+      "model": "qwen2.5:7b-instruct",
+      "runs": [
+        {
+          "ok": true,
+          "call_s": 42.96,
+          "load_s": 8.62,
+          "prompt_tokens": 619,
+          "prompt_tok_s": 32.39,
+          "gen_tokens": 163,
+          "gen_tok_s": 10.71
+        },
+        {
+          "ok": true,
+          "call_s": 13.97,
+          "load_s": 0.0,
+          "prompt_tokens": 619,
+          "prompt_tok_s": 6628.12,
+          "gen_tokens": 163,
+          "gen_tok_s": 11.76
+        },
+        {
+          "ok": true,
+          "call_s": 14.92,
+          "load_s": 0.0,
+          "prompt_tokens": 619,
+          "prompt_tok_s": 6116.18,
+          "gen_tokens": 163,
+          "gen_tok_s": 11.01
+        }
+      ],
+      "summary": {
+        "cold_load_s": 8.62,
+        "gen_tok_s": 11.38,
+        "prompt_tok_s": 6372.15,
+        "call_s": 14.45,
+        "gen_tokens": 163,
+        "rss_gb": 5.5
+      }
+    }
+  ]
+}

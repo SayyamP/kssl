@@ -1,0 +1,57 @@
+# KSSL_Deploy stack: one Postgres (schemas extracted + serving) + FastAPI backend.
+# Fresh `docker compose up -d` creates both schemas via /docker-entrypoint-initdb.d.
+# Then seed the demo data from the host:
+#     python db/seed_serving.py        (connects to 127.0.0.1:5460)
+# Ports 5440 (parallax store) and its services are NOT touched by this stack.
+
+services:
+  db:
+    image: postgres:16
+    container_name: kssl-db
+    environment:
+      POSTGRES_PASSWORD: kssl
+      POSTGRES_DB: kssl
+    ports:
+      - "127.0.0.1:5460:5432"
+    volumes:
+      - kssl_pgdata:/var/lib/postgresql/data
+      # init scripts run in name order on a FRESH volume only
+      - ./db/schema_extracted.sql:/docker-entrypoint-initdb.d/01_schema_extracted.sql:ro
+      - ./db/schema_serving.sql:/docker-entrypoint-initdb.d/02_schema_serving.sql:ro
+      - ./db/schema_serving_live.sql:/docker-entrypoint-initdb.d/03_serving_live.sql:ro
+      # 04 last: COMMENT ON COLUMN needs the tables to exist. PIPELINE.html reads
+      # these through col_description(), so the doc documents itself from the DB.
+      - ./db/schema_comments.sql:/docker-entrypoint-initdb.d/04_comments.sql:ro
+      # the per-stage timing schema, so a dev database matches production
+      - ./db/schema_metrics.sql:/docker-entrypoint-initdb.d/05_metrics.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d kssl"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build: ./backend
+    container_name: kssl-backend
+    environment:
+      KSSL_DSN: host=db port=5432 dbname=kssl user=postgres password=kssl
+    ports:
+      - "127.0.0.1:8600:8600"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # frontend: added later by the frontend agent (React app from frontend/,
+  # dev proxy /api -> backend:8600). Stub kept here so the wiring is obvious:
+  #
+  # frontend:
+  #   build: ./frontend
+  #   container_name: kssl-frontend
+  #   ports:
+  #     - "127.0.0.1:8601:80"
+  #   depends_on:
+  #     - backend
+
+volumes:
+  kssl_pgdata:

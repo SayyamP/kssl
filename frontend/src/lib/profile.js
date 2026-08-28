@@ -1,0 +1,204 @@
+/* Company Profile: everything the corpus holds about one rival, assembled in one place.
+
+   The rule this file exists to keep: a section appears only when it has rows. Four of
+   the things a profile is normally expected to carry — leadership, facilities, sales
+   figures, a forward timeline — are NOT in this corpus at all, and there is no field
+   they could be read from. They are named in `NOT_COLLECTED` and rendered as an
+   explicit absence, because an empty box under a heading reads as "nothing is
+   happening" when the truth is "nobody has collected this".
+
+   Two joins here are easy to get wrong, and both have burnt this codebase before:
+     * `competitors` is keyed by SLUG, `companySources` by DISPLAY NAME. Joining a
+       profile on the wrong one returns undefined for all thirty companies.
+     * patents attach through `PATENTS.byCompetitor[cid]`, which adaptPatents() builds
+       by token-matching legal assignee names to trading names. `byAssignee[name]` is
+       the raw index and misses on exactly the cases the adapter exists to fix. */
+
+import { unescapeEntities } from "./html.js";
+
+/* These fields are rendered as TEXT, not injected as HTML, so an entity in the record
+   ("Defence &amp; Aerospace" on Kongsberg) reaches the screen as the five literal
+   characters. Decode once, here, rather than at each of the eight render sites. */
+const txt = (s) => unescapeEntities(s || "").trim();
+
+/* Three of these four are now HARVESTED from the maker's own site — see
+   pipeline/harvest/. What remains genuinely uncollected is the forward timeline, and a
+   company with no harvested rows still shows the honest absence rather than an empty box.
+
+   `sourcedSections` decides per COMPANY, not globally: Saab has leadership and sales but
+   no facilities row, and printing "not collected" under a heading we did fill for the
+   company next to it would be worse than either. */
+export const NOT_COLLECTED = {
+  leadership: "no officer named on this company's own pages",
+  facilities: "no plant or site named on this company's own pages",
+  sales: "no revenue or order-book figure published on this company's own pages",
+  timeline: "no dated event series — the corpus carries articles, not a programme calendar",
+};
+
+/* A harvested field: [{value, detail, url, line}]. `line` is the VERBATIM sentence the
+   value was read from, so the panel can show its evidence exactly as the tender and
+   matchup surfaces do. Anything that is not that shape is ignored rather than rendered —
+   a half-written row is how a "sourced" badge ends up over nothing. */
+export function sourcedRows(c, field) {
+  const v = c && c[field];
+  if (!Array.isArray(v)) return [];
+  return v.filter((r) => r && r.value && r.url && r.line);
+}
+
+/* `updates` is an HTML STRING on ten companies and an always-EMPTY ARRAY on the other
+   twenty, and `if ([])` is true — which is how a "Latest updates" heading came to sit
+   over nothing on twenty rivals. Read it through here or not at all. */
+export function updatesHtml(c) {
+  const u = c && c.updates;
+  if (typeof u === "string") return u.trim() || "";
+  if (Array.isArray(u) && u.length) return u.join("");
+  return "";
+}
+
+function nameKey(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+/* The rivals, in the dataset's own order, with a density figure so the list can show
+   which companies are actually worth opening. */
+export function rosterOf(d) {
+  const clientCid = (d.client && d.client.id) || "KSSL";
+  const order = (d.compOrder || []).filter((cid) => d.competitors[cid]);
+  const rest = Object.keys(d.competitors).filter(
+    (cid) => order.indexOf(cid) < 0,
+  );
+  return order
+    .concat(rest)
+    .filter((cid) => cid !== clientCid)
+    .map((cid) => {
+      const p = buildProfile(d, cid);
+      return {
+        cid,
+        name: p.name,
+        threat: p.threat,
+        sector: p.sector,
+        /* how many of the seven backed sections this company actually fills —
+           the honest "is there anything here" signal */
+        filled: p.sections.filter((s) => s.rows).length,
+        total: p.sections.length,
+      };
+    });
+}
+
+export function buildProfile(d, cid) {
+  const c = (d.competitors || {})[cid] || {};
+  const name = txt(c.name) || cid;
+  const nk = nameKey(name);
+
+  const cards = []
+    .concat(d.competitiveCards || [], d.marketCards || [], d.techCards || [])
+    .filter((x) => nameKey(x.company) === nk);
+
+  const matchups = Object.entries(d.matchups || {})
+    .filter(([, m]) => nameKey(m.compBy) === nk)
+    .map(([id, m]) => ({ id, ...m }));
+
+  const development = [];
+  Object.entries(d.innovations || {}).forEach(([domain, list]) => {
+    (list || []).forEach((iv) => {
+      if (nameKey(iv.driver) === nk) development.push({ domain, ...iv });
+    });
+  });
+
+  const presence = [];
+  Object.entries((d.geoData || {})[cid] || {}).forEach(([country, rows]) => {
+    (rows || []).forEach((r) => presence.push({ country, ...r }));
+  });
+
+  const patents = ((d.PATENTS && d.PATENTS.byCompetitor && d.PATENTS.byCompetitor[cid]) || {})
+    .records || [];
+
+  /* companySources is keyed by display name; c.srcs is on every company. Take both,
+     dedupe on url — neither alone covers the roster. */
+  const srcMap = {};
+  const cs = d.companySources || {};
+  []
+    /* look up under both forms: `name` is entity-decoded, the index key is whatever
+       the pipeline wrote */
+    .concat(cs[name] || cs[c.name] || [], c.srcs || [])
+    .forEach((s) => {
+      const u = s && (s.url || s);
+      if (u && !srcMap[u]) srcMap[u] = typeof s === "string" ? { url: s, label: "" } : s;
+    });
+  const sources = Object.values(srcMap);
+
+  const leadership = sourcedRows(c, "leadership");
+  const facilitiesRows = sourcedRows(c, "facilities");
+  const salesRows = sourcedRows(c, "sales");
+
+  const sections = [
+    { key: "products", label: "Products", rows: (c.products || []).length },
+    { key: "specs", label: "Spec comparisons", rows: matchups.length },
+    { key: "development", label: "In development", rows: development.length },
+    { key: "news", label: "News", rows: cards.length },
+    { key: "partners", label: "Partnerships", rows: (c.partners || []).length },
+    { key: "presence", label: "Country presence", rows: presence.length },
+    { key: "patents", label: "Patents", rows: patents.length },
+    { key: "leadership", label: "Leadership", rows: leadership.length },
+    { key: "facilities", label: "Facilities", rows: facilitiesRows.length },
+    { key: "sales", label: "Sales", rows: salesRows.length },
+  ];
+
+  return {
+    cid,
+    name,
+    sector: txt(c.sector),
+    hq: txt(c.hq),
+    site: c.site || "",
+    threat: c.threat || "",
+    threatNote: txt(c.threatNote),
+    /* assess and updates are HTML by design and are injected, not printed */
+    assess: c.assess || "",
+    updates: updatesHtml(c),
+    products: (c.products || []).map((x) =>
+      typeof x === "string" ? txt(x) : x),
+    matchups,
+    development,
+    cards,
+    partners: c.partners || [],
+    presence,
+    patents,
+    leadership,
+    facilities: facilitiesRows,
+    sales: salesRows,
+    sources,
+    sections,
+  };
+}
+
+/* ── self-check ───────────────────────────────────────────────────────────────
+   Runs from DataProvider over the WHOLE roster, because the shape hazards here are
+   per-company: the ten string-`updates` rivals, the twenty empty-array ones, the
+   fourteen with no country rows and the twenty-four with no news card. A profile
+   builder that only ever ran on the first company would pass every one of them. */
+export function profileSelfCheck(d) {
+  const roster = rosterOf(d);
+  if (!roster.length) throw new Error("profile: empty roster");
+  const clientCid = (d.client && d.client.id) || "KSSL";
+  if (roster.some((r) => r.cid === clientCid))
+    throw new Error("profile: the client is listed as its own competitor");
+  roster.forEach((r) => {
+    const p = buildProfile(d, r.cid);
+    if (!p.name) throw new Error(`profile: ${r.cid} built with no name`);
+    if (typeof p.updates !== "string")
+      throw new Error(`profile: ${r.cid} updates is ${typeof p.updates}, not a string`);
+    ["products", "matchups", "development", "cards", "partners", "presence", "patents", "sources"]
+      .forEach((k) => {
+        if (!Array.isArray(p[k]))
+          throw new Error(`profile: ${r.cid}.${k} is ${typeof p[k]}, not an array`);
+      });
+  });
+  /* A profile keyed on the wrong id space returns undefined everywhere and still
+     renders — silently empty. If NOTHING in the roster has a single row, that is what
+     has happened, not a thin corpus. */
+  if (!roster.some((r) => r.filled > 0))
+    throw new Error("profile: every company is empty — check the cid/name join");
+}

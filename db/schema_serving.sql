@@ -1,0 +1,272 @@
+-- ---------------------------------------------------------------------------
+-- KSSL_Deploy: schema "serving"
+-- Tables that DIRECTLY power the UI. Column names follow the dataset field
+-- names in contract_shapes.json (camelCase columns are quoted) so the API
+-- assembly is mechanical. Arrays the UI consumes as arrays (lens pairs,
+-- facts pairs, matchup spec rows, tender matches, ...) are JSONB columns.
+--
+-- Every pipeline-writable table carries:
+--   origin      'reference' (seeded from reference_dataset.json) or 'pipeline'
+--   updated_at  last write
+-- Ordering columns (ord, comp_ord, ...) preserve the reference display order;
+-- the API emits rows in that order.
+-- ---------------------------------------------------------------------------
+
+CREATE SCHEMA IF NOT EXISTS serving;
+
+-- Interface vocabulary (CAT_KEY, POS_CATS, FIELDSYN, REL_LABEL, actLabel,
+-- chatSuggest, client, overviewConfig, ...): describes the interface, not the
+-- world. The pipeline never writes this table.
+CREATE TABLE serving.ui_config (
+    key   text PRIMARY KEY,
+    value jsonb NOT NULL
+);
+
+-- Global: competitors (dict keyed by comp id; compOrder is derived from ord).
+CREATE TABLE serving.competitors (
+    comp_id      text PRIMARY KEY,
+    ord          integer NOT NULL,
+    name         text NOT NULL,
+    dir          text,
+    sector       text,
+    hq           text,
+    threat       text,
+    assess       text,
+    updates      jsonb,          -- mixed type in the reference: string OR empty list
+    center       jsonb,
+    partners     jsonb,
+    site         text,
+    srcs         jsonb,
+    products     jsonb,
+    "threatNote" text,
+    origin       text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- Globals: competitiveCards / marketCards / techCards — one table, lane column.
+-- market-lane cards have no company/lens/sec/url; those stay NULL and the API
+-- omits them.
+CREATE TABLE serving.signal_card (
+    id         text PRIMARY KEY,
+    lane       text NOT NULL CHECK (lane IN ('competitive', 'market', 'tech')),
+    ord        integer NOT NULL,
+    dir        text,
+    rank       text,
+    title      text NOT NULL,
+    meta       text,
+    company    text,
+    lens       text,
+    sowhat     text,
+    sec        jsonb,
+    url        text,
+    ago        text,
+    tags       text,
+    origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX signal_card_lane_idx ON serving.signal_card (lane, ord);
+
+-- Global: details (dict keyed by card id).
+CREATE TABLE serving.signal_detail (
+    id         text PRIMARY KEY,
+    ord        integer NOT NULL,
+    rank       text,
+    dir        text,
+    title      text NOT NULL,
+    facts      jsonb,
+    what       text,
+    why        text,
+    lens       jsonb,
+    actions    jsonb,
+    url        text,
+    suggest    jsonb,
+    kind       text,
+    match      jsonb,
+    pursue     jsonb,
+    origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Global: matchups (dict keyed by numeric-string id, emitted in id order).
+-- edge is honestly nullable (75 reference rows have edge: null).
+CREATE TABLE serving.matchup (
+    matchup_id integer PRIMARY KEY,
+    cat        text NOT NULL,
+    anchor     text,
+    "global"   boolean,
+    dir        text,
+    country    text,
+    comp       text,
+    "compBy"   text,
+    bf         text,
+    "bfBy"     text,
+    ks_thin    boolean,
+    reason     text,
+    edge       integer,
+    specs      jsonb,
+    "advComp"  jsonb,
+    "advBf"    jsonb,
+    det        jsonb,
+    "verdictH" text,
+    verdict    text,
+    "catKey"   text,
+    srcs       jsonb,
+    gen        boolean,
+    origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX matchup_catkey_idx ON serving.matchup ("catKey");
+
+-- Global: tenders (list).
+CREATE TABLE serving.tender (
+    id         integer PRIMARY KEY,
+    ord        integer NOT NULL,
+    title      text NOT NULL,
+    issuer     text,
+    country    text,
+    cat        text,
+    "value"    text,
+    qty        text,
+    deadline   text,
+    dl         integer,
+    "reqNote"  text,
+    req        jsonb,
+    matches    jsonb,
+    lean       text,
+    "leanTxt"  text,
+    status     text,
+    url        text,
+    "urlKind"  text,
+    srcs       jsonb,
+    stage      text,
+    origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX tender_cat_idx ON serving.tender (cat);
+
+-- Global: PATENTS — stored FLAT, one row per patent. byArea / byAssignee are
+-- rollups the API computes: byArea groups rows in ord order, byAssignee in
+-- assignee_ord order (the reference dataset orders the two views differently).
+-- PATENTS.techAreas and PATENTS._meta live in ui_config.
+CREATE TABLE serving.patent (
+    ord          integer PRIMARY KEY,
+    assignee_ord integer NOT NULL,
+    "no"         text NOT NULL UNIQUE,
+    title        text,
+    assignee     text NOT NULL,
+    status       text,
+    filed        text,
+    granted      text,           -- honestly nullable (16 reference rows)
+    country      text,
+    ipc          jsonb,
+    abstract     text,
+    area         text NOT NULL,
+    threat       text,
+    relev        text,
+    url          text,
+    p            text,
+    origin       text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX patent_area_idx     ON serving.patent (area);
+CREATE INDEX patent_assignee_idx ON serving.patent (assignee);
+
+-- Global: geoData (dict comp -> dict country -> list of presence entries).
+CREATE TABLE serving.geo_presence (
+    comp_id     text NOT NULL,
+    comp_ord    integer NOT NULL,
+    country     text NOT NULL,
+    country_ord integer NOT NULL,
+    ord         integer NOT NULL,
+    name        text NOT NULL,
+    c           text,
+    val         text,
+    since       text,
+    qty         text,
+    stage       text,
+    note        text,
+    src         text,
+    srcnote     text,
+    origin      text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (comp_id, country, ord)
+);
+CREATE INDEX geo_presence_comp_idx ON serving.geo_presence (comp_id);
+
+-- Global: geoComps (list of companies shown on the geo tab, incl. KSSL).
+CREATE TABLE serving.geo_comp (
+    id         text PRIMARY KEY,
+    ord        integer NOT NULL,
+    name       text NOT NULL,
+    dir        text,
+    hq         text,
+    "isBf"     boolean,
+    origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Global: innovations (dict area -> list of items).
+CREATE TABLE serving.innovation (
+    area        text NOT NULL,
+    area_ord    integer NOT NULL,
+    ord         integer NOT NULL,
+    t           text NOT NULL,
+    mat         text,
+    gap         text,
+    driver      text,
+    horizon     text,
+    body        text,
+    impact      text,
+    "whatsNew"  text,
+    "compNote"  text,
+    action      text,
+    sources     text,
+    url         text,
+    origin      text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (area, ord)
+);
+
+-- Global: KSSL_PARTNERS (list).
+CREATE TABLE serving.partner (
+    id         text PRIMARY KEY,
+    ord        integer NOT NULL,
+    label      text NOT NULL,
+    kind       text,
+    rel        text,
+    sig        integer,
+    ptype      text,
+    note       text,
+    date       text,
+    country    text,
+    deal       text,
+    insight    text,
+    mean       text,
+    src        text,
+    srcnote    text,
+    cid        text,
+    origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Global: sourceRegistry (list).
+CREATE TABLE serving.source_registry (
+    ord        integer PRIMARY KEY,
+    company    text NOT NULL,
+    label      text,
+    url        text NOT NULL,
+    kind       text,
+    origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Global: companySources (dict company -> list of urls).
+CREATE TABLE serving.company_source (
+    company    text NOT NULL,
+    comp_ord   integer NOT NULL,
+    ord        integer NOT NULL,
+    url        text NOT NULL,
+    origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (company, ord)
+);

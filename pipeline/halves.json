@@ -1,0 +1,658 @@
+[
+ {
+  "product": "ATAGS",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Max range",
+  "value": "48.07 km",
+  "have": [],
+  "rows": 5
+ },
+ {
+  "product": "MArG 155",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Max range",
+  "value": "30 km (ERFB-BB)",
+  "have": [],
+  "rows": 5
+ },
+ {
+  "product": "Bharat 45",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Max range",
+  "value": "38 km+",
+  "have": [],
+  "rows": 5
+ },
+ {
+  "product": "Bharat ULH",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Max range",
+  "value": "24.7 km BT / 30 km BB",
+  "have": [],
+  "rows": 5
+ },
+ {
+  "product": "MPV",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Power / speed",
+  "value": "280 hp V8 / >110 km/h",
+  "have": [],
+  "rows": 4
+ },
+ {
+  "product": "CAESAR 6x6",
+  "maker": "KNDS",
+  "field": "Weight",
+  "value": "17.7",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "Archer",
+  "maker": "BAE Systems Bofors",
+  "field": "Weight",
+  "value": "33",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "RCH-155",
+  "maker": "KNDS",
+  "field": "Weight",
+  "value": "39",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "ATMOS 2000",
+  "maker": "Elbit Systems",
+  "field": "Weight",
+  "value": "22",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "K9 Thunder",
+  "maker": "Hanwha Aerospace",
+  "field": "Weight",
+  "value": "47",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "Dhanush",
+  "maker": "Advanced Weapons and Equipment India Limited",
+  "field": "Weight",
+  "value": "<14",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "Dhanush-52",
+  "maker": "Advanced Weapons and Equipment India Limited",
+  "field": "Weight",
+  "value": "<14",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "ATHOS 2052",
+  "maker": "Elbit Systems",
+  "field": "Weight",
+  "value": "~15",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "Trajan",
+  "maker": "Nexter",
+  "field": "Weight",
+  "value": "~13",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "K9 Vajra-T",
+  "maker": "Larsen & Toubro",
+  "field": "Weight",
+  "value": "47",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "M777 (India)",
+  "maker": "BAE Systems",
+  "field": "Weight",
+  "value": "4.2",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "CQB Carbine",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Weight",
+  "value": "3.15 kg (3.65 loaded)",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "G5 / G6 / T5-52",
+  "maker": "Denel",
+  "field": "Weight",
+  "value": "13750 kg (towed)",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "Protective Carbine",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Weight",
+  "value": "< 3 kg (3.65 loaded)",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "AH-4 155mm lightweight",
+  "maker": "Norinco",
+  "field": "Weight",
+  "value": "4500 kg",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "Dhanush 155/45",
+  "maker": "Advanced Weapons and Equipment India Limited",
+  "field": "Weight",
+  "value": "13000 kg",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "PzH 2000",
+  "maker": "KNDS",
+  "field": "Weight",
+  "value": "55",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "T-155 Firtina",
+  "maker": "Mechanical and Chemical Industry Corporation",
+  "field": "Weight",
+  "value": "55",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "PCL-181 / SH-15 155mm",
+  "maker": "Norinco",
+  "field": "Weight",
+  "value": "25000 kg",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "Nora B-52",
+  "maker": "Yugoimport SDPR",
+  "field": "Weight",
+  "value": "28",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "Garuda 105",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Max range",
+  "value": "19.5 km RAP / 11.6 std",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "Sniper",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Weight",
+  "value": "6.2 kg (.338 LM)",
+  "have": [],
+  "rows": 2
+ },
+ {
+  "product": "Bharat 45",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Weight",
+  "value": "12.5 t",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Bharat ULH",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Weight",
+  "value": "6.8 t",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "CQB Carbine",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Effective range",
+  "value": "300 m (F90 family)",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Armado",
+  "maker": "Mahindra Defence",
+  "field": "Combat weight",
+  "value": "9000-16000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "WhAP 8x8",
+  "maker": "Tata Advanced Systems",
+  "field": "Combat weight",
+  "value": "24000-26000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Bushmaster PMV",
+  "maker": "Thales",
+  "field": "Combat weight",
+  "value": "15000-17000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Cougar (4x4)",
+  "maker": "Force Protection",
+  "field": "Combat weight",
+  "value": "17000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "MaxxPro",
+  "maker": "Navistar Defense",
+  "field": "Combat weight",
+  "value": "17000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Mbombe 4 (parent)",
+  "maker": "Paramount Group",
+  "field": "Combat weight",
+  "value": "13000-16000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "RG-31/RG-33",
+  "maker": "BAE Systems",
+  "field": "Combat weight",
+  "value": "15000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Bharat 150",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Range",
+  "value": "50-200 km encrypted link",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "ATHOS 2052",
+  "maker": "Elbit Systems",
+  "field": "Max range",
+  "value": "41 (ERFB-BB)",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Marauder",
+  "maker": "Paramount Group",
+  "field": "Combat weight",
+  "value": "15000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Pandur II / LAV",
+  "maker": "General Dynamics",
+  "field": "Combat weight",
+  "value": "18000-22000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "VN series (VN1/VN4)",
+  "maker": "Norinco",
+  "field": "Combat weight",
+  "value": "21000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "G5 / G6 / T5-52",
+  "maker": "Denel",
+  "field": "Max range",
+  "value": "50-55 km (VLAP)",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "K9 Vajra-T",
+  "maker": "Larsen & Toubro",
+  "field": "Max range",
+  "value": "40+",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Trajan",
+  "maker": "Nexter",
+  "field": "Max range",
+  "value": "40+",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "AH-4 155mm lightweight",
+  "maker": "Norinco",
+  "field": "Max range",
+  "value": "25-40 km",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "PCL-181 / SH-15 155mm",
+  "maker": "Norinco",
+  "field": "Max range",
+  "value": "40-53 km",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Nora B-52",
+  "maker": "Yugoimport SDPR",
+  "field": "Max range",
+  "value": "41.2",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "MArG 155",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Weight",
+  "value": "18 t",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "ATC",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Combat weight",
+  "value": "13 t (min combat GVM)",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "NAMICA (Nag carrier)",
+  "maker": "Armoured Vehicles Nigam Limited",
+  "field": "Combat weight",
+  "value": "14500 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Aravis",
+  "maker": "Arquus",
+  "field": "Combat weight",
+  "value": "8-12 t",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "12x12 Missile Carrier",
+  "maker": "Ashok Leyland",
+  "field": "Combat weight",
+  "value": "40000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "ATT 4x4",
+  "maker": "Ashok Leyland",
+  "field": "Combat weight",
+  "value": "15600 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "MBPV 4x4",
+  "maker": "Ashok Leyland",
+  "field": "Combat weight",
+  "value": "11000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Stallion Kavach",
+  "maker": "Ashok Leyland",
+  "field": "Combat weight",
+  "value": "12000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "LMV Lince",
+  "maker": "Iveco",
+  "field": "Combat weight",
+  "value": "7100 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Light Armoured Vehicle",
+  "maker": "JCBL Armouring Solutions",
+  "field": "Combat weight",
+  "value": "8000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Armado ALSV",
+  "maker": "Mahindra Defence",
+  "field": "Combat weight",
+  "value": "7500 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "MPV-I (mine protected)",
+  "maker": "Mahindra Defence",
+  "field": "Combat weight",
+  "value": "16000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Marksman APC",
+  "maker": "Mahindra Defence",
+  "field": "Combat weight",
+  "value": "12000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "CS/VP3 MRAP",
+  "maker": "Norinco",
+  "field": "Combat weight",
+  "value": "15000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Ejder Yalcin",
+  "maker": "Nurol Makina",
+  "field": "Combat weight",
+  "value": "14000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "JLTV (Oshkosh)",
+  "maker": "Oshkosh Defense",
+  "field": "Combat weight",
+  "value": "10000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Cobra II",
+  "maker": "Otokar",
+  "field": "Combat weight",
+  "value": "18500 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Patria AMV",
+  "maker": "Patria",
+  "field": "Combat weight",
+  "value": "16000-25000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Senator MRAP",
+  "maker": "Roshel",
+  "field": "Combat weight",
+  "value": "10000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Kavach MRAP",
+  "maker": "SMPP",
+  "field": "Combat weight",
+  "value": "16000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "HMT Jackal / Extenda",
+  "maker": "Supacat",
+  "field": "Combat weight",
+  "value": "7600 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "LSV 4x4",
+  "maker": "Tata Advanced Systems",
+  "field": "Combat weight",
+  "value": "7000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Merlin",
+  "maker": "Tata Advanced Systems",
+  "field": "Combat weight",
+  "value": "7000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "MPV",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Combat weight",
+  "value": "10-25 t (variant)",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Garuda 105",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Weight",
+  "value": "< 5.5 t",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Garuda 105",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Rate of fire",
+  "value": "8 rds/min, 3 sustained",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Protective Carbine",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Effective range",
+  "value": "200-300 m",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Sniper",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Effective range",
+  "value": "up to 1500 m (.338 LM)",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "LBPV",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Combat weight",
+  "value": "6 t (min combat GVM)",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "LTV",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Combat weight",
+  "value": "6 t combat GVM",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "LBPV 4x4",
+  "maker": "Ashok Leyland",
+  "field": "Combat weight",
+  "value": "6000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Gurkha LSV",
+  "maker": "Force Motors",
+  "field": "Combat weight",
+  "value": "2500-5000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "Axe FAV",
+  "maker": "Mahindra Defence",
+  "field": "Combat weight",
+  "value": "6000 kg",
+  "have": [],
+  "rows": 1
+ },
+ {
+  "product": "ULSV",
+  "maker": "Kalyani Strategic Systems",
+  "field": "Combat weight",
+  "value": "3 t (min combat GVW)",
+  "have": [],
+  "rows": 1
+ }
+]

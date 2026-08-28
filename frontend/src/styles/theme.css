@@ -1,0 +1,44 @@
+  /* Archivo / IBM Plex Mono / Tabler icons are <link>ed from index.html — a webfont
+     @import inside a bundled stylesheet has to be hoisted to the top of the bundle,
+     and this file is only one of twelve. */
+
+  :root{
+    --d-bg:#161618;
+    --d-bg-1:#1c1c1f;
+    --d-bg-2:#212125;
+    --d-bg-3:#2a2a2f;
+    --d-line:#323237;
+    --d-line-2:#46464d;
+    --d-txt:#f5f5f4;
+    --d-txt-2:#bdbdbb;
+    --d-txt-3:#908f8c;
+    --d-txt-4:#65656a;
+    --d-read:#d8d8d6;
+    --l-bg:#ffffff;
+    --l-bg-1:#f7f6f3;
+    --l-bg-2:#f0efea;
+    --l-bg-3:#e9e8e2;
+    --l-line:#e2e0d8;
+    --l-line-2:#cfcdc3;
+    --l-txt:#161614;
+    --l-txt-2:#3d3d39;
+    --l-txt-3:#6b6a63;
+    --l-txt-4:#9a988e;
+    --threat:#b5341f;
+  --threat-badge:#f0593c; --watch-badge:#e0a020; --fav-badge:#3fa86a;
+    --watch:#9a6a08;
+    --fav:#1f6e45;
+    --synthetic:#c0610f;
+    --synthetic-bg:#fbf0e2;
+    --mono:'IBM Plex Mono', ui-monospace, monospace;
+    --sans:'Archivo', system-ui, sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{background:var(--d-bg);color:var(--d-txt);font-family:var(--sans);-webkit-font-smoothing:antialiased;height:100%;width:100%;max-width:100vw;overflow-x:hidden !important}
+  body{display:flex;flex-direction:column;height:100vh;overflow-x:hidden !important;overflow-y:hidden}
+  #root{display:flex;flex-direction:column;height:100vh;width:100%;max-width:100vw;overflow-x:hidden !important}
+  ::selection{background:#333;color:#fff}
+
+  .eyebrow{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--d-txt-3)}
+  .mono{font-family:var(--mono)}
+

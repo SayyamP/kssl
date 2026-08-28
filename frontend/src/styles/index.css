@@ -1,0 +1,19 @@
+/* The standalone HTML ships one cascade. These twelve files are that cascade, cut at
+   its own section comments and re-imported in the SAME order — so a selector that
+   depended on being overridden later still is. Per-component stylesheets would have
+   reordered it (module evaluation order, not source order) and quietly changed the UI.
+   Import order here is the contract; do not sort it. */
+@import "./theme.css";
+@import "./chrome.css";
+@import "./shell.css";
+@import "./positioning.css";
+@import "./partnerships.css";
+@import "./patents.css";
+@import "./geo.css";
+@import "./tender.css";
+@import "./market-overview.css";
+@import "./profile.css";
+@import "./technology.css";
+@import "./chat.css";
+@import "./gap.css";
+@import "./react-root.css";

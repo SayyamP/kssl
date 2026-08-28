@@ -1,0 +1,48 @@
+{
+  "label": "4 cores",
+  "cores_visible": 8,
+  "prompt_chars": 2820,
+  "npredict": 600,
+  "results": [
+    {
+      "model": "qwen2.5:7b-instruct",
+      "runs": [
+        {
+          "ok": true,
+          "call_s": 65.78,
+          "load_s": 9.24,
+          "prompt_tokens": 619,
+          "prompt_tok_s": 23.54,
+          "gen_tokens": 163,
+          "gen_tok_s": 5.4
+        },
+        {
+          "ok": true,
+          "call_s": 28.39,
+          "load_s": 0.0,
+          "prompt_tokens": 619,
+          "prompt_tok_s": 2791.33,
+          "gen_tokens": 145,
+          "gen_tok_s": 5.16
+        },
+        {
+          "ok": true,
+          "call_s": 26.67,
+          "load_s": 0.0,
+          "prompt_tokens": 619,
+          "prompt_tok_s": 3767.15,
+          "gen_tokens": 145,
+          "gen_tok_s": 5.48
+        }
+      ],
+      "summary": {
+        "cold_load_s": 9.24,
+        "gen_tok_s": 5.32,
+        "prompt_tok_s": 3279.24,
+        "call_s": 27.53,
+        "gen_tokens": 145,
+        "rss_gb": 5.5
+      }
+    }
+  ]
+}

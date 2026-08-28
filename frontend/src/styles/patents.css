@@ -1,0 +1,127 @@
+        /* ===== PATENT SEARCH STATES ===== */
+  .pat-loading{display:flex;align-items:center;gap:10px;padding:22px 4px;color:var(--d-txt-3);font-size:12px}
+  .pat-spin{width:14px;height:14px;border:2px solid var(--d-bg-3);border-top-color:#c08a2b;border-radius:50%;display:inline-block;animation:patspin .7s linear infinite}
+  @keyframes patspin{to{transform:rotate(360deg)}}
+  .pat-state{padding:24px 18px;text-align:center;border:1px dashed var(--d-bg-3);border-radius:9px;margin:6px 0}
+  .pat-state .ps-ic{font-size:24px;opacity:.5;margin-bottom:8px}
+  .pat-state .ps-t{font-size:13px;font-weight:600;color:var(--d-txt-2);margin-bottom:5px}
+  .pat-state .ps-s{font-size:11.5px;line-height:1.5;color:var(--d-txt-3);max-width:360px;margin:0 auto}
+  .pat-state.err{border-color:#9c2b2b55}.pat-state.err .ps-ic{color:#c0654a;opacity:.8}
+  .pat-view-link{display:inline-block;margin-top:9px;font-size:11px;font-weight:600;color:#5a9ed6;text-decoration:none;padding:4px 0}
+  .pat-view-link:hover{text-decoration:underline}
+  /* ===== WHITE-SPACE ANALYSIS (Technology patents) ===== */
+  .ws-crowd{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px;flex-wrap:wrap}
+  .ws-crowd-l{display:block;font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--d-txt-3);font-weight:700;margin-bottom:3px}
+  .ws-crowd-v{font-size:18px;font-weight:700}
+  .ws-summary{font-size:12px;line-height:1.55;color:var(--d-txt-2);background:var(--d-bg-2);border-radius:8px;padding:11px 13px;margin-bottom:18px}
+  .ws-sec-l{font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;font-weight:700;color:var(--d-txt);margin:10px 0 8px;background:none;padding:0;border:none;display:flex;align-items:center;flex-wrap:wrap;gap:6px}
+  .ws-sec-l.open{color:var(--d-txt-2)}
+  .ws-sec-note{font-family:var(--sans);font-size:12px;font-weight:600;letter-spacing:0;text-transform:none;color:var(--d-txt-3);margin-left:4px}
+  /* KOEL present / absent in this field — the first question the view should answer. */
+  .ws-koelbar{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;border-radius:9px;margin-bottom:14px;font-size:12.5px;line-height:1.5;border:1px solid}
+  .ws-koelbar.in{background:rgba(59,141,92,.09);border-color:rgba(59,141,92,.35);color:var(--d-txt-2)}
+  .ws-koelbar.out{background:rgba(181,52,31,.09);border-color:rgba(181,52,31,.35);color:var(--d-txt-2)}
+  .ws-koelbar .wk-ic{font-size:13px;line-height:1.4;flex-shrink:0}
+  .ws-koelbar.in .wk-ic{color:#5aa87a}.ws-koelbar.out .wk-ic{color:#d1705a}
+  .ws-koelbar b{color:var(--d-txt)}
+  /* One row per holder. No share bar: see the note in the renderer. */
+  .ws-holders{margin-bottom:18px;display:flex;flex-direction:column;gap:1px}
+  .ws-holder{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 12px;background:var(--d-bg-1);border-left:3px solid var(--d-line-2)}
+  .ws-holder:first-child{border-radius:7px 7px 0 0}.ws-holder:last-child{border-radius:0 0 7px 7px}
+  .ws-holder.th-high{border-left-color:#b5341f}.ws-holder.th-medium{border-left-color:#9a6a08}
+  .ws-holder.th-low{border-left-color:#4a5a52}
+  .ws-holder.client{border-left-color:#5aa87a;background:rgba(59,141,92,.07)}
+  .wh-l{min-width:0}
+  .wh-name{display:block;font-size:12.5px;font-weight:600;color:var(--d-txt)}
+  .wh-you{font-style:normal;font-family:var(--mono);font-size:8.5px;letter-spacing:.06em;background:#2c5c42;color:#cde8d8;padding:1px 5px;border-radius:3px;vertical-align:1px}
+  .wh-meta{display:block;font-size:10.5px;color:var(--d-txt-4);margin-top:2px}
+  .wh-r{display:flex;gap:4px;flex-shrink:0}
+  .wh-chip{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;white-space:nowrap;border:1px solid}
+  .wh-chip.granted{background:rgba(181,52,31,.14);border-color:rgba(181,52,31,.45);color:#e08a76}
+  .wh-chip.pending{background:var(--d-bg-2);border-color:var(--d-line-2);color:var(--d-txt-3)}
+  .wh-chip.th{text-transform:uppercase;letter-spacing:.05em}
+  .wh-chip.th.high{background:rgba(181,52,31,.1);border-color:rgba(181,52,31,.4);color:#d1705a}
+  .wh-chip.th.medium{background:rgba(154,106,8,.1);border-color:rgba(154,106,8,.4);color:#c9a23f}
+  .wh-chip.th.low{background:transparent;border-color:var(--d-line);color:var(--d-txt-4)}
+  .ws-gaps{margin-bottom:18px}
+  .ws-gap{border:1px solid var(--d-bg-3);border-left:3px solid #3b8d5c;border-radius:7px;padding:10px 12px;margin-bottom:8px}
+  .ws-gap-h{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:3px}
+  .ws-gap-name{font-size:12.5px;font-weight:600;color:var(--d-txt)}
+  .ws-gap-n{font-size:10px;color:#3b8d5c;font-weight:600;white-space:nowrap}
+  .ws-gap-note{font-size:11.5px;line-height:1.45;color:var(--d-txt-2)}
+  .ws-koel{background:var(--d-bg-2);border-radius:9px;padding:13px 15px;margin-bottom:8px}
+  .ws-koel-l{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;font-weight:700;color:var(--d-txt-3)}
+  .ws-koel-pos{font-size:13px;font-weight:600;color:var(--d-txt);margin:5px 0 8px}
+  .ws-koel-rec{font-size:11.5px;line-height:1.5;color:var(--d-txt-2)}
+  .ws-koel-rec .wkr-l{font-size:9px;letter-spacing:.05em;text-transform:uppercase;font-weight:700;color:#3b8d5c;display:inline-block;margin-right:4px}
+  /* ===== PATENTS VIEWS ===== */
+  /* Patents view: a lens bar over two panes (by rival / by technology field). */
+  .pat-view{grid-column:2 / span 2;display:flex;flex-direction:column;overflow:hidden;min-height:0}
+  .pat-lens{display:flex;align-items:center;gap:6px;padding:9px 16px;border-bottom:1px solid var(--d-line);background:var(--d-bg);flex-shrink:0}
+  .pat-lens-lab{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt-4);margin-right:3px}
+  .pat-lens-b{font-family:var(--sans);font-size:12px;padding:5px 12px;border:1px solid var(--d-line);background:var(--d-bg-1);color:var(--d-txt-3);border-radius:6px;cursor:pointer;transition:.12s}
+  .pat-lens-b:hover{color:var(--d-txt-2);border-color:var(--d-line-2)}
+  .pat-lens-b.active{background:var(--d-bg-2);color:var(--d-txt);border-color:var(--d-line-2);font-weight:600}
+  .pat-lens-note{margin-left:auto;font-size:11px;color:var(--d-txt-4)}
+  .pat-li-none{padding:14px 16px;font-size:11.5px;color:var(--d-txt-4)}
+  .pat-pane{flex:1;display:grid;grid-template-columns:290px 1fr;overflow:hidden;min-height:0}
+  .pat-canvas{padding:18px 22px;overflow-y:auto}
+  .v-patents-comp .pat-canvas{background:#ffffff;color:#1e293b}
+  .v-patents-comp .pat-canvas .pat-head .eyebrow{color:#0f172a;font-weight:700}
+  .v-patents-comp .pat-canvas .pat-head .pat-sub{color:#475569}
+  .v-patents-comp .pat-canvas .pat-stat{background:#f8fafc;border:1px solid #e2e8f0}
+  .v-patents-comp .pat-canvas .pat-stat .pl{color:#64748b}
+  .v-patents-comp .pat-canvas .pat-rec{background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
+  .v-patents-comp .pat-canvas .pat-rec-t{color:#0f172a}
+  .v-patents-comp .pat-canvas .pat-rec-meta{color:#64748b}
+  .v-patents-comp .pat-canvas .pat-rec-meta b{color:#334155}
+  .v-patents-comp .pat-canvas .pat-ipc span{background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}
+  .v-patents-comp .pat-canvas .pat-abs{color:#334155}
+  .v-patents-comp .pat-canvas .ws-summary{background:#f8fafc;border:1px solid #e2e8f0;color:#334155}
+  .v-patents-comp .pat-canvas .ws-sec-l{color:#0f172a}
+  .v-patents-comp .pat-canvas .ws-sec-note{color:#64748b}
+  .v-patents-comp .pat-canvas .ws-holder{background:#f8fafc;border-bottom:1px solid #e2e8f0}
+  .v-patents-comp .pat-canvas .ws-holder .wh-name{color:#0f172a}
+  .v-patents-comp .pat-canvas .ws-holder .wh-meta{color:#64748b}
+  .v-patents-comp .pat-canvas .ws-gap{background:#ffffff;border-color:#e2e8f0;border-left-color:#3b8d5c}
+  .v-patents-comp .pat-canvas .ws-gap-name{color:#0f172a}
+  .v-patents-comp .pat-canvas .ws-gap-note{color:#334155}
+  .v-patents-comp .pat-canvas .ws-koel{background:#f8fafc;border:1px solid #e2e8f0}
+  .v-patents-comp .pat-canvas .ws-koel-pos{color:#0f172a}
+  .v-patents-comp .pat-canvas .ws-koel-rec{color:#334155}
+  .v-patents-comp .pat-canvas .pat-api-note{background:#f8fafc;border:1px solid #e2e8f0;color:#64748b}
+  .v-patents-comp .pat-canvas .pat-api-note b{color:#334155}
+  .v-patents-comp .pat-canvas .patc-cat-filter{background:#ffffff;color:#0f172a;border:1px solid #cbd5e1}
+  .patc-cat-filter{font-family:var(--mono);font-size:11px}
+  .pat-head{margin-bottom:16px}
+  .pat-head .pat-sub{display:block;font-size:13px;font-weight:600;color:var(--d-txt-2);margin-top:4px}
+  .pat-stats{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:18px}
+  .pat-stat{background:var(--d-bg-2);border-radius:8px;padding:11px 14px;min-width:88px}
+  .pat-stat .pv{font-size:21px;font-weight:700;line-height:1.05}
+  .pat-stat .pl{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--d-txt-3);margin-top:3px}
+  .pat-stat.granted .pv{color:#1f6e45}.pat-stat.filed .pv{color:#3a6ea5}.pat-stat.pending .pv{color:#8a5a0a}
+  .pat-rec{border:1px solid var(--d-bg-2);border-radius:9px;padding:13px 15px;margin-bottom:11px}
+  .pat-rec-h{display:flex;align-items:flex-start;gap:10px;margin-bottom:7px}
+  .pat-rec-t{font-size:13px;font-weight:600;line-height:1.4;color:var(--d-txt);flex:1}
+  .pat-badge{font-size:9px;letter-spacing:.04em;text-transform:uppercase;font-weight:700;padding:2px 8px;border-radius:5px;white-space:nowrap;flex-shrink:0}
+  .pat-badge.granted{background:#e6f3ec;color:#1f6e45}
+  .pat-badge.filed{background:#e8f0f8;color:#3a6ea5}
+  .pat-badge.pending{background:#f8efdc;color:#8a5a0a}
+  .pat-rec-meta{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--d-txt-3);margin-bottom:8px}
+  .pat-rec-meta b{color:var(--d-txt-2);font-weight:600}
+  .pat-ipc{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
+  .pat-ipc span{font-size:9.5px;font-family:var(--font-mono,monospace);background:var(--d-bg-2);color:var(--d-txt-3);padding:2px 7px;border-radius:4px}
+  .pat-abs{font-size:11.5px;line-height:1.5;color:var(--d-txt-2)}
+  .pat-relev{font-size:9px;letter-spacing:.04em;text-transform:uppercase;font-weight:700;padding:2px 7px;border-radius:5px;flex-shrink:0}
+  .pat-relev.CORE{background:rgba(156,43,43,0.18);color:#e07a6a}.pat-relev.ADJACENT{background:rgba(176,137,43,0.18);color:#d4a857}.pat-relev.context{background:var(--d-bg-2);color:var(--d-txt-3)}
+  .pat-empty{padding:34px 22px;text-align:center;color:var(--d-txt-3)}
+  .pat-empty .pe-ic{font-size:30px;opacity:.4;margin-bottom:10px}
+  .pat-empty .pe-t{font-size:13px;font-weight:600;color:var(--d-txt-2);margin-bottom:5px}
+  .pat-empty .pe-s{font-size:11.5px;line-height:1.5;max-width:340px;margin:0 auto}
+  .pat-li{padding:13px 16px;border-bottom:1px solid var(--d-bg-2);cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .pat-li:hover{background:var(--d-bg-2)}
+  .pat-li.active{background:var(--d-bg-2);border-left:3px solid #b0892b}
+  .pat-li .pli-n{font-size:14px;font-weight:600;color:var(--d-txt)}
+  .pat-li .pli-c{font-size:11.5px;color:var(--d-txt-3);background:var(--d-bg-1);border:1px solid var(--d-bg-2);border-radius:10px;padding:2px 9px;min-width:20px;text-align:center}
+  .pat-api-note{margin-top:18px;padding:11px 13px;background:var(--d-bg-2);border-radius:8px;font-size:10.5px;line-height:1.5;color:var(--d-txt-3)}
+  .pat-api-note b{color:var(--d-txt-2)}

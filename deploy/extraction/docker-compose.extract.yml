@@ -1,0 +1,63 @@
+# Layer A/B extraction at the data centre.
+#
+#   docker compose -f docker-compose.extract.yml build
+#   docker compose -f docker-compose.extract.yml run --rm extract \
+#       python pipeline/run_extraction.py --limit 40 --workers 4
+#
+# WHERE THIS RUNS, AND WHY IT MATTERS
+# -----------------------------------
+# The box is meant to be divided crawler 0-19 / L2 20-29 / SFL 30-34 / OS 35-39.
+# Measured 2026-08-25, the twelve crawler-api containers are actually pinned
+# `0-34`, so they spill across the L2 lane, and the corpus Postgres sits on
+# 35-39. With a news crawl running, qwen2.5:7b here managed 1.06 tok/s against
+# 11.4 tok/s on a 4-core VPS.
+#
+# So: either pin the crawlers back to 0-19 before running a large batch, or run
+# extraction against a quiet fleet. The cpuset below claims the L2 lane, which
+# is correct once the crawlers respect theirs.
+#
+# Do NOT convert cpuset to a `cpus:` quota here. A CFS quota inflates latency,
+# fires the engine's watchdog, and the crawler's own governors read HOST cpu
+# rather than their cgroup -- caps on this box have been lethal before.
+
+name: kssl-extract
+
+services:
+  extract:
+    build: .
+    image: kssl-extraction:latest
+    container_name: kssl-extraction
+    cpuset: "${KSSL_EXTRACT_CPUSET:-20-29}"
+    mem_limit: ${KSSL_EXTRACT_MEM:-48g}
+    environment:
+      # the engine's models. Ollama is reached over the network, so it does not
+      # have to live in this container.
+      C_MODEL: ${C_MODEL:-qwen2.5:7b}
+      C_EMBED: ${C_EMBED:-nomic-embed-text:latest}
+      C_GLINER: urchade/gliner_multi-v2.1
+      # recall lost at the finder is unrecoverable downstream: do not raise
+      C_GLINER_TH: "0.2"
+      # comprehend.py hardcodes 24; on a shared lane that oversubscribes
+      C_THREADS: ${C_THREADS:-10}
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11500}
+      HF_HOME: /models
+      # results go to the VPS database through the tunnel
+      KSSL_DSN: ${KSSL_DSN:?set KSSL_DSN to the VPS database}
+      KSSL_METRICS_DSN: ${KSSL_METRICS_DSN:-${KSSL_DSN}}
+      KSSL_CORPUS_DSN: ${KSSL_CORPUS_DSN:?set KSSL_CORPUS_DSN}
+      # stamps every metrics row: guessing this from the hostname is how a
+      # data-centre timing ends up labelled 'vps'
+      KSSL_HOST_ROLE: datacentre
+    volumes:
+      - kssl_hf:/models
+      # the engine and the pipeline, mounted rather than copied so a code change
+      # does not mean an image rebuild
+      - ${KSSL_ENGINE_DIR:-../../../l2}:/l2:ro
+      - ${KSSL_APP_DIR:-../..}:/app
+    working_dir: /app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: "no"
+
+volumes:
+  kssl_hf:
