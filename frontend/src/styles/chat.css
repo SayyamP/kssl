@@ -40,10 +40,10 @@
   .mchat-send:disabled{background:var(--l-line-2);cursor:default}
   .mchat-foot{font-family:var(--mono);font-size:9px;letter-spacing:.04em;color:var(--l-txt-4);text-align:center;padding:7px;background:var(--l-bg-2);border-top:1px solid var(--l-line)}
   /* ===== scoped per-panel chat bar ===== */
-  .scoped-chat{position:sticky;bottom:0;left:0;right:0;background:var(--l-bg);border-top:1px solid var(--l-line);margin-top:auto;z-index:5}
+  .scoped-chat{position:relative;background:var(--l-bg);border-top:1px solid var(--l-line);margin-top:auto;z-index:2;flex-shrink:0;width:100%;box-sizing:border-box}
   .scoped-answers{max-height:0;overflow-y:auto;transition:max-height .25s ease;background:var(--l-bg-1)}
-  /* ===== scoped per-panel chatbot (sticky bottom bar) ===== */
-  .scopechat{position:sticky;bottom:0;margin-top:auto;background:var(--l-bg);border-top:1px solid var(--l-line);z-index:5}
+  /* ===== scoped per-panel chatbot (static bottom bar) ===== */
+  .scopechat{position:relative;background:var(--l-bg);border-top:1px solid var(--l-line);margin-top:auto;z-index:2;flex-shrink:0;width:100%;box-sizing:border-box}
   .sc-log{max-height:240px;overflow-y:auto;border-bottom:1px solid var(--l-line);background:var(--l-bg-1)}
   .sc-q{padding:10px 14px 4px;font-size:12px;font-weight:600;color:var(--l-txt)}
   .sc-q::before{content:'›  ';color:var(--l-txt-4)}
@@ -58,4 +58,26 @@
   .sc-input::placeholder{color:var(--l-txt-4)}
   .sc-send{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;background:var(--l-txt);color:var(--l-bg);border:none;padding:8px 13px;cursor:pointer;transition:.12s}
   .sc-send:hover{background:var(--l-txt-2)}
+
+  .mchat-copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--l-txt-3);
+    background: var(--l-bg-2);
+    border: 1px solid var(--l-line-2);
+    border-radius: 4px;
+    padding: 3px 8px;
+    cursor: pointer;
+    transition: all .12s;
+  }
+  .mchat-copy-btn:hover {
+    color: var(--l-txt);
+    border-color: var(--l-txt-4);
+    background: var(--l-bg);
+  }
+
 

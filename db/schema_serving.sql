@@ -39,6 +39,9 @@ CREATE TABLE serving.competitors (
     srcs         jsonb,
     products     jsonb,
     "threatNote" text,
+    leadership   jsonb,
+    facilities   jsonb,
+    sales        jsonb,
     origin       text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at   timestamptz NOT NULL DEFAULT now()
 );

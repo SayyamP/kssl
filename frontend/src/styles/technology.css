@@ -36,23 +36,24 @@
   .innov .gappill.behind{color:var(--threat);border-color:var(--threat)}
   .innov .gappill.parity{color:var(--watch);border-color:var(--watch)}
   .innov .gappill.ahead{color:var(--fav);border-color:var(--fav)}
-  .tech-det{border-left:1px solid var(--d-line);background:var(--l-bg);color:var(--l-txt);overflow-y:auto;flex-direction:column;display:none}
-  .tech-body.has-sel .tech-det{display:flex;animation:panelSlideWide .42s cubic-bezier(.22,.61,.36,1)}
+  .tech-det,.tech-dossier{border-left:1px solid var(--d-line);background:var(--l-bg);color:var(--l-txt);overflow:hidden;flex-direction:column;display:none;height:100%;box-sizing:border-box}
+  .tech-body.has-sel .tech-det,.tech-body.has-sel .tech-dossier{display:flex;animation:panelSlideWide .42s cubic-bezier(.22,.61,.36,1)}
   @keyframes panelIn{0%{opacity:0;transform:translateX(60px)}60%{opacity:1}100%{opacity:1;transform:translateX(0)}}
   @keyframes panelSlideWide{0%{opacity:0;transform:translateX(110px)}100%{opacity:1;transform:translateX(0)}}
-  .tech-d-h{padding:16px 18px;border-bottom:1px solid var(--l-line);background:var(--l-bg-2);border-left:3px solid transparent;position:relative}
+  .tech-d-h{padding:16px 18px;border-bottom:1px solid var(--l-line);background:var(--l-bg-2);border-left:3px solid transparent;position:relative;flex-shrink:0;width:100%;box-sizing:border-box}
   .tech-d-h.behind{border-left-color:var(--threat)}.tech-d-h.parity{border-left-color:var(--watch)}.tech-d-h.ahead{border-left-color:var(--fav)}
   .tech-d-h .eyebrow{color:var(--l-txt-3);display:block;margin-bottom:8px}
   .tech-d-h .ct{font-size:15px;font-weight:600;letter-spacing:-.01em;line-height:1.3;color:var(--l-txt)}
   .tech-d-h .sub{font-family:var(--mono);font-size:11px;color:var(--l-txt-3);margin-top:7px;display:flex;gap:8px;flex-wrap:wrap}
   .tech-d-h .sub .sep{color:var(--l-txt-4)}
-  .tech-d-sec{padding:15px 18px;border-bottom:1px solid var(--l-line)}
+  .tech-d-sec{padding:15px 18px;border-bottom:1px solid var(--l-line);box-sizing:border-box;display:flex;flex-direction:column;width:100%}
   .tech-d-sec .eyebrow{color:var(--l-txt-3);display:block;margin-bottom:11px}
   .tech-d-sec .body{font-size:12.5px;color:var(--l-txt-2);line-height:1.6}
   .tech-d-sec .body b{color:var(--l-txt);font-weight:600}
-  .tech-kv{display:flex;justify-content:space-between;padding:6px 0;font-size:12px;border-bottom:1px solid var(--l-bg-2);gap:14px}
+  .tech-kv{display:flex;justify-content:space-between;align-items:flex-start;padding:6px 0;font-size:12px;border-bottom:1px solid var(--l-bg-2);gap:14px;box-sizing:border-box;width:100%}
   .tech-kv:last-child{border-bottom:none}
-  .tech-kv .k{color:var(--l-txt-3)}.tech-kv .v{font-family:var(--mono);color:var(--l-txt);font-size:11px;text-align:right}
+  .tech-kv .k{color:var(--l-txt-3);width:130px;flex-shrink:0}
+  .tech-kv .v{font-family:var(--mono);color:var(--l-txt);font-size:11px;text-align:right;flex:1;min-width:0;word-break:break-word}
   /* an unassessed field must not look like a measured one */
   .tech-kv .v.na,.tech-d-sec .body.na{color:var(--l-txt-4);font-style:italic}
   .tech-impact{background:var(--l-bg-2);border:1px solid var(--l-line-2);padding:13px 15px;margin:15px 18px;font-size:12.5px;color:var(--l-txt);line-height:1.55}
@@ -63,8 +64,11 @@
   .tech-d-sec.lead .lead-body{font-size:14px;line-height:1.6;color:var(--l-txt);font-weight:500}
   .tech-d-sec.lead .lead-body b{font-weight:700}
   .tech-d-sec.lead .body{font-size:13px;line-height:1.6;color:var(--l-txt-2);margin-top:7px}
-  .tech-action-lead{margin:0 0 2px;padding:14px 18px;background:#161618;color:#e8e8e6;font-size:13px;line-height:1.55;border-bottom:1px solid var(--l-line)}
+  .tech-action-lead{margin:0 0 2px;padding:14px 18px;background:#161618;color:#f5f5f4!important;font-size:13px;line-height:1.55;border-bottom:1px solid var(--l-line)}
   .tech-action-lead .tl{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--fav);margin-bottom:7px;font-weight:700}
+  .tech-action-lead .tech-kv .k{color:#94a3b8!important}
+  .tech-action-lead .tech-kv .v{color:#f8fafc!important;font-weight:500}
+  .tech-action-lead .tech-kv .v.na{color:#64748b!important}
   .tech-report-btn{width:calc(100% - 36px);margin:4px 18px 0;background:#161618;color:#f5f5f4;border:none;padding:13px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;transition:background .15s}
   .tech-report-btn:hover{background:#2a2a2f}
   .tech-report-btn:disabled{opacity:.6;cursor:default}

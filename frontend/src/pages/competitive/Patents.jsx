@@ -142,9 +142,7 @@ export default function Patents() {
         <>
         <div className="mu-list">
           <div className="mu-list-h">
-            <span className="eyebrow">
-              Competitors <span className="srcbadge" style={{ marginLeft: "6px" }}>Sourced</span>
-            </span>
+            <span className="eyebrow">Competitors</span>
             <div className="sub">Select to view patent portfolio</div>
             <div className="mu-search">
               <span className="si">⌕</span>
@@ -223,9 +221,7 @@ export default function Patents() {
       <div className="pat-pane" data-lens="field" style={{ display: lens === "field" ? "" : "none" }}>
         <div className="mu-list">
           <div className="mu-list-h">
-            <span className="eyebrow">
-              Technology fields <span className="srcbadge" style={{ marginLeft: "6px" }}>Sourced</span>
-            </span>
+            <span className="eyebrow">Technology fields</span>
             <div className="sub">Select to see who is fencing it</div>
             <div className="mu-search">
               <span className="si">⌕</span>

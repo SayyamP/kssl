@@ -14,6 +14,7 @@ import Patents from "../../pages/competitive/Patents";
 import Tenders from "../../pages/market/Tenders";
 import MarketOverview from "../../pages/market/MarketOverview";
 import Profile from "../../pages/competitive/Profile";
+import Products from "../../pages/competitive/Products";
 import Innovation from "../../pages/technology/Innovation";
 import { useAppState, isOverview } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
@@ -64,7 +65,7 @@ export default function Layout() {
      the feed chrome: the count line, the direction filters and the tile-to-feed filter
      all describe cards it does not render. `onFeed` is what gates that chrome;
      `isOverview` still gates the strip and the collapsed third column. */
-  const onMarketReport = view === "m-report";
+  const onMarketReport = view === "m-report" || view === "tender" || view === "awarded-tenders" || view === "closed-tenders";
   const onFeed = isOverview(view) && !onMarketReport;
 
   const metrics = useMemo(
@@ -138,6 +139,8 @@ export default function Layout() {
         );
       case "profile":
         return <Profile />;
+      case "products":
+        return <Products />;
       case "positioning":
         return <Positioning />;
       /* ARCHIVED — off the rail, still routed. getInitialAppState validates the pillar

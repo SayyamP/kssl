@@ -210,76 +210,80 @@ export default function Innovation() {
           ))}
         </div>
 
-        <div className="tech-det" id="tech-det" ref={detRef}>
-          <div className={`tech-d-h ${iv && iv.gap ? iv.gap : ""}`} id="tech-d-h">
-            {iv ? (
-              <>
-                <button
-                  aria-label="Close"
-                  className="col-close"
-                  onClick={() => setSel(null)}
-                  title="Close"
-                  type="button"
-                >
-                  ✕
-                </button>
-                <span className="eyebrow">
-                  Innovation Detail{" "}
-                  <span className="srcbadge" style={{ marginLeft: "6px" }}>
-                    Verified · analysed
-                  </span>
-                </span>
-                <div className="ct">{iv.t}</div>
-                <div className="sub">
-                  {[
-                    MAT_LAB[iv.mat] || iv.mat,
-                    has(iv.horizon) ? iv.horizon : null,
-                    has(iv.gap) ? GAP_LAB[iv.gap] : null,
-                  ]
-                    .filter((p) => p != null && String(p).trim() !== "")
-                    .map((p, n) => (
-                      <Fragment key={p}>
-                        {n ? <span className="sep">·</span> : null}
-                        <span>{p}</span>
-                      </Fragment>
-                    ))}
-                </div>
-              </>
-            ) : null}
-          </div>
-          <div id="tech-d-body">
-            <HtmlBlock
-              handlers={{
-                "[data-tender]": (el) =>
-                  jumpTo("market", "tender", { tenderTitle: el.getAttribute("data-tender") }),
-              }}
-              html={detailBody()}
-            />
-            {iv && !report ? (
-              <div className="tech-d-sec" style={{ borderBottom: "none" }}>
-                <button
-                  className="tech-report-btn"
-                  disabled={generating}
-                  onClick={generate}
-                  type="button"
-                >
-                  {generating ? "▤ Generating…" : "▤ Generate detailed intelligence report"}
-                </button>
-                <div className="tech-report-hint">
-                  Full CEO briefing · adds competitive landscape &amp; live market exposure across
-                  pillars
-                </div>
+        <div className="tech-det" id="tech-det" style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+          <div id="tech-dossier-inner" style={{ display: "flex", flex: 1, flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div className="tech-dossier-scroll" ref={detRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", paddingBottom: "24px" }}>
+              <div className={`tech-d-h ${iv && iv.gap ? iv.gap : ""}`} id="tech-d-h">
+                {iv ? (
+                  <>
+                    <button
+                      aria-label="Close"
+                      className="col-close"
+                      onClick={() => setSel(null)}
+                      title="Close"
+                      type="button"
+                    >
+                      ✕
+                    </button>
+                    <span className="eyebrow">
+                      Innovation Detail{" "}
+                      <span className="srcbadge" style={{ marginLeft: "6px" }}>
+                        Verified · analysed
+                      </span>
+                    </span>
+                    <div className="ct">{iv.t}</div>
+                    <div className="sub">
+                      {[
+                        MAT_LAB[iv.mat] || iv.mat,
+                        has(iv.horizon) ? iv.horizon : null,
+                        has(iv.gap) ? GAP_LAB[iv.gap] : null,
+                      ]
+                        .filter((p) => p != null && String(p).trim() !== "")
+                        .map((p, n) => (
+                          <Fragment key={p}>
+                            {n ? <span className="sep">·</span> : null}
+                            <span>{p}</span>
+                          </Fragment>
+                        ))}
+                    </div>
+                  </>
+                ) : null}
               </div>
-            ) : null}
-            {report ? (
-              <HtmlBlock
-                handlers={{ "[data-print]": () => window.print() }}
-                html={report}
-                id="tech-report-out"
-              />
-            ) : null}
+              <div id="tech-d-body">
+                <HtmlBlock
+                  handlers={{
+                    "[data-tender]": (el) =>
+                      jumpTo("market", "tender", { tenderTitle: el.getAttribute("data-tender") }),
+                  }}
+                  html={detailBody()}
+                />
+                {iv && !report ? (
+                  <div className="tech-d-sec" style={{ borderBottom: "none" }}>
+                    <button
+                      className="tech-report-btn"
+                      disabled={generating}
+                      onClick={generate}
+                      type="button"
+                    >
+                      {generating ? "▤ Generating…" : "▤ Generate detailed intelligence report"}
+                    </button>
+                    <div className="tech-report-hint">
+                      Full CEO briefing · adds competitive landscape &amp; live market exposure across
+                      pillars
+                    </div>
+                  </div>
+                ) : null}
+                {report ? (
+                  <HtmlBlock
+                    handlers={{ "[data-print]": () => window.print() }}
+                    html={report}
+                    id="tech-report-out"
+                  />
+                ) : null}
+              </div>
+            </div>
+            <ScopeChat placeholder="Ask about this technology…" scopeKey="tech" />
           </div>
-          <ScopeChat placeholder="Ask about this technology…" scopeKey="tech" />
         </div>
       </div>
     </div>

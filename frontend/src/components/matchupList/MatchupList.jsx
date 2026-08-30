@@ -116,9 +116,7 @@ export default function MatchupList({ data, selected, onSelect }) {
   return (
     <div className="mu-list">
       <div className="mu-list-h">
-        <span className="eyebrow">
-          Competitor Products <span className="srcbadge" style={{ marginLeft: "6px" }}>Sourced</span>
-        </span>
+        <span className="eyebrow">Competitor Products</span>
         <div className="sub">{data.client?.short || "KSSL"} models vs rival products</div>
         <div className="mu-search">
           <span className="si">⌕</span>

@@ -221,6 +221,19 @@ export function navCounts(d, gapModel) {
       (k) => k !== ((d.client && d.client.id) || "KSSL"),
     ).length;
 
+    // Products: count of distinct KSSL products across matchups
+    const ksslProds = new Set();
+    Object.values(d.matchups || {}).forEach((m) => {
+      let rawBf = m.bf || m.anchor || "";
+      let name = rawBf.replace(/^KSSL\s*·\s*/i, "").trim();
+      if (!name || name === "KSSL present" || name.startsWith("KSSL")) {
+        const match = rawBf.match(/KSSL\s*·\s*(.*)/i);
+        if (match) name = match[1].trim();
+      }
+      if (name && name !== "KSSL present") ksslProds.add(name);
+    });
+    counts.products = ksslProds.size;
+
     const { open, awarded, closed } = bucketTenders(d.tenders);
     /* The Market overview badge counts the TENDERS it opens — all of them, since the
        page carries open, awarded, closed and the portals as tabs. It used to count
@@ -281,8 +294,13 @@ export function viewMetaFor(d) {
       filters: true,
     },
     profile: {
-      title: "Company Profile",
+      title: "Competitor",
       cnt: `${partnerCount} companies tracked · everything the corpus holds on one rival`,
+      filters: false,
+    },
+    products: {
+      title: "Products",
+      cnt: "Competitor & client products catalog across tracked defense categories",
       filters: false,
     },
     positioning: {

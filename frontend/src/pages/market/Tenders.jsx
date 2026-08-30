@@ -344,110 +344,112 @@ export default function Tenders({ mode = "tender" }) {
         </div>
       </div>
 
-      <div className="tp-asmt" id="tp-asmt" ref={asmtRef}>
+      <div className="tp-asmt" id="tp-asmt">
         {t ? (
-          <div id="tp-asmt-body" style={{ display: "flex", flex: 1, flexDirection: "column" }}>
-            <div className="tp-asmt-h">
-              <button
-                aria-label="Close"
-                className="col-close"
-                onClick={() => setSel(null)}
-                title="Close"
-                type="button"
-              >
-                ✕
-              </button>
-              <span className="eyebrow">Tender Assessment</span>
-              <div className="ct">{t.title}</div>
-              <div className="sub">
-                {metaLine([t.issuer, t.country, t.value, t.timing || t.deadline])}
+          <div id="tp-asmt-body" style={{ display: "flex", flex: 1, flexDirection: "column", height: "100%", overflow: "hidden" }}>
+            <div className="tp-asmt-scroll" ref={asmtRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", paddingBottom: "24px" }}>
+              <div className="tp-asmt-h">
+                <button
+                  aria-label="Close"
+                  className="col-close"
+                  onClick={() => setSel(null)}
+                  title="Close"
+                  type="button"
+                >
+                  ✕
+                </button>
+                <span className="eyebrow">Tender Assessment</span>
+                <div className="ct">{t.title}</div>
+                <div className="sub">
+                  {metaLine([t.issuer, t.country, t.value, t.timing || t.deadline])}
+                </div>
               </div>
-            </div>
 
-            <div className="tp-asmt-sec">
-              <span className="eyebrow">What the tender requires</span>
-              {!has(t.reqNote) && !(t.req || []).length ? (
-                <div className="tp-na">{EMPTY_NOTE.req}</div>
-              ) : null}
-              {has(t.reqNote) ? (
-                <div className="req" dangerouslySetInnerHTML={{ __html: t.reqNote }} />
-              ) : null}
-              {(t.req || []).map((r, i) => (
-                <div className="kv" key={`${r[0]}-${i}`}>
-                  <span className="k">{r[0]}</span>
-                  <span className="v" dangerouslySetInnerHTML={{ __html: r[1] }} />
-                </div>
-              ))}
-              {(t.req || []).some((r) => /indigen|content|offset/i.test(`${r[0]} ${r[1]}`)) ? (
-                <div className="req-gloss">
-                  “Indigenous content” = the DAP 2020 threshold a bid must clear for its
-                  procurement category (50%+ for Buy Indian-IDDM). A bid that cannot declare the
-                  threshold is technically non-compliant regardless of price.
-                </div>
-              ) : null}
-            </div>
-
-            <div className="tp-asmt-sec">
-              <span className="eyebrow">Matched {clientName} products</span>
-              {(t.matches || []).length ? null : (
-                <div className="tp-na">{EMPTY_NOTE.matches}</div>
-              )}
-              {(t.matches || []).map((m, i) => (
-                <div className="tp-match" key={`${m.n}-${i}`}>
-                  <div className="mh">
-                    <span className="mn">{m.n}</span>
-                    <span className={`fit ${m.fit}`}>{m.pct} fit</span>
+              <div className="tp-asmt-sec">
+                <span className="eyebrow">What the tender requires</span>
+                {!has(t.reqNote) && !(t.req || []).length ? (
+                  <div className="tp-na">{EMPTY_NOTE.req}</div>
+                ) : null}
+                {has(t.reqNote) ? (
+                  <div className="req" dangerouslySetInnerHTML={{ __html: t.reqNote }} />
+                ) : null}
+                {(t.req || []).map((r, i) => (
+                  <div className="kv" key={`${r[0]}-${i}`}>
+                    <span className="k">{r[0]}</span>
+                    <span className="v" dangerouslySetInnerHTML={{ __html: r[1] }} />
                   </div>
-                  {(m.lines || []).map((l, j) => (
-                    <div className="mline" key={j}>
-                      <span className={`mk ${l[0]}`}>{l[0] === "up" ? "▲" : "▼"}</span>
-                      <span dangerouslySetInnerHTML={{ __html: l[1] }} />
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-
-            <div className="tp-asmt-sec">
-              <div className={`tp-lean${has(t.lean) ? ` ${t.lean}` : " na"}`}>
-                <span className="tl">Bid assessment</span>
-                {has(t.leanTxt) ? (
-                  <span dangerouslySetInnerHTML={{ __html: t.leanTxt }} />
-                ) : (
-                  <span className="tp-na">{EMPTY_NOTE.lean}</span>
-                )}
+                ))}
+                {(t.req || []).some((r) => /indigen|content|offset/i.test(`${r[0]} ${r[1]}`)) ? (
+                  <div className="req-gloss">
+                    “Indigenous content” = the DAP 2020 threshold a bid must clear for its
+                    procurement category (50%+ for Buy Indian-IDDM). A bid that cannot declare the
+                    threshold is technically non-compliant regardless of price.
+                  </div>
+                ) : null}
               </div>
-              {srcChips(t.srcs && t.srcs.length ? t.srcs : t.url ? [{ label: "Source", url: t.url }] : null) ? (
-                <div style={{ marginTop: "10px" }}>
-                  <span className="eyebrow">Source</span>
-                  <div
-                    dangerouslySetInnerHTML={{
-                      __html: srcChips(
-                        t.srcs && t.srcs.length ? t.srcs : t.url ? [{ label: "Source", url: t.url }] : null,
-                      ),
-                    }}
-                    style={{ marginTop: "5px" }}
-                  />
-                </div>
-              ) : null}
-            </div>
 
-            <div className="tp-cta-wrap">
-              <button
-                className="tp-pursue"
-                onClick={() => {
-                  const u = tpUrl(t);
-                  if (u) window.open(u, "_blank", "noopener,noreferrer");
-                  else
-                    window.alert(
-                      `No source URL on record for:\n\n${t.title}\n${t.issuer} · ${t.country}`,
-                    );
-                }}
-                type="button"
-              >
-                {ctaLabel(t)} <span style={{ fontFamily: "var(--mono)" }}>→</span>
-              </button>
-              <div className="tp-cta-note">{ctaNote(t)}</div>
+              <div className="tp-asmt-sec">
+                <span className="eyebrow">Matched {clientName} products</span>
+                {(t.matches || []).length ? null : (
+                  <div className="tp-na">{EMPTY_NOTE.matches}</div>
+                )}
+                {(t.matches || []).map((m, i) => (
+                  <div className="tp-match" key={`${m.n}-${i}`}>
+                    <div className="mh">
+                      <span className="mn">{m.n}</span>
+                      <span className={`fit ${m.fit}`}>{m.pct} fit</span>
+                    </div>
+                    {(m.lines || []).map((l, j) => (
+                      <div className="mline" key={j}>
+                        <span className={`mk ${l[0]}`}>{l[0] === "up" ? "▲" : "▼"}</span>
+                        <span dangerouslySetInnerHTML={{ __html: l[1] }} />
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+
+              <div className="tp-asmt-sec">
+                <div className={`tp-lean${has(t.lean) ? ` ${t.lean}` : " na"}`}>
+                  <span className="tl">Bid assessment</span>
+                  {has(t.leanTxt) ? (
+                    <span dangerouslySetInnerHTML={{ __html: t.leanTxt }} />
+                  ) : (
+                    <span className="tp-na">{EMPTY_NOTE.lean}</span>
+                  )}
+                </div>
+                {srcChips(t.srcs && t.srcs.length ? t.srcs : t.url ? [{ label: "Source", url: t.url }] : null) ? (
+                  <div style={{ marginTop: "10px" }}>
+                    <span className="eyebrow">Source</span>
+                    <div
+                      dangerouslySetInnerHTML={{
+                        __html: srcChips(
+                          t.srcs && t.srcs.length ? t.srcs : t.url ? [{ label: "Source", url: t.url }] : null,
+                        ),
+                      }}
+                      style={{ marginTop: "5px" }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="tp-cta-wrap">
+                <button
+                  className="tp-pursue"
+                  onClick={() => {
+                    const u = tpUrl(t);
+                    if (u) window.open(u, "_blank", "noopener,noreferrer");
+                    else
+                      window.alert(
+                        `No source URL on record for:\n\n${t.title}\n${t.issuer} · ${t.country}`,
+                      );
+                  }}
+                  type="button"
+                >
+                  {ctaLabel(t)} <span style={{ fontFamily: "var(--mono)" }}>→</span>
+                </button>
+                <div className="tp-cta-note">{ctaNote(t)}</div>
+              </div>
             </div>
 
             <ScopeChat placeholder="Ask about this tender…" scopeKey="tender" />

@@ -92,9 +92,26 @@ export default function MalloryChat() {
               </div>
             </div>
           </div>
-          <button className="mchat-close" onClick={() => setCollapsed(true)} type="button">
-            ✕
-          </button>
+          <div style={{ display: "flex", gap: "6px" }}>
+            <button
+              className="mchat-close"
+              title="Clear Chat History"
+              onClick={() =>
+                setLog([
+                  {
+                    who: "bot",
+                    html: `I can connect intelligence across Competitive, Market, and Technology. Select anything in a panel and ask me about it.`,
+                  },
+                ])
+              }
+              type="button"
+            >
+              🗑️
+            </button>
+            <button className="mchat-close" onClick={() => setCollapsed(true)} type="button">
+              ✕
+            </button>
+          </div>
         </div>
         <div className="mchat-log" ref={logRef}>
           {log.map((m, i) =>
@@ -110,7 +127,22 @@ export default function MalloryChat() {
               </div>
             ) : (
               <div className={`mchat-msg ${m.who}`} key={`${i}-${m.who}`}>
-                <div className="mchat-bubble" dangerouslySetInnerHTML={{ __html: m.html }} />
+                <div className="mchat-bubble">
+                  <div dangerouslySetInnerHTML={{ __html: m.html }} />
+                  {m.who === "bot" && (
+                    <button
+                      className="mchat-copy-btn"
+                      title="Copy Answer"
+                      onClick={() => {
+                        const tmp = document.createElement("div");
+                        tmp.innerHTML = m.html;
+                        navigator.clipboard.writeText(tmp.innerText || tmp.textContent);
+                      }}
+                    >
+                      📋 Copy
+                    </button>
+                  )}
+                </div>
               </div>
             ),
           )}

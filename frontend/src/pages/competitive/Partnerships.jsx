@@ -172,9 +172,7 @@ export default function Partnerships() {
       {/* LEFT: competitor list */}
       <div className="mu-list">
         <div className="mu-list-h">
-          <span className="eyebrow">
-            Competitors <span className="srcbadge" style={{ marginLeft: "6px" }}>Sourced</span>
-          </span>
+          <span className="eyebrow">Competitors</span>
           <div className="sub">Select to analyse</div>
           <div className="mu-search">
             <span className="si">⌕</span>
@@ -198,14 +196,13 @@ export default function Partnerships() {
               </option>
             ))}
           </select>
-        </div>
-        <div id="pg-complist">
+               <div id="patc-list">
           {list.map((k) => {
             const co = data.competitors[k];
-            const nsh = partners.pgSharedFor(co).length;
+            const nPartners = (co.partners || []).length;
             return (
               <div
-                className={`pg-comp${cid === k ? " active" : ""}`}
+                className={`pat-li${cid === k ? " active" : ""}`}
                 key={k}
                 onClick={() => selectCompetitor(k)}
                 role="button"
@@ -217,42 +214,15 @@ export default function Partnerships() {
                   }
                 }}
               >
-                <div className="cn">
-                  <span className={`wdot ${co.dir}`} />
+                <span className="pli-n" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span className={`wdot ${co.dir || "watch"}`} />
                   {co.name}
-                  {co.hq && co.hq !== "Not supplied" ? (
-                    /* the abbreviation applies only where it matches — an unmatched
-                       HQ shows its own trimmed value, never a default country */
-                    <span className="pg-hq">
-                      {["USA", "Italy", "China", "India"].find((n) => co.hq.includes(n)) || co.hq.trim()}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="cmeta">
-                  {/* a competitor with no sector on record must not leave its separator */}
-                  {sectorText(co) ? (
-                    <>
-                      <span>{sectorText(co)}</span>
-                      <span className="sep">·</span>
-                    </>
-                  ) : null}
-                  {/* "0 ties" reads as a measurement; it is an absence. Say which. */}
-                  <span>
-                    {(co.partners || []).length
-                      ? `${(co.partners || []).length} tie${(co.partners || []).length === 1 ? "" : "s"}`
-                      : "no tie on file"}
-                  </span>
-                  {nsh ? (
-                    <>
-                      <span className="sep">·</span>
-                      <span className="cshare">◆ {nsh} overlap</span>
-                    </>
-                  ) : null}
-                </div>
+                </span>
+                <span className="pli-c">{nPartners}</span>
               </div>
             );
           })}
-        </div>
+        </div>        </div>
       </div>
 
       {/* CENTER: thesis line + interactive graph + shared-partner read */}
@@ -323,49 +293,53 @@ export default function Partnerships() {
       </div>
 
       {/* RIGHT: reactive intelligence drawer */}
-      <div className="pg-drawer" ref={drawerRef}>
-        <button
-          aria-label="Close"
-          className="col-close pg-close"
-          onClick={() => setCid(null)}
-          title="Close"
-          type="button"
-        >
-          ✕
-        </button>
-        <div className="pg-drawer-head" dangerouslySetInnerHTML={{ __html: drawerHeadText() }} />
-        <HtmlBlock
-          className="pg-drawer-body"
-          handlers={{
-            "[data-back]": () => {
-              setTie(null);
-              setMode("syn");
-            },
-            "[data-fieldread]": () => setMode("field"),
-            ".sib-row[data-pid]": (el) => selectPartner(el.getAttribute("data-pid")),
-            ".pg-rel[data-pid]": (el) => selectPartner(el.getAttribute("data-pid")),
-            "[data-vulnclick]": (el) => {
-              const ix = Number(el.getAttribute("data-vulnclick"));
-              const body = el.nextElementSibling;
-              if (body) body.classList.toggle("open");
-              el.closest(".pg-drawer-body")
-                ?.querySelectorAll(".syn-vuln")
-                .forEach((v) => v.classList.remove("traceactive"));
-              el.closest(".syn-vuln")?.classList.add("traceactive");
-              applyHighlight(null, partners.traceNodeIds(c, cid, ix));
-            },
-          }}
-          html={drawerBody()}
-          id="pg-r-body"
-        />
-        {/* moved here from under the graph: the canvas states the relation, the side
-            states what it means. Renders nothing when this rival shares no partner. */}
-        <HtmlBlock
-          className="pg-ov-side"
-          html={c ? partners.overlapDefsHtml(c, cid, clientName) : ""}
-          id="pg-ov-side"
-        />
-        <ScopeChat placeholder="Ask about this competitor / partner…" scopeKey="partner" />
+      <div className={`pg-drawer${cid ? " open" : ""}`} id="pg-drawer">
+        <div style={{ display: "flex", flex: 1, flexDirection: "column", height: "100%", overflow: "hidden" }}>
+          <div className="pg-drawer-scroll" ref={drawerRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", paddingBottom: "24px" }}>
+            <button
+              aria-label="Close"
+              className="col-close"
+              onClick={() => setCid(null)}
+              title="Close"
+              type="button"
+            >
+              ✕
+            </button>
+            <div className="pg-drawer-head" dangerouslySetInnerHTML={{ __html: drawerHeadText() }} />
+            <HtmlBlock
+              className="pg-drawer-body"
+              handlers={{
+                "[data-back]": () => {
+                  setTie(null);
+                  setMode("syn");
+                },
+                "[data-fieldread]": () => setMode("field"),
+                ".sib-row[data-pid]": (el) => selectPartner(el.getAttribute("data-pid")),
+                ".pg-rel[data-pid]": (el) => selectPartner(el.getAttribute("data-pid")),
+                "[data-vulnclick]": (el) => {
+                  const ix = Number(el.getAttribute("data-vulnclick"));
+                  const body = el.nextElementSibling;
+                  if (body) body.classList.toggle("open");
+                  el.closest(".pg-drawer-body")
+                    ?.querySelectorAll(".syn-vuln")
+                    .forEach((v) => v.classList.remove("traceactive"));
+                  el.closest(".syn-vuln")?.classList.add("traceactive");
+                  applyHighlight(null, partners.traceNodeIds(c, cid, ix));
+                },
+              }}
+              html={drawerBody()}
+              id="pg-r-body"
+            />
+            {/* moved here from under the graph: the canvas states the relation, the side
+                states what it means. Renders nothing when this rival shares no partner. */}
+            <HtmlBlock
+              className="pg-ov-side"
+              html={c ? partners.overlapDefsHtml(c, cid, clientName) : ""}
+              id="pg-ov-side"
+            />
+          </div>
+          <ScopeChat placeholder="Ask about this competitor / partner…" scopeKey="partner" />
+        </div>
       </div>
     </div>
   );

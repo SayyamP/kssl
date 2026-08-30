@@ -37,7 +37,6 @@ const TABLE_PAGE = 25;
 const NO_DATE = "No date published";
 
 const SECTIONS = [
-  { id: "sites", label: "Crawled sites" },
   { id: "active", label: "Number of active tenders" },
   { id: "category", label: "By category" },
   { id: "awarded", label: "Awarded" },
@@ -432,46 +431,7 @@ export default function MarketOverview() {
       ) : null}
 
       <section className="ovt">
-        {section === "sites" ? (
-          <>
-            <div className="ovc-h">
-              <span className="eyebrow">Crawled sites</span>
-              <span className="ovc-note">
-                {fmt(portals.length)} portal{portals.length !== 1 ? "s" : ""} produced the{" "}
-                {fmt(tenders.length)} tenders on record · most productive first
-              </span>
-            </div>
-            <div className="ovt-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Portal</th>
-                    <th className="num">Tenders</th>
-                    <th className="num">Still open</th>
-                    <th>Website</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {portals.map((p) => (
-                    <tr key={p.host}>
-                      <td className="ovt-t">
-                        {p.label}
-                        <span className="ovt-buyer">{p.host}</span>
-                      </td>
-                      <td className="num">{fmt(p.total)}</td>
-                      <td className="num">{fmt(p.open)}</td>
-                      <td>
-                        <a href={`https://${p.host}/`} rel="noopener noreferrer" target="_blank">
-                          {p.host} ↗
-                        </a>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        ) : section === "category" ? (
+        {section === "category" ? (
           <>
             <div className="ovc-h">
               <span className="eyebrow">By category</span>

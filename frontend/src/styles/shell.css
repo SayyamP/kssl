@@ -54,12 +54,12 @@
   .rail-sec.svc-sec{padding:16px 0 10px}
   .rail-sec .eyebrow{display:block;margin-bottom:13px}
   .rail-sec.svc-sec .eyebrow{padding:0 18px}
-  .svc{display:flex;align-items:center;gap:11px;padding:11px 18px 11px 16px;cursor:pointer;color:var(--d-txt-2);font-size:14.5px;transition:color .12s,background .12s;border-left:2px solid transparent}
+  .svc{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;color:var(--d-txt-2);font-size:13.5px;transition:color .12s,background .12s;border-left:2px solid transparent;white-space:nowrap}
   .svc:hover{color:var(--d-txt);background:var(--d-bg-1)}
   .svc.active{color:var(--d-txt);font-weight:600;background:var(--d-bg-2);border-left-color:#fff}
-  .svc .ix{font-family:var(--mono);font-size:11.5px;color:var(--d-txt-4);width:16px}
+  .svc .ix{font-family:var(--mono);font-size:12px;color:var(--d-txt-4);width:16px;flex-shrink:0}
   .svc.active .ix{color:var(--d-txt-2)}
-  .svc .nm{flex:1}
+  .svc .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .svc .tdot{width:6px;height:6px;border-radius:50%;background:var(--threat);flex-shrink:0}
   .svc .tdot.none{background:transparent}
   .svc .ct{font-family:var(--mono);font-size:11.5px;color:var(--d-txt-3);background:var(--d-bg-3);padding:2px 7px;min-width:22px;text-align:center}
@@ -124,7 +124,7 @@
 
   .syn{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--synthetic);font-size:0;line-height:0;color:transparent;vertical-align:middle;flex-shrink:0;border:none;padding:0}
   .syn::after{content:"";display:none}
-  .srcbadge{font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--fav);background:rgba(31,110,69,.1);border:1px solid var(--fav);padding:2px 6px;line-height:1;font-weight:600;flex-shrink:0}
+  .srcbadge{display:none !important}
   /* source links — every claim traceable to its URL. Dark chrome by default. */
   .srcchips{display:inline-flex;flex-wrap:wrap;gap:5px;align-items:center;vertical-align:middle}
   .srcchip{display:inline-block;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
@@ -267,42 +267,57 @@
     transition: all 0.15s ease-in-out;
   }
   .alert:hover .koel-prod-highlight-row,
-  .alert.sel .koel-prod-highlight-row {
-    background: #13241b !important;
-    border-color: #4ade80 !important;
-    box-shadow: 0 3px 12px rgba(74, 222, 128, 0.35) !important;
+  .alert.sel  .koel-prod-highlight-row {
+    margin-top: 8px;
+    padding: 6px 10px;
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-left: 3px solid #16a34a;
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
   }
   .koel-prod-highlight-row .kph-label {
     font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #4ade80;
+    font-size: 10px;
+    color: #16a34a;
     font-weight: 700;
     flex-shrink: 0;
   }
   .koel-prod-highlight-row .kph-val {
-    font-size: 13.5px;
+    font-size: 12.5px;
     font-weight: 700;
-    color: #ffffff;
+    color: #0f172a;
   }
   .cd-match {
-    background: #0f1a14 !important;
-    border: 1px solid #2e7d52 !important;
-    border-left: 4px solid #4ade80 !important;
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    border-left: 4px solid #16a34a !important;
     border-radius: 6px !important;
-    padding: 13px 15px !important;
+    padding: 12px 14px !important;
     margin-bottom: 12px !important;
-    box-shadow: 0 2px 8px rgba(74, 222, 128, 0.2);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
   }
   .cd-match .cm-n {
-    font-size: 14.5px !important;
+    font-size: 13.5px !important;
     font-weight: 700 !important;
-    color: #ffffff !important;
+    color: #0f172a !important;
   }
   .cd-match .cm-line {
-    color: #e2e8f0 !important;
-    font-size: 13px !important;
+    color: #334155 !important;
+    font-size: 12.5px !important;
+  }
+  .cd-match .cm-line .cm-mk {
+    font-family: var(--mono);
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+  .cd-match .cm-line .cm-mk.up {
+    color: #16a34a !important;
+  }
+  .cd-match .cm-line .cm-mk.down {
+    color: #dc2626 !important;
   }
 
 

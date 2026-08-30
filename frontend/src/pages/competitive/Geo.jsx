@@ -685,80 +685,82 @@ export default function Geo() {
               {prod && (
                 <div
                   className="geo-det-product-sec"
-                  style={{ background: "transparent" }}
+                  style={{ background: "transparent", display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}
                 >
-                  <div
-                    className={`geo-d-h dir-${dir}`}
-                    style={{
-                      position: "relative",
-                      background: "#ffffff",
-                      color: "#0f172a",
-                      padding: "14px 18px",
-                      borderBottom: "1px solid #e2e8f0",
-                    }}
-                  >
-                    <button
-                      aria-label="Close product details"
-                      className="geo-close-btn"
-                      onClick={() => setProdIndex(null)}
-                      title="Close product details"
-                      type="button"
-                      style={{
-                        position: "absolute",
-                        right: "14px",
-                        top: "12px",
-                        cursor: "pointer",
-                        background: "#f1f5f9",
-                        border: "1px solid #cbd5e1",
-                        borderRadius: "4px",
-                        fontSize: "14px",
-                        color: "#334155",
-                        padding: "3px 8px",
-                        lineHeight: 1,
-                      }}
-                    >
-                      ✕
-                    </button>
-                    <span
-                      className="eyebrow"
-                      style={{
-                        color: "#64748b",
-                        display: "block",
-                        fontSize: "10px",
-                        textTransform: "uppercase",
-                        letterSpacing: "0.05em",
-                      }}
-                    >
-                      {co
-                        ? `${co.name} · ${pair.country}`
-                        : `Product Detail & ${clientName} Counters`}
-                    </span>
+                  <div className="geo-det-product-scroll" style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", paddingBottom: "24px" }}>
                     <div
-                      className="ct"
+                      className={`geo-d-h dir-${dir}`}
                       style={{
-                        fontSize: "15px",
+                        position: "relative",
+                        background: "#ffffff",
                         color: "#0f172a",
-                        fontWeight: "700",
-                        marginTop: "2px",
-                        lineHeight: "1.3",
-                        paddingRight: "40px",
+                        padding: "14px 18px",
+                        borderBottom: "1px solid #e2e8f0",
                       }}
                     >
-                      {prod.name}
+                      <button
+                        aria-label="Close product details"
+                        className="geo-close-btn"
+                        onClick={() => setProdIndex(null)}
+                        title="Close product details"
+                        type="button"
+                        style={{
+                          position: "absolute",
+                          right: "14px",
+                          top: "12px",
+                          cursor: "pointer",
+                          background: "#f1f5f9",
+                          border: "1px solid #cbd5e1",
+                          borderRadius: "4px",
+                          fontSize: "14px",
+                          color: "#334155",
+                          padding: "3px 8px",
+                          lineHeight: 1,
+                        }}
+                      >
+                        ✕
+                      </button>
+                      <span
+                        className="eyebrow"
+                        style={{
+                          color: "#64748b",
+                          display: "block",
+                          fontSize: "10px",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                        }}
+                      >
+                        {co
+                          ? `${co.name} · ${pair.country}`
+                          : `Product Detail & ${clientName} Counters`}
+                      </span>
+                      <div
+                        className="ct"
+                        style={{
+                          fontSize: "15px",
+                          color: "#0f172a",
+                          fontWeight: "700",
+                          marginTop: "2px",
+                          lineHeight: "1.3",
+                          paddingRight: "40px",
+                        }}
+                      >
+                        {prod.name}
+                      </div>
+                      <div
+                        className="gd-sub"
+                        style={{
+                          fontSize: "11.5px",
+                          color: "#475569",
+                          marginTop: "4px",
+                          lineHeight: "1.4",
+                        }}
+                      >
+                        {geo.actLabel[prod.c]}
+                      </div>
                     </div>
-                    <div
-                      className="gd-sub"
-                      style={{
-                        fontSize: "11.5px",
-                        color: "#475569",
-                        marginTop: "4px",
-                        lineHeight: "1.4",
-                      }}
-                    >
-                      {geo.actLabel[prod.c]}
-                    </div>
+                    <HtmlBlock html={detailBody()} id="geo-d-body" />
                   </div>
-                  <HtmlBlock html={detailBody()} id="geo-d-body" />
                   <ScopeChat
                     placeholder="Ask about this market or product…"
                     scopeKey="geo"

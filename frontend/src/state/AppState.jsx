@@ -17,11 +17,13 @@ export const RAIL = {
      removed case would boot a returning user into a permanently blank pane. */
   competitive: [
     { view: "overview", label: "Overview", ix: "grid", overview: true },
-    { view: "profile", label: "Company Profile", ix: "01" },
-    { view: "positioning", label: "Positioning", ix: "02" },
-    { view: "partnerships", label: "Partnerships", ix: "03" },
-    { view: "geo", label: "Geo Footprint", ix: "04" },
-    { view: "patents-comp", label: "Patents", ix: "05" },
+    { view: "profile", label: "Competitor", ix: "01" },
+    { view: "products", label: "Products", ix: "02" },
+    { view: "positioning", label: "Positioning", ix: "03" },
+    { view: "gap-competitive", label: "Gap Analysis", ix: "04" },
+    { view: "partnerships", label: "Partnerships", ix: "05" },
+    { view: "geo", label: "Geo Footprint", ix: "06" },
+    { view: "patents-comp", label: "Patents", ix: "07" },
   ],
   market: [
     /* Overview is the SIGNAL FEED again, as the other two pillars' overviews are — the
