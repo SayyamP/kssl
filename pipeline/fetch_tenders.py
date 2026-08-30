@@ -20,6 +20,17 @@ SOURCES (each optional-graceful — one failing source is counted, not fatal):
   * CPPP India — the captcha-free "latest active tenders" pagers on eprocure.gov.in
     (same stateless ?page=N feeds pull_cppp_live.py relies on; the search form is
     captcha'd, these listings are not). Bounded top-up scan.
+  * CanadaBuys (Canada) — the daily open-tender-notice CSV. Filtered by BUYER to National
+    Defence / Defense nationale (both official languages) rather than by keyword. The feed
+    only lists notices still open for bidding, so every kept row is live. Keyless.
+  * ProZorro (Ukraine) — the open feed exposes procurementMethodType, and defence procedures
+    carry a '.defense' suffix, so defence is filtered BEFORE any detail fetch. Keyless.
+    Measured 2026-08-31: currently yields zero, see the note at PROZORRO_PAGES.
+  * Find a Tender (UK) — OCDS release packages, no key. UK MOD notices band on the CPV code
+    through the same CPV_MAP that TED uses, not on English keywords.
+
+CAPS: --cap / --per-source. The 100/40 defaults were demo caps and SAM and TED were hitting
+them exactly, so the pipeline was capped rather than exhausted. --only runs named sources.
 
 KSSL FILTER: word-boundary keyword match (no term under 4 chars) on title+issuer text,
 or PSC/CPV code prefix, mapped to exactly ONE of the 9 KSSL_CATS categories from
@@ -35,7 +46,9 @@ Reference rows and every other table are untouched.
 
 import os
 import argparse
+import csv
 import html as _html
+import io
 import json
 import re
 import sys
@@ -753,6 +766,249 @@ def fetch_cppp(cap, tally, client_factory):
     return rows
 
 
+# --------------------------------------------------------------------------- Canada (CanadaBuys)
+#
+# CanadaBuys has no query API; it publishes ONE daily CSV of tender notices that are still open
+# for bidding. That property is why this lane is worth having: every kept row is live and
+# biddable, with no recency guessing. Keyless, no login.
+#
+# Defence is filtered by BUYER, not by keyword: a notice is kept when the contracting entity or
+# the end-user entity is National Defence. The portfolio mapper then still has to place it in a
+# KSSL category, so "DND buys office chairs" is fetched and then dropped as unmappable.
+
+CANADA_CSV = ("https://canadabuys.canada.ca/opendata/pub/"
+              "openTenderNotice-ouvertAvisAppelOffres.csv")
+CA_ENTITY = "contractingEntityName-nomEntitContractante-eng"
+CA_ENDUSER = "endUserEntitiesName-nomEntitesUtilisateurFinal-eng"
+# Both official languages: the same field carries "Department of National Defence" and
+# "Ministere de la Defense nationale" depending on the notice.
+CA_DEFENCE = re.compile(r"(?i)national\s+defen[cs]e|defen[cs]e\s+nationale|\bDND\b|"
+                        r"canadian\s+armed\s+forces|forces\s+armees")
+
+
+def canada_row(row):
+    def g(k):
+        return (row.get(k) or "").strip()
+
+    buyer, enduser = g(CA_ENTITY), g(CA_ENDUSER)
+    if not CA_DEFENCE.search(buyer + " " + enduser):
+        return None, "not a defence buyer"
+    title = g("title-titre-eng")
+    if not title:
+        return None, "no title"
+    # Description is included in the mapper's text: CanadaBuys titles are often a bare
+    # solicitation number, where the description carries the actual commodity.
+    cat = map_cat(title + " " + g("tenderDescription-descriptionAppelOffres-eng"))
+    if not cat:
+        return None, "unmappable"
+    closing = parse_iso_day(g("tenderClosingDate-appelOffresDateCloture"))
+    posted = parse_iso_day(g("publicationDate-datePublication"))
+    if not recent_enough(posted, closing):
+        return None, "stale"
+    ref = g("referenceNumber-numeroReference") or g("solicitationNumber-numeroSollicitation")
+    if not ref:
+        return None, "no reference"
+    url = g("noticeURL-URLavis-eng") or f"https://canadabuys.canada.ca/en/tender-opportunities?ref={ref}"
+    tid = "ca_" + re.sub(r"[^A-Za-z0-9_.-]", "_", ref)[:60]
+    return make_row(tid, title, buyer or enduser, "Canada", cat, url,
+                    "CanadaBuys (PSPC)", "open",
+                    deadline_dt=closing, posted_dt=posted), None
+
+
+def fetch_canada(cap, tally, client_factory):
+    rows, seen = [], set()
+    with client_factory(timeout=90, follow_redirects=True, verify=False,
+                        headers={"User-Agent": UA}) as c:
+        r = c.get(CANADA_CSV)
+        r.raise_for_status()
+        # The feed is UTF-8 with a BOM; csv must not inherit it into the first column name.
+        text = r.text.lstrip("﻿")
+    for rec in csv.DictReader(io.StringIO(text)):
+        tally.fetched += 1
+        row, why = canada_row(rec)
+        if row is None:
+            tally.skip(why)
+        elif row["id"] in seen:
+            tally.skip("duplicate reference")
+        elif len(rows) < cap:
+            seen.add(row["id"])
+            rows.append(row)
+            tally.kept += 1
+    return rows
+
+
+# --------------------------------------------------------------------------- Ukraine (ProZorro)
+#
+# ProZorro marks defence procedures in the procurement method itself: aboveThresholdUA.defense,
+# simple.defense and friends all carry a '.defense' suffix. Asking the feed for that one field
+# means defence is filtered BEFORE any detail fetch, so this walks thousands of notices while
+# hydrating only the few dozen that matter. Keyless.
+
+PROZORRO_FEED = "https://public-api.prozorro.gov.ua/api/2.5/tenders"
+# MEASURED 2026-08-31: 4,000 consecutive notices carried ZERO '.defense' procedures - the recent
+# feed is aboveThreshold / priceQuotation / reporting / belowThreshold / esco only. Ukraine's
+# defence buying is not on the open feed at present. The lane is kept because it costs one page
+# to find out and will resume the moment those procedures reappear, but the scan is bounded to
+# 1,000 notices rather than 4,000: paying 40 requests a run for a measured zero is waste.
+PROZORRO_PAGES = 10
+
+
+def prozorro_row(t):
+    title = (t.get("title") or "").strip()
+    if not title:
+        return None, "no title"
+    buyer = ((t.get("procuringEntity") or {}).get("name") or "").strip()
+    cpvs = [((i.get("classification") or {}).get("id") or "")
+            for i in (t.get("items") or [])
+            if ((i.get("classification") or {}).get("scheme") or "") == "CPV"]
+    # Ukrainian titles will not match an English keyword list, so the CPV code is the primary
+    # signal here and the title is only a fallback. Without this the whole lane would keep
+    # nothing but the occasional English-titled notice - the language-detector failure again.
+    cat = map_cat(title + " " + (t.get("description") or ""), cpvs=[c for c in cpvs if c])
+    if not cat:
+        return None, "unmappable"
+    period = t.get("tenderPeriod") or {}
+    deadline = parse_iso_day(period.get("endDate"))
+    posted = parse_iso_day(period.get("startDate") or t.get("dateModified"))
+    if not recent_enough(posted, deadline):
+        return None, "stale"
+    tid_pub = t.get("tenderID") or t.get("id")
+    val = t.get("value") or {}
+    amount = val.get("amount")
+    return make_row("ua_" + re.sub(r"[^A-Za-z0-9_.-]", "_", str(tid_pub))[:60],
+                    title, buyer, "Ukraine", cat,
+                    f"https://prozorro.gov.ua/tender/{tid_pub}",
+                    "ProZorro (Ukraine)", "open",
+                    deadline_dt=deadline, posted_dt=posted,
+                    value=(f"{amount:,.0f} {val.get('currency')}"
+                           if isinstance(amount, (int, float)) and amount else None)), None
+
+
+def fetch_prozorro(cap, tally, client_factory):
+    rows, seen = [], set()
+    url, params = PROZORRO_FEED, {"descending": "1", "limit": "100",
+                                  "opt_fields": "procurementMethodType,status"}
+    with client_factory(timeout=60, follow_redirects=True, verify=False,
+                        headers={"User-Agent": UA}) as c:
+        for _ in range(PROZORRO_PAGES):
+            if len(rows) >= cap:
+                break
+            r = c.get(url, params=params)
+            if r.status_code != 200:
+                tally.error = f"feed HTTP {r.status_code}"
+                break
+            data = r.json()
+            batch = data.get("data") or []
+            if not batch:
+                break
+            for stub in batch:
+                tally.fetched += 1
+                if ".defense" not in (stub.get("procurementMethodType") or ""):
+                    tally.skip("not a defence procedure")
+                    continue
+                try:
+                    dr = c.get(f"{PROZORRO_FEED}/{stub['id']}")
+                    if dr.status_code != 200:
+                        tally.skip(f"detail HTTP {dr.status_code}")
+                        continue
+                    row, why = prozorro_row((dr.json() or {}).get("data") or {})
+                except Exception as ex:
+                    tally.skip(f"detail {type(ex).__name__}")
+                    continue
+                if row is None:
+                    tally.skip(why)
+                elif row["id"] in seen:
+                    tally.skip("duplicate tender id")
+                elif len(rows) < cap:
+                    seen.add(row["id"])
+                    rows.append(row)
+                    tally.kept += 1
+            nxt = (data.get("next_page") or {}).get("uri")
+            if not nxt:
+                break
+            url, params = nxt, None
+            time.sleep(0.15)
+    return rows
+
+
+# --------------------------------------------------------------------------- UK (Find a Tender)
+#
+# Find a Tender is the post-Brexit OJEU replacement and publishes OCDS release packages with no
+# key. CPV codes travel in the release, so notices are banded with the same CPV_MAP that TED
+# uses - UK MOD notices land in the portfolio on the code, not on English keywords.
+
+UK_FTS = "https://www.find-tender.service.gov.uk/api/1.0/ocdsReleasePackages"
+UK_PAGES = 12
+
+
+def uk_row(rel):
+    tender = rel.get("tender") or {}
+    title = (tender.get("title") or "").strip()
+    if not title:
+        return None, "no title"
+    buyer = ((rel.get("buyer") or {}).get("name") or "").strip()
+    cpvs = []
+    main = (tender.get("classification") or {})
+    if (main.get("scheme") or "").upper().startswith("CPV") and main.get("id"):
+        cpvs.append(str(main["id"]))
+    for item in (tender.get("items") or []):
+        cl = item.get("classification") or {}
+        if (cl.get("scheme") or "").upper().startswith("CPV") and cl.get("id"):
+            cpvs.append(str(cl["id"]))
+    cat = map_cat(title + " " + (tender.get("description") or ""), cpvs=cpvs)
+    if not cat:
+        return None, "unmappable"
+    period = tender.get("tenderPeriod") or {}
+    deadline = parse_iso_day(period.get("endDate"))
+    posted = parse_iso_day(rel.get("date") or period.get("startDate"))
+    if not recent_enough(posted, deadline):
+        return None, "stale"
+    ocid = rel.get("ocid") or rel.get("id")
+    if not ocid:
+        return None, "no ocid"
+    return make_row("uk_" + re.sub(r"[^A-Za-z0-9_.-]", "_", str(ocid))[:60],
+                    title, buyer, "United Kingdom", cat,
+                    f"https://www.find-tender.service.gov.uk/Notice/{ocid}",
+                    "Find a Tender (UK)", "open",
+                    deadline_dt=deadline, posted_dt=posted), None
+
+
+def fetch_uk(cap, tally, client_factory):
+    rows, seen = [], set()
+    frm = (date.today() - timedelta(days=RECENT_DAYS)).isoformat()
+    url = f"{UK_FTS}?limit=100&updatedFrom={frm}T00:00:00"
+    with client_factory(timeout=60, follow_redirects=True, verify=False,
+                        headers={"User-Agent": UA, "Accept": "application/json"}) as c:
+        for _ in range(UK_PAGES):
+            if len(rows) >= cap:
+                break
+            r = c.get(url)
+            if r.status_code != 200:
+                tally.error = f"HTTP {r.status_code}"
+                break
+            pkg = r.json()
+            releases = pkg.get("releases") or []
+            if not releases:
+                break
+            for rel in releases:
+                tally.fetched += 1
+                row, why = uk_row(rel)
+                if row is None:
+                    tally.skip(why)
+                elif row["id"] in seen:
+                    tally.skip("duplicate ocid")
+                elif len(rows) < cap:
+                    seen.add(row["id"])
+                    rows.append(row)
+                    tally.kept += 1
+            nxt = ((pkg.get("links") or {}).get("next"))
+            if not nxt:
+                break
+            url = nxt
+            time.sleep(0.2)
+    return rows
+
+
 # --------------------------------------------------------------------------- DB writer
 
 UPSERT_COLS = ["id", "ord", "title", "issuer", "country", "cat", "value", "qty",
@@ -1008,8 +1264,66 @@ def demo():
     assert sr["country"] == "United States" and sr["status"] == "open"
     assert sr["deadline"] == "20 Sep 2026" and sr["value"] is None and sr["dl"] is None
     assert sr["req"] == [] and sr["srcs"][0]["label"] == "SAM.gov"
-    print("demo ok: 70+ asserts across mapper, service veto, CPV/PSC banding, "
-          "dedupe, recency and CPPP/TED/SAM row shaping")
+    # ---- Canada: the filter is the BUYER, and it has to work in both official languages ----
+    fut = (date.today() + timedelta(days=30)).isoformat()
+    ca_base = {"title-titre-eng": "Supply of 155mm Artillery Ammunition",
+               "tenderClosingDate-appelOffresDateCloture": fut,
+               "publicationDate-datePublication": date.today().isoformat(),
+               "referenceNumber-numeroReference": "cb-721-999",
+               "noticeURL-URLavis-eng": "https://canadabuys.canada.ca/en/x"}
+    row, why = canada_row(dict(ca_base, **{CA_ENTITY: "Department of National Defence"}))
+    assert row and row["cat"] == CAT_AMMO and row["country"] == "Canada", (row, why)
+    assert row["id"] == "ca_cb-721-999", row["id"]
+    # French-language buyer name: an English-only test would have passed while the lane silently
+    # dropped every francophone notice.
+    row, why = canada_row(dict(ca_base, **{CA_ENTITY: "Ministere de la Defense nationale"}))
+    assert row, why
+    # end-user is DND even though the contracting entity is the central buying agency
+    row, why = canada_row(dict(ca_base, **{CA_ENTITY: "Public Services and Procurement Canada",
+                                           CA_ENDUSER: "National Defence"}))
+    assert row, why
+    assert canada_row(dict(ca_base, **{CA_ENTITY: "Parks Canada"}))[1] == "not a defence buyer"
+    # a defence buyer buying something outside the portfolio is still dropped
+    assert canada_row(dict(ca_base, **{CA_ENTITY: "National Defence",
+                                       "title-titre-eng": "Office furniture"}))[1] == "unmappable"
+
+    # ---- ProZorro: Ukrainian titles must band on the CPV CODE, not on English words ----
+    ua = {"tenderID": "UA-2026-01-01-000001-a", "id": "abc123",
+          "title": "Закупівля 155-мм артилерійських боєприпасів",
+          "procuringEntity": {"name": "Міністерство оборони України"},
+          "items": [{"classification": {"scheme": "CPV", "id": "35331100-1"}}],
+          "tenderPeriod": {"startDate": date.today().isoformat(),
+                           "endDate": fut},
+          "value": {"amount": 1234567.0, "currency": "UAH"}}
+    row, why = prozorro_row(ua)
+    assert row and row["country"] == "Ukraine", (row, why)
+    assert row["cat"] in set(kssl_cats()), row["cat"]
+    assert row["id"] == "ua_UA-2026-01-01-000001-a", row["id"]
+    assert row["value"] and "UAH" in row["value"], row["value"]
+    # no CPV and a non-English title -> unmappable, not a false positive
+    assert prozorro_row(dict(ua, items=[], title="Послуги з прибирання"))[1] == "unmappable"
+
+    # ---- UK Find a Tender: CPV lives on the tender OR its items ----
+    uk = {"ocid": "ocds-h6vhtk-0123", "date": date.today().isoformat(),
+          "buyer": {"name": "Ministry of Defence"},
+          "tender": {"title": "Supply of armoured fighting vehicles",
+                     "classification": {"scheme": "CPV", "id": "35410000-3"},
+                     "tenderPeriod": {"endDate": fut}}}
+    row, why = uk_row(uk)
+    assert row and row["country"] == "United Kingdom" and row["id"] == "uk_ocds-h6vhtk-0123", (row, why)
+    assert row["cat"] in set(kssl_cats()), row["cat"]
+    # classification carried only on an item still bands
+    uk2 = {"ocid": "ocds-h6vhtk-0124", "date": date.today().isoformat(),
+           "buyer": {"name": "MOD"},
+           "tender": {"title": "Framework", "tenderPeriod": {"endDate": fut},
+                      "items": [{"classification": {"scheme": "CPV", "id": "35510000-5"}}]}}
+    assert uk_row(uk2)[0], uk_row(uk2)[1]
+    assert uk_row({"ocid": "x", "date": date.today().isoformat(),
+                   "tender": {"title": "Grounds maintenance",
+                              "tenderPeriod": {"endDate": fut}}})[1] == "unmappable"
+
+    print("demo ok: 90+ asserts across mapper, service veto, CPV/PSC banding, dedupe, recency "
+          "and CPPP/TED/SAM/Canada/ProZorro/UK row shaping")
 
 
 # --------------------------------------------------------------------------- main
@@ -1031,6 +1345,12 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--demo", action="store_true", help="parser/mapper asserts, no network")
     ap.add_argument("--dry", action="store_true", help="fetch + report, no DB writes")
+    ap.add_argument("--cap", type=int, default=TOTAL_CAP,
+                    help="max rows written in total (default %d)" % TOTAL_CAP)
+    ap.add_argument("--per-source", type=int, default=PER_SOURCE_CAP,
+                    help="max rows kept per source (default %d)" % PER_SOURCE_CAP)
+    ap.add_argument("--only", default="",
+                    help="comma-separated source names to run (default: all)")
     args = ap.parse_args()
     if args.demo:
         demo()
@@ -1042,13 +1362,20 @@ def main():
 
     cats = set(kssl_cats())
     sources = [("sam", fetch_sam), ("ted", fetch_ted), ("gem", fetch_gem),
-               ("cppp", fetch_cppp)]
+               ("cppp", fetch_cppp), ("canada", fetch_canada),
+               ("prozorro", fetch_prozorro), ("uk", fetch_uk)]
+    if args.only:
+        want = {x.strip() for x in args.only.split(",") if x.strip()}
+        unknown = want - {n for n, _ in sources}
+        if unknown:
+            ap.error("unknown source(s): %s" % ", ".join(sorted(unknown)))
+        sources = [(n, f) for n, f in sources if n in want]
     all_rows, tallies, dead = [], {}, []
     for name, fn in sources:
         tally = Tally()
         tallies[name] = tally
         try:
-            rows = fn(PER_SOURCE_CAP, tally, httpx.Client)
+            rows = fn(args.per_source, tally, httpx.Client)
         except Exception as ex:
             tally.error = tally.error or f"{type(ex).__name__}: {str(ex)[:120]}"
             rows = []
@@ -1066,11 +1393,11 @@ def main():
     ordered = sorted(uniq.values(),
                      key=lambda r: (r["_deadline_dt"] is None,
                                     r["_deadline_dt"] or datetime.max, r["id"]))
-    final = dedupe_rows(ordered)[:TOTAL_CAP]
+    final = dedupe_rows(ordered)[:args.cap]
     if len(ordered) != len(dedupe_rows(ordered)):
         print(f"\ndeduped {len(ordered) - len(dedupe_rows(ordered))} notice(s): "
               f"same buyer, same procurement")
-    print(f"\nTOTAL kept {len(final)} (cap {TOTAL_CAP}); "
+    print(f"\nTOTAL kept {len(final)} (cap {args.cap}); "
           f"sources down: {', '.join(dead) if dead else 'none'}")
     if args.dry:
         print("--dry: no DB writes")
