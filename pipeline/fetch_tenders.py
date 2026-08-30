@@ -289,20 +289,30 @@ def parse_iso_day(s):
         return None
 
 
+# Where SAM keys come from, in order. TendPro/.env is preferred so the authoring workspace keeps
+# using the single copy it already maintains; the in-repo file is the fallback that makes the
+# pipeline work for a collaborator who has cloned this branch and nothing else.
+SAM_KEY_FILES = [TENDPRO_ENV, HERE / "tender_keys.env"]
+
+
 def load_sam_keys():
-    """SAM keys from TendPro/.env at runtime. Values are never printed or persisted."""
-    keys = {}
-    try:
-        for line in TENDPRO_ENV.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            keys[k.strip()] = v.strip().strip('"').strip("'")
-    except OSError:
-        return []
-    raw = keys.get("SAM_API_KEYS") or keys.get("SAM_API_KEY") or ""
-    return [k.strip() for k in raw.split(",") if k.strip()]
+    """SAM keys from the first key file that yields any. Values are never printed or persisted."""
+    for path in SAM_KEY_FILES:
+        keys = {}
+        try:
+            for line in path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                keys[k.strip()] = v.strip().strip('"').strip("'")
+        except OSError:
+            continue
+        raw = keys.get("SAM_API_KEYS") or keys.get("SAM_API_KEY") or ""
+        found = [k.strip() for k in raw.split(",") if k.strip()]
+        if found:
+            return found
+    return []
 
 
 def make_row(tid, title, issuer, country, cat, url, src_label, status,
@@ -409,9 +419,10 @@ def sam_row(o):
 def fetch_sam(cap, tally, client_factory):
     keys = load_sam_keys()
     if not keys:
-        tally.error = f"no SAM keys found in {TENDPRO_ENV}"
+        tally.error = ("no SAM keys in any of: "
+                       + ", ".join(str(p) for p in SAM_KEY_FILES))
         return []
-    print(f"[sam] {len(keys)} API key(s) loaded from TendPro/.env (values not shown)")
+    print(f"[sam] {len(keys)} API key(s) loaded (values not shown)")
     rows, ki = [], 0
     today = date.today()
     with client_factory(timeout=90) as c:
