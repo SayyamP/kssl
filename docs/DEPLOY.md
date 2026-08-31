@@ -11,11 +11,18 @@ restarted by a deploy.
 push to kssl-deploy ─▶ GitHub Actions (deploy.yml)
                          1. build frontend + backend images
                          2. push to ghcr.io/137mallory/kssl-{frontend,backend}:<git-sha>
-                         3. SSH to VPS-B ─▶ deploy/deploy.sh <git-sha>
-                                             git checkout <sha>   (mounts move with the image)
-                                             docker compose pull frontend backend
-                                             docker compose up -d --no-build frontend backend
+                         3. deploy (only if repo var DEPLOY_ENABLED == 'true'):
+                              rsync the commit's source (compose, db/*.sql, deploy/) to VPS-B
+                              ssh ─▶ deploy/deploy.sh <git-sha>
+                                       docker compose pull frontend backend
+                                       docker compose up -d --no-build frontend backend
 ```
+
+**Arming:** the deploy job is gated on the repo variable `DEPLOY_ENABLED`. While it is unset
+or `false`, pushes only build+push images to GHCR and the VPS is never touched. Set it to
+`true` (repo → Settings → Variables → Actions) to turn on auto-deploy. Source is rsynced from
+the CI checkout (the VPS needs no GitHub credentials); runtime files on the VPS (`.env`,
+`PRODUCTION.html`) are excluded from the sync and never deleted.
 
 Images are **SHA-pinned and immutable** (`:latest` is never deployed). The server `.env`
 holds `TAG=<sha>`; `docker-compose.prod.yml` overrides the two services to

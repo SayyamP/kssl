@@ -1,8 +1,13 @@
 name: Deploy to VPS-B
 
-# Push to kssl-deploy → build+push SHA-pinned images to GHCR → SSH deploy (frontend+backend
-# only; the extraction farm and DB/LLM containers are never touched). workflow_dispatch with
-# a `sha` input re-deploys any past build — that is also the rollback path.
+# Push to kssl-deploy → build+push SHA-pinned images to GHCR. The deploy to VPS-B then
+# rsyncs the exact commit's source (compose, db/*.sql, deploy/) and recreates ONLY
+# frontend+backend from GHCR — the extraction farm and DB/LLM containers are never touched.
+#
+# SAFETY: the deploy job only runs when the repo variable DEPLOY_ENABLED == 'true'. Until
+# then, pushes just build+push images (harmless) and the VPS is left alone. Flip the
+# variable (repo → Settings → Variables → Actions) to arm auto-deploy. workflow_dispatch
+# with a `sha` input re-deploys any past build — that is also the rollback path.
 on:
   push:
     branches: [kssl-deploy]
@@ -73,17 +78,31 @@ jobs:
   deploy:
     needs: [resolve, build]
     runs-on: ubuntu-latest
+    # Armed only when the operator flips DEPLOY_ENABLED. Off = build images but never touch the VPS.
+    if: vars.DEPLOY_ENABLED == 'true'
     steps:
-      - name: SSH deploy (frontend + backend only)
-        uses: appleboy/ssh-action@v1.2.0
+      - uses: actions/checkout@v4
         with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          port: ${{ secrets.VPS_SSH_PORT || 22 }}
-          script_stop: true
-          script: |
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            cd /opt/kssl/app
-            ./deploy/deploy.sh ${{ needs.resolve.outputs.sha }}
-            docker logout ghcr.io
+          ref: ${{ needs.resolve.outputs.sha }}
+      - name: Sync source + recreate frontend/backend
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          HOST: ${{ secrets.VPS_HOST }}
+          USER: ${{ secrets.VPS_USER }}
+          PORT: ${{ secrets.VPS_SSH_PORT || 22 }}
+          GHTOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          install -m600 /dev/stdin "$HOME/dk" <<< "$SSH_KEY"
+          SSH="ssh -i $HOME/dk -o StrictHostKeyChecking=accept-new -p $PORT"
+          # source in lockstep with the image; never delete VPS-only runtime files (.env, PRODUCTION.html)
+          rsync -az \
+            --exclude='.git' --exclude='node_modules' --exclude='frontend/dist' \
+            --exclude='__pycache__' --exclude='*.pyc' --exclude='.env' --exclude='*.env' \
+            --exclude='*.log' --exclude='*.sqlite*' \
+            -e "$SSH" ./ "$USER@$HOST:/opt/kssl/app/"
+          $SSH "$USER@$HOST" \
+            "echo '$GHTOKEN' | docker login ghcr.io -u '$ACTOR' --password-stdin \
+             && cd /opt/kssl/app && chmod +x deploy/deploy.sh && ./deploy/deploy.sh '$SHA' \
+             && docker logout ghcr.io"
