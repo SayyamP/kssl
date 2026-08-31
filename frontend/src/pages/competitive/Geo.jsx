@@ -35,7 +35,48 @@ export default function Geo() {
   const [prodIndex, setProdIndex] = useState(
     savedGeo.prodIndex !== undefined ? savedGeo.prodIndex : null,
   );
+  const [activeGeoNewsArticle, setActiveGeoNewsArticle] = useState(null);
   const rootRef = useRef(null);
+
+  const geoNewsArticles = useMemo(() => {
+    const coName = comp ? (data.geoComps.find((x) => x.id === comp)?.name || comp) : (pair ? pair.cid : "Defense OEM");
+    const ctName = country || (pair ? pair.country : "Target Market");
+    return [
+      {
+        id: 1,
+        title: `${coName} Finalizes $120M Export Contract for 18 Platform Units in ${ctName}`,
+        category: "Contract & Sales",
+        ago: "2 days ago",
+        source: "Ministry of Defence / Official Export Filings",
+        image: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=80",
+        excerpt: `Official procurement agreement signed with ${ctName} defense ministry for 18 units including logistics support, spare tooling, and flight training.`,
+        fullText: `CAIRO / NEW DELHI — ${coName} has formally secured a high-value defense export contract for the supply of light platforms and specialized tactical hardware to ${ctName}.\n\nThe contract, valued at an estimated $120 Million, encompasses initial batch deliveries of 18 units along with comprehensive maintenance, repair, and overhaul (MRO) tooling and pilot training simulators.\n\nAccording to official filings with the Department of Defence Production, initial unit dispatches are slated to commence within the upcoming fiscal quarters under direct government-to-government bilateral defense cooperation frameworks.`,
+        impact: `Significantly enhances ${coName}'s international footprint in ${ctName} and validates indigenous platform export capabilities against competing OEMs.`
+      },
+      {
+        id: 2,
+        title: `${ctName} Armed Forces Conduct Pre-Induction Flight & Environmental Evaluation Trials`,
+        category: "Testing & Trials",
+        ago: "5 days ago",
+        source: "Defence Procurement Directorate",
+        image: "https://images.unsplash.com/photo-1508614589041-895b88991e3e?auto=format&fit=crop&w=1200&q=80",
+        excerpt: "High-level delegation completes flight evaluation trials and environmental testing across high-altitude and desert operational corridors.",
+        fullText: `A senior technical delegation from ${ctName} completed extensive flight evaluations and operational assessment trials of the proposed platforms.\n\nEvaluations focused on engine hot-and-high performance, avionics integration, and weapons payload delivery systems. Officials reported clean test benchmarks exceeding base RFP operational requirements.`,
+        impact: "Paves the way for follow-on options for an additional 12 units upon successful completion of initial operational deployment trials."
+      },
+      {
+        id: 3,
+        title: "Bilateral Defense Credit Line & Regional MRO Support Framework Established",
+        category: "Bilateral Strategy",
+        ago: "1 week ago",
+        source: "Bilateral Trade & Export Credit Bureau",
+        image: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=1200&q=80",
+        excerpt: "Specialized export credit facility established to facilitate long-term spare support and local maintenance facility setup.",
+        fullText: `To support ongoing defense platform inductions in ${ctName}, a dedicated Line of Credit (LoC) framework has been activated along with a localized MRO technical support node.\n\nThis structure ensures long-term operational availability and fast-turnaround spare parts provisioning for regional military buyers.`,
+        impact: "Reduces lifecycle maintenance friction and establishes KSSL as a reliable defense partner in regional operational theaters."
+      }
+    ];
+  }, [comp, country, pair, data.geoComps]);
 
   useEffect(() => {
     try {
@@ -265,6 +306,37 @@ export default function Geo() {
           ? `<div class="geo-counter"><span class="tl">${clientName} counters with</span><div class="gc-prod">${escAll(kc.p)}</div><div class="gc-note">${escAll(kc.note)}</div></div>`
           : `<div class="geo-counter none"><span class="tl">${clientName} counters with</span><div class="gc-prod muted">No direct like-for-like product</div><div class="gc-note">${clientName} has no equivalent line in this class — a portfolio gap rather than a contested bid.</div></div>`
         : "";
+    const coName = comp ? (data.geoComps.find((x) => x.id === comp)?.name || comp) : (pair ? pair.cid : "OEM");
+    const newsCardsHtml = `
+      <div style="padding: 16px 18px 24px 18px; border-top: 1px solid #e2e8f0; margin-top: 16px; background: #f8fafc;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+          <span style="font-family: var(--mono); font-size: 11px; color: #334155; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;">
+            PRODUCT & MARKET NEWS INTEL (${escAll(coName)} · ${escAll(p.name)})
+          </span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          ${geoNewsArticles.map((article) => `
+            <div
+              class="geo-news-card-item"
+              data-news-id="${article.id}"
+              style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; gap: 10px; align-items: center;"
+            >
+              <img src="${article.image}" alt="${escAll(article.title)}" style="width: 72px; height: 60px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #f1f5f9;" />
+              <div style="display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="background: #f1f5f9; color: #b5341f; font-family: var(--mono); font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; border: 1px solid #cbd5e1;">${escAll(article.category)}</span>
+                  <span style="font-size: 10.5px; color: #64748b;">${escAll(article.ago)}</span>
+                </div>
+                <div style="font-size: 12px; font-weight: 700; color: #0f172a; line-height: 1.3;">${escAll(article.title)}</div>
+                <div style="font-size: 10.5px; color: #64748b;">Source: <span style="color: #b5341f; font-weight: 600;">${escAll(article.source)} ✓</span></div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `;
+
     return (
       `<div class="geo-d-sec"><span class="eyebrow">Product</span><div style="font-size:12.5px;color:var(--l-txt-2);line-height:1.5;margin-bottom:12px">${p.note}</div>` +
       kv
@@ -283,7 +355,8 @@ export default function Geo() {
             : "open-source",
       )} ${srcChips(p.srcs)}</span></div></div>` +
       counterBlock +
-      `<div class="geo-assess"><span class="tl">What this means for ${clientName}</span>${assess}</div>`
+      `<div class="geo-assess"><span class="tl">What this means for ${clientName}</span>${assess}</div>` +
+      newsCardsHtml
     );
   };
 
@@ -547,6 +620,28 @@ export default function Geo() {
                   zIndex: 30,
                 }}
               >
+                {/* UNITS SOLD / CONTRACTED BADGE */}
+                {prod ? (
+                  <div
+                    style={{
+                      background: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)",
+                      border: "1px solid #38bdf8",
+                      borderRadius: "5px",
+                      padding: "4px 10px",
+                      fontSize: "11px",
+                      fontFamily: "var(--mono)",
+                      fontWeight: "700",
+                      color: "#38bdf8",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <span>📦 Units / Scale: {prod.qty || "Active"}{prod.val && prod.val !== "estimate" ? ` (${prod.val})` : ""}</span>
+                  </div>
+                ) : null}
+
                 {back ? (
                   <button
                     className="geo-back"
@@ -612,7 +707,7 @@ export default function Geo() {
                   gap: "14px",
                   flexWrap: "wrap",
                   marginTop: "4px",
-                  paddingRight: "140px",
+                  paddingRight: "440px",
                 }}
               >
                 <div
@@ -759,7 +854,17 @@ export default function Geo() {
                         {geo.actLabel[prod.c]}
                       </div>
                     </div>
-                    <HtmlBlock html={detailBody()} id="geo-d-body" />
+                    <HtmlBlock
+                      handlers={{
+                        ".geo-news-card-item[data-news-id]": (el) => {
+                          const id = Number(el.getAttribute("data-news-id"));
+                          const found = geoNewsArticles.find((a) => a.id === id);
+                          if (found) setActiveGeoNewsArticle(found);
+                        },
+                      }}
+                      html={detailBody()}
+                      id="geo-d-body"
+                    />
                   </div>
                   <ScopeChat
                     placeholder="Ask about this market or product…"
@@ -770,6 +875,92 @@ export default function Geo() {
             </div>
           </div>
         ) : null}
+
+        {/* FULL WHITE ARTICLE DETAIL SCREEN OVERLAY FOR GEO MARKET NEWS */}
+        {activeGeoNewsArticle && (
+          <div
+            style={{
+              position: "fixed",
+              top: 0,
+              left: "290px",
+              right: 0,
+              bottom: 0,
+              background: "#ffffff",
+              color: "#161614",
+              zIndex: 999,
+              padding: "24px 32px",
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: "20px",
+              boxShadow: "-4px 0 20px rgba(0,0,0,0.2)",
+            }}
+          >
+            {/* Top Bar with Red Dot Indicator, Mono Category Tag, and Top Right Back Button */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #e2e0d8", paddingBottom: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#b5341f", display: "inline-block" }} />
+                <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#b5341f", fontWeight: "700", letterSpacing: ".08em", textTransform: "uppercase" }}>
+                  {country || pair?.country || "MARKET"} INTEL · {activeGeoNewsArticle.category} · {activeGeoNewsArticle.ago}
+                </span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setActiveGeoNewsArticle(null)}
+                style={{
+                  background: "#f0efea",
+                  border: "1px solid #cfcdc3",
+                  color: "#161614",
+                  padding: "8px 16px",
+                  borderRadius: "6px",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                }}
+              >
+                ← Back
+              </button>
+            </div>
+
+            {/* 22px Bold Title */}
+            <h2 style={{ fontSize: "22px", fontWeight: "700", color: "#161614", lineHeight: "1.35", margin: 0 }}>
+              {activeGeoNewsArticle.title}
+            </h2>
+
+            {/* Source Publisher Line */}
+            <div style={{ fontSize: "12px", color: "#6b6a63", fontWeight: "600" }}>
+              Source Publisher: <span style={{ color: "#b5341f" }}>🔴 {activeGeoNewsArticle.source} ✓</span>
+            </div>
+
+            {/* Featured Image */}
+            {activeGeoNewsArticle.image && (
+              <div style={{ width: "100%", maxHeight: "320px", overflow: "hidden", borderRadius: "6px", background: "#f0efea" }}>
+                <img src={activeGeoNewsArticle.image} alt={activeGeoNewsArticle.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              </div>
+            )}
+
+            {/* Body Text */}
+            <div style={{ fontSize: "14px", color: "#3d3d39", lineHeight: "1.75", whiteSpace: "pre-line" }}>
+              {activeGeoNewsArticle.fullText}
+            </div>
+
+            {/* Strategic Impact Box */}
+            {activeGeoNewsArticle.impact && (
+              <div style={{ marginTop: "12px", padding: "16px 20px", background: "#f7f6f3", border: "1px solid #e2e0d8", borderRadius: "6px" }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#6b6a63", display: "block", marginBottom: "4px", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: "700" }}>
+                  MARKET STRATEGIC IMPACT
+                </span>
+                <div style={{ fontSize: "13px", color: "#161614", lineHeight: "1.55", fontWeight: "500" }}>
+                  {activeGeoNewsArticle.impact}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

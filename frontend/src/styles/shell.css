@@ -42,10 +42,12 @@
     bottom: 0;
     width: 440px;
     z-index: 100;
-    overflow-y: auto;
+    overflow: hidden;
     border-left: 1px solid var(--d-line);
     box-shadow: -6px 0 24px rgba(0, 0, 0, 0.35);
     background: var(--l-bg);
+    display: flex;
+    flex-direction: column;
   }
 
   /* LEFT RAIL */
@@ -147,8 +149,9 @@
   .synmini{color:var(--synthetic);font-style:italic;font-size:11px}
 
   /* RIGHT CONTEXT */
-  .ctx{border-left:1px solid var(--d-line);background:var(--l-bg);color:var(--l-txt);overflow-y:auto;display:flex;flex-direction:column}
-  .ctx-h{padding:14px 18px 14px 18px;border-bottom:1px solid var(--l-line);border-left:3px solid transparent;transition:border-color .15s;position:relative}
+  .ctx{border-left:1px solid var(--d-line);background:var(--l-bg);color:var(--l-txt);overflow:hidden;display:flex;flex-direction:column;height:100%;box-sizing:border-box}
+  .ctx-scroll{flex:1;overflow-y:auto;display:flex;flex-direction:column;min-height:0;width:100%;box-sizing:border-box;padding-bottom:24px}
+  .ctx-h{padding:14px 18px 14px 18px;border-bottom:1px solid var(--l-line);border-left:3px solid transparent;transition:border-color .15s;position:relative;flex-shrink:0;width:100%;box-sizing:border-box}
   /* universal close cross for white detail columns */
   .col-close{position:absolute;top:12px;right:14px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid var(--l-line,#e0e0e0);border-radius:4px;background:transparent;color:#888;font-size:15px;line-height:1;z-index:20;transition:.14s;padding:0}
   .col-close:hover{color:#1a1a1a;border-color:#bbb;background:rgba(0,0,0,.04)}
@@ -219,7 +222,7 @@
   .cta .ch.act-capture{color:var(--fav)}
   .cta .ch.act-monitor{color:var(--watch)}
 
-  .askbox{margin-top:auto;border-top:1px solid var(--l-line);padding:14px 18px;background:var(--l-bg-1)}
+  .askbox{margin-top:auto;border-top:1px solid var(--l-line);padding:14px 18px;background:var(--l-bg-1);flex-shrink:0;position:relative;z-index:2;width:100%;box-sizing:border-box}
   .askbox .eyebrow{display:block;margin-bottom:10px;color:var(--l-txt-3)}
   .askwrap{display:flex;align-items:center;border:1px solid var(--l-line-2);background:var(--l-bg)}
   .askwrap input{flex:1;background:transparent;border:none;outline:none;color:var(--l-txt);font-family:var(--mono);font-size:11px;padding:10px 12px}

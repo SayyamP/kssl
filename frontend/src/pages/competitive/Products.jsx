@@ -70,6 +70,39 @@ const getProductNewsData = (productName, companyName) => {
   return articles;
 };
 
+const getCompanyFilterMeta = (co, id) => {
+  const name = (co.name || "").toLowerCase();
+  const cid = (id || "").toLowerCase();
+  const hq = (co.hq || "").toLowerCase();
+  const sector = (co.sector || "").toLowerCase();
+
+  let country = "India";
+  if (hq.includes("korea") || cid.includes("hanwha")) country = "South Korea";
+  else if (hq.includes("israel") || cid.includes("elbit")) country = "Israel";
+  else if (hq.includes("germany") || cid.includes("rheinmetall")) country = "Germany";
+  else if (hq.includes("sweden") || cid.includes("saab")) country = "Sweden";
+  else if (hq.includes("usa") || hq.includes("united states")) country = "USA";
+
+  let category = "Defense Systems";
+  if (sector.includes("missile") || sector.includes("air defence")) category = "Missiles & Air Defence";
+  else if (sector.includes("ammunition") || sector.includes("explosive")) category = "Ammunition & Explosives";
+  else if (sector.includes("artillery") || sector.includes("rocket") || sector.includes("howitzer")) category = "Artillery & Rocket Systems";
+  else if (sector.includes("armoured") || sector.includes("mobility") || sector.includes("tank")) category = "Armoured Vehicles & Mobility";
+  else if (sector.includes("unmanned") || sector.includes("uav") || sector.includes("drone")) category = "Unmanned Systems";
+  else if (sector.includes("simulator") || sector.includes("electronics") || sector.includes("radar")) category = "Electronics & Sensors";
+
+  let revenueTier = "mid";
+  if (cid.includes("hanwha") || cid.includes("elbit") || cid.includes("lt") || cid.includes("solar") || cid.includes("tasl") || cid.includes("mil") || name.includes("larsen")) {
+    revenueTier = "high";
+  } else if (cid.includes("pel") || cid.includes("zen")) {
+    revenueTier = "emerging";
+  } else {
+    revenueTier = "mid";
+  }
+
+  return { country, category, revenueTier };
+};
+
 export default function Products() {
   const { data } = useData();
   const { setScope } = useAppState();
@@ -78,6 +111,10 @@ export default function Products() {
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
 
   const [companyQuery, setCompanyQuery] = useState("");
+  const [sidebarCountryFilter, setSidebarCountryFilter] = useState("all");
+  const [sidebarCategoryFilter, setSidebarCategoryFilter] = useState("all");
+  const [sidebarRevenueFilter, setSidebarRevenueFilter] = useState("all");
+
   // Roster of tracked competitors only (excluding KSSL)
   const companyRoster = useMemo(() => {
     const list = [];
@@ -90,11 +127,15 @@ export default function Products() {
       if (id === clientCid) return;
       const co = data.competitors[id];
       if (co) {
+        const meta = getCompanyFilterMeta(co, id);
         list.push({
           cid: id,
           name: cleanCompanyName(co.name || id),
           threat: co.threat || "watch",
           sector: co.sector || "",
+          country: meta.country,
+          category: meta.category,
+          revenueTier: meta.revenueTier,
         });
       }
     });
@@ -124,14 +165,28 @@ export default function Products() {
     setProdNewsFilter("All");
   }, [selectedProduct]);
 
-  // Filter company sidebar roster
+  // Unique lists for sidebar dropdown options
+  const sidebarCountries = useMemo(() => {
+    const set = new Set(companyRoster.map((c) => c.country).filter(Boolean));
+    return ["all", ...Array.from(set)];
+  }, [companyRoster]);
+
+  const sidebarCategories = useMemo(() => {
+    const set = new Set(companyRoster.map((c) => c.category).filter(Boolean));
+    return ["all", ...Array.from(set)];
+  }, [companyRoster]);
+
+  // Filter company sidebar roster based on search + country + category + revenue
   const filteredCompanyRoster = useMemo(() => {
     const q = companyQuery.trim().toLowerCase();
-    if (!q) return companyRoster;
-    return companyRoster.filter(
-      (c) => `${c.name} ${c.sector}`.toLowerCase().indexOf(q) >= 0
-    );
-  }, [companyRoster, companyQuery]);
+    return companyRoster.filter((c) => {
+      if (q && !`${c.name} ${c.sector}`.toLowerCase().includes(q)) return false;
+      if (sidebarCountryFilter !== "all" && c.country !== sidebarCountryFilter) return false;
+      if (sidebarCategoryFilter !== "all" && c.category !== sidebarCategoryFilter) return false;
+      if (sidebarRevenueFilter !== "all" && c.revenueTier !== sidebarRevenueFilter) return false;
+      return true;
+    });
+  }, [companyRoster, companyQuery, sidebarCountryFilter, sidebarCategoryFilter, sidebarRevenueFilter]);
 
   // Selected company details
   const selectedCompany = useMemo(() => {
@@ -301,8 +356,58 @@ export default function Products() {
       {/* 1. LEFT SIDEBAR: COMPANY SELECTOR */}
       <div className="mu-list">
         <div className="mu-list-h">
-          <span className="eyebrow">Companies</span>
+          <span className="eyebrow">Companies ({filteredCompanyRoster.length})</span>
           <div className="sub">Select company to view products</div>
+
+          {/* Company Sidebar Filters (Country, Product Category, Revenue) */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "10px", marginBottom: "10px" }}>
+            {/* 1. Country Filter */}
+            <select
+              aria-label="Filter companies by country"
+              className="mu-fsel"
+              onChange={(e) => setSidebarCountryFilter(e.target.value)}
+              style={{ width: "100%" }}
+              value={sidebarCountryFilter}
+            >
+              <option value="all">All Countries ({companyRoster.length})</option>
+              {sidebarCountries.filter((c) => c !== "all").map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+
+            {/* 2. Product Category Filter */}
+            <select
+              aria-label="Filter companies by category"
+              className="mu-fsel"
+              onChange={(e) => setSidebarCategoryFilter(e.target.value)}
+              style={{ width: "100%" }}
+              value={sidebarCategoryFilter}
+            >
+              <option value="all">All Categories</option>
+              {sidebarCategories.filter((c) => c !== "all").map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+
+            {/* 3. Revenue Filter */}
+            <select
+              aria-label="Filter companies by revenue"
+              className="mu-fsel"
+              onChange={(e) => setSidebarRevenueFilter(e.target.value)}
+              style={{ width: "100%" }}
+              value={sidebarRevenueFilter}
+            >
+              <option value="all">All Revenue</option>
+              <option value="high">High (&gt; ₹5,000 Cr / $1B+)</option>
+              <option value="mid">Mid (₹1,000 - ₹5,000 Cr)</option>
+              <option value="emerging">Emerging (&lt; ₹1,000 Cr)</option>
+            </select>
+          </div>
+
           <div className="mu-search">
             <span className="si">⌕</span>
             <input
@@ -353,24 +458,24 @@ export default function Products() {
           activeProdArticle ? (
             /* ============ WHITE BACKGROUND ARTICLE DETAIL VIEW ============ */
             <div
-              className="product-news-white-detail"
+              className="product-news-dark-detail"
               style={{
-                background: "#ffffff",
-                color: "#161614",
+                background: "var(--d-bg-1)",
+                color: "var(--d-txt)",
                 borderRadius: "8px",
-                border: "1px solid #e2e0d8",
+                border: "1px solid var(--d-line)",
                 padding: "24px",
-                boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
                 minHeight: "calc(100vh - 140px)",
                 display: "flex",
                 flexDirection: "column",
                 gap: "20px",
               }}
             >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #e2e0d8", paddingBottom: "16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--d-line)", paddingBottom: "16px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#b5341f", display: "inline-block" }} />
-                  <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#b5341f", fontWeight: "700", letterSpacing: ".08em", textTransform: "uppercase" }}>
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#ef4444", display: "inline-block" }} />
+                  <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#f87171", fontWeight: "700", letterSpacing: ".08em", textTransform: "uppercase" }}>
                     {selectedProduct.name} · {activeProdArticle.category} · {activeProdArticle.ago}
                   </span>
                 </div>
@@ -379,9 +484,9 @@ export default function Products() {
                   type="button"
                   onClick={() => setActiveProdArticle(null)}
                   style={{
-                    background: "#f0efea",
-                    border: "1px solid #cfcdc3",
-                    color: "#161614",
+                    background: "var(--d-bg-2)",
+                    border: "1px solid var(--d-line)",
+                    color: "var(--d-txt)",
                     padding: "8px 16px",
                     borderRadius: "6px",
                     fontSize: "12px",
@@ -396,46 +501,46 @@ export default function Products() {
                 </button>
               </div>
 
-              <h2 style={{ fontSize: "22px", fontWeight: "700", color: "#161614", lineHeight: "1.35", margin: 0 }}>
+              <h2 style={{ fontSize: "22px", fontWeight: "700", color: "#ffffff", lineHeight: "1.35", margin: 0 }}>
                 {activeProdArticle.title}
               </h2>
 
-              <div style={{ fontSize: "12px", color: "#6b6a63", fontWeight: "600" }}>
-                Source Publisher: <span style={{ color: "#b5341f" }}>🔴 {activeProdArticle.source} ✓</span>
+              <div style={{ fontSize: "12px", color: "var(--d-txt-3)", fontWeight: "600" }}>
+                Source Publisher: <span style={{ color: "#f87171" }}>🔴 {activeProdArticle.source} ✓</span>
               </div>
 
               {activeProdArticle.image && (
-                <div style={{ width: "100%", maxHeight: "340px", overflow: "hidden", borderRadius: "6px", background: "#f0efea" }}>
+                <div style={{ width: "100%", maxHeight: "340px", overflow: "hidden", borderRadius: "6px", background: "var(--d-bg-2)" }}>
                   <img src={activeProdArticle.image} alt={activeProdArticle.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                 </div>
               )}
 
-              <div style={{ fontSize: "14px", color: "#3d3d39", lineHeight: "1.75", whiteSpace: "pre-line" }}>
+              <div style={{ fontSize: "14px", color: "var(--d-txt-2)", lineHeight: "1.75", whiteSpace: "pre-line" }}>
                 {activeProdArticle.fullText}
               </div>
 
               {activeProdArticle.impact && (
-                <div style={{ marginTop: "12px", padding: "16px 20px", background: "#f7f6f3", border: "1px solid #e2e0d8", borderRadius: "6px" }}>
-                  <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#6b6a63", display: "block", marginBottom: "4px", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: "700" }}>
+                <div style={{ marginTop: "12px", padding: "16px 20px", background: "var(--d-bg-2)", border: "1px solid var(--d-line)", borderRadius: "6px" }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)", display: "block", marginBottom: "4px", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: "700" }}>
                     PRODUCT STRATEGIC IMPACT
                   </span>
-                  <div style={{ fontSize: "13px", color: "#161614", lineHeight: "1.55", fontWeight: "500" }}>
+                  <div style={{ fontSize: "13px", color: "#ffffff", lineHeight: "1.55", fontWeight: "500" }}>
                     {activeProdArticle.impact}
                   </div>
                 </div>
               )}
             </div>
           ) : (
-            /* ============ WHITE BACKGROUND SPECIFICATIONS & PRODUCT NEWS DETAIL TAB ============ */
+            /* ============ DARK BACKGROUND SPECIFICATIONS & PRODUCT NEWS DETAIL TAB ============ */
             <div
-              className="product-specs-white-tab"
+              className="product-specs-dark-tab"
               style={{
-                background: "#ffffff",
-                color: "#161614",
+                background: "var(--d-bg-1)",
+                color: "var(--d-txt)",
                 borderRadius: "8px",
-                border: "1px solid #e2e0d8",
+                border: "1px solid var(--d-line)",
                 padding: "24px",
-                boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
                 minHeight: "calc(100vh - 140px)",
                 display: "flex",
                 flexDirection: "column",
@@ -448,29 +553,14 @@ export default function Products() {
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "flex-start",
-                  borderBottom: "1px solid #e2e0d8",
+                  borderBottom: "1px solid var(--d-line)",
                   paddingBottom: "16px",
                 }}
               >
                 <div>
-                  <span
-                    style={{
-                      fontFamily: "var(--mono)",
-                      fontSize: "11px",
-                      letterSpacing: ".1em",
-                      textTransform: "uppercase",
-                      color: "#6b6a63",
-                      fontWeight: "600",
-                    }}
-                  >
-                    {selectedProduct.category}
-                  </span>
-                  <h3 style={{ fontSize: "22px", fontWeight: "700", color: "#161614", margin: "4px 0 0 0" }}>
-                    {selectedProduct.name}
+                  <h3 style={{ fontSize: "22px", fontWeight: "700", color: "#ffffff", margin: 0 }}>
+                    {selectedCompany.name} - {selectedProduct.name}
                   </h3>
-                  <span style={{ fontSize: "13px", color: "#6b6a63", marginTop: "2px", display: "block" }}>
-                    Manufacturer: <strong>{selectedProduct.company}</strong>
-                  </span>
                 </div>
 
                 {/* TOP RIGHT ACTION BUTTON: BACK ONLY */}
@@ -479,9 +569,9 @@ export default function Products() {
                     type="button"
                     onClick={() => setSelectedProduct(null)}
                     style={{
-                      background: "#f0efea",
-                      border: "1px solid #cfcdc3",
-                      color: "#161614",
+                      background: "var(--d-bg-2)",
+                      border: "1px solid var(--d-line)",
+                      color: "var(--d-txt)",
                       padding: "8px 16px",
                       borderRadius: "6px",
                       fontSize: "12px",
@@ -503,7 +593,7 @@ export default function Products() {
                     fontSize: "11px",
                     letterSpacing: ".1em",
                     textTransform: "uppercase",
-                    color: "#6b6a63",
+                    color: "var(--d-txt-3)",
                     fontWeight: "600",
                     display: "block",
                     marginBottom: "12px",
@@ -515,7 +605,7 @@ export default function Products() {
                 {Object.keys(selectedProduct.specs).length > 0 ? (
                   <div
                     style={{
-                      border: "1px solid #e2e0d8",
+                      border: "1px solid var(--d-line)",
                       borderRadius: "6px",
                       overflow: "hidden",
                     }}
@@ -528,16 +618,16 @@ export default function Products() {
                           gridTemplateColumns: "200px 1fr",
                           gap: "16px",
                           padding: "12px 18px",
-                          background: idx % 2 === 0 ? "#f7f6f3" : "#ffffff",
-                          borderBottom: idx < arr.length - 1 ? "1px solid #e2e0d8" : "none",
+                          background: idx % 2 === 0 ? "var(--d-bg-2)" : "var(--d-bg-1)",
+                          borderBottom: idx < arr.length - 1 ? "1px solid var(--d-line)" : "none",
                           fontSize: "13px",
                           alignItems: "center",
                         }}
                       >
-                        <span style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--l-txt-3)", fontWeight: "600" }}>
+                        <span style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--d-txt-3)", fontWeight: "600" }}>
                           {label}
                         </span>
-                        <span style={{ color: "#161614", fontWeight: "600" }}>
+                        <span style={{ color: "#ffffff", fontWeight: "600" }}>
                           {val}
                         </span>
                       </div>
@@ -547,11 +637,11 @@ export default function Products() {
                   <div
                     style={{
                       padding: "16px",
-                      background: "#f7f6f3",
-                      border: "1px solid #e2e0d8",
+                      background: "var(--d-bg-2)",
+                      border: "1px solid var(--d-line)",
                       borderRadius: "6px",
                       fontSize: "12px",
-                      color: "#6b6a63",
+                      color: "var(--d-txt-3)",
                       fontFamily: "var(--mono)",
                     }}
                   >
@@ -562,25 +652,25 @@ export default function Products() {
 
               {/* Evaluation Note if present */}
               {selectedProduct.reason && (
-                <div style={{ padding: "16px", background: "#f0efea", border: "1px solid #e2e0d8", borderRadius: "6px" }}>
-                  <span style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "#6b6a63", display: "block", marginBottom: "6px", letterSpacing: ".08em", textTransform: "uppercase" }}>
-                    EVALUATION NOTE & COMPARISON BASIS
+                <div style={{ padding: "16px", background: "var(--d-bg-2)", border: "1px solid var(--d-line)", borderRadius: "6px" }}>
+                  <span style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--d-txt-3)", display: "block", marginBottom: "6px", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: "700" }}>
+                    PAIRING LOGIC
                   </span>
-                  <div style={{ fontSize: "12.5px", color: "#3d3d39", lineHeight: "1.6" }} dangerouslySetInnerHTML={{ __html: selectedProduct.reason }} />
+                  <div style={{ fontSize: "12.5px", color: "var(--d-txt-2)", lineHeight: "1.6" }} dangerouslySetInnerHTML={{ __html: selectedProduct.reason }} />
                 </div>
               )}
 
-              {/* 2. PRODUCT-SPECIFIC NEWS SECTION (MATCHING sc/image.png UI DESIGN) */}
-              <div style={{ borderTop: "2px solid #e2e0d8", paddingTop: "24px" }}>
+              {/* 2. PRODUCT-SPECIFIC NEWS SECTION */}
+              <div style={{ borderTop: "2px solid var(--d-line)", paddingTop: "24px" }}>
                 {/* Header Bar */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#b5341f", display: "inline-block" }} />
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#ef4444", display: "inline-block" }} />
                     <div>
-                      <div style={{ fontFamily: "var(--mono)", fontSize: "14px", fontWeight: "700", letterSpacing: ".08em", color: "#161614", textTransform: "uppercase" }}>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: "14px", fontWeight: "700", letterSpacing: ".08em", color: "#ffffff", textTransform: "uppercase" }}>
                         LATEST NEWS & INTEL ON {selectedProduct.name.toUpperCase()}
                       </div>
-                      <div style={{ fontSize: "12px", color: "#6b6a63", marginTop: "2px" }}>
+                      <div style={{ fontSize: "12px", color: "var(--d-txt-3)", marginTop: "2px" }}>
                         Real-time updates, sales contracts, technology upgrades & testing trials for {selectedProduct.name}
                       </div>
                     </div>
@@ -595,9 +685,9 @@ export default function Products() {
                       type="button"
                       onClick={() => setProdNewsFilter(cat)}
                       style={{
-                        background: prodNewsFilter === cat ? "#b5341f" : "#f0efea",
-                        border: prodNewsFilter === cat ? "1px solid #b5341f" : "1px solid #cfcdc3",
-                        color: prodNewsFilter === cat ? "#ffffff" : "#161614",
+                        background: prodNewsFilter === cat ? "#b5341f" : "var(--d-bg-2)",
+                        border: prodNewsFilter === cat ? "1px solid #b5341f" : "1px solid var(--d-line)",
+                        color: prodNewsFilter === cat ? "#ffffff" : "var(--d-txt-2)",
                         padding: "6px 14px",
                         borderRadius: "6px",
                         fontSize: "12px",
@@ -611,7 +701,7 @@ export default function Products() {
                   ))}
                 </div>
 
-                {/* 3-Column Product News Dashboard Grid matching sc/image.png */}
+                {/* 3-Column Product News Dashboard Grid */}
                 <div
                   style={{
                     display: "grid",
@@ -626,8 +716,8 @@ export default function Products() {
                     <div
                       onClick={() => setActiveProdArticle(topProdStory)}
                       style={{
-                        background: "#f7f6f3",
-                        border: "1px solid #e2e0d8",
+                        background: "var(--d-bg-2)",
+                        border: "1px solid var(--d-line)",
                         borderRadius: "8px",
                         overflow: "hidden",
                         cursor: "pointer",
@@ -637,27 +727,27 @@ export default function Products() {
                       role="button"
                       tabIndex={0}
                     >
-                      <div style={{ position: "relative", width: "100%", height: "200px", overflow: "hidden", background: "#e2e0d8" }}>
+                      <div style={{ position: "relative", width: "100%", height: "200px", overflow: "hidden", background: "var(--d-bg-1)" }}>
                         <img src={topProdStory.image} alt="Top Story" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                         <span style={{ position: "absolute", left: "12px", bottom: "12px", background: "#b5341f", color: "#fff", fontFamily: "var(--mono)", fontSize: "10px", fontWeight: "700", letterSpacing: ".1em", padding: "3px 8px", borderRadius: "3px" }}>
                           TOP STORY
                         </span>
                       </div>
                       <div style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                        <div style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#b5341f", fontWeight: "600", textTransform: "uppercase" }}>
+                        <div style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#f87171", fontWeight: "600", textTransform: "uppercase" }}>
                           {topProdStory.category} · {topProdStory.ago}
                         </div>
-                        <h3 style={{ fontSize: "15px", fontWeight: "700", color: "#161614", lineHeight: "1.35", margin: 0 }}>
+                        <h3 style={{ fontSize: "15px", fontWeight: "700", color: "#ffffff", lineHeight: "1.35", margin: 0 }}>
                           {topProdStory.title}
                         </h3>
-                        <p style={{ fontSize: "12px", color: "#6b6a63", lineHeight: "1.5", margin: 0 }}>
+                        <p style={{ fontSize: "12px", color: "var(--d-txt-2)", lineHeight: "1.5", margin: 0 }}>
                           {topProdStory.excerpt}
                         </p>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px", paddingTop: "10px", borderTop: "1px solid #e2e0d8" }}>
-                          <span style={{ fontSize: "11px", color: "#3d3d39", fontWeight: "600" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px", paddingTop: "10px", borderTop: "1px solid var(--d-line)" }}>
+                          <span style={{ fontSize: "11px", color: "var(--d-txt-3)", fontWeight: "600" }}>
                             🔴 {topProdStory.source} ✓
                           </span>
-                          <span style={{ fontSize: "12px", color: "#b5341f", fontWeight: "600" }}>
+                          <span style={{ fontSize: "12px", color: "#f87171", fontWeight: "600" }}>
                             Read Full Article →
                           </span>
                         </div>
@@ -675,23 +765,23 @@ export default function Products() {
                           display: "flex",
                           gap: "12px",
                           padding: "12px",
-                          background: "#f7f6f3",
-                          border: "1px solid #e2e0d8",
+                          background: "var(--d-bg-2)",
+                          border: "1px solid var(--d-line)",
                           borderRadius: "8px",
                           cursor: "pointer",
                         }}
                         role="button"
                         tabIndex={0}
                       >
-                        <img src={item.image} alt="News Thumb" style={{ width: "90px", height: "75px", borderRadius: "6px", objectFit: "cover", flexShrink: 0, background: "#e2e0d8" }} />
+                        <img src={item.image} alt="News Thumb" style={{ width: "90px", height: "75px", borderRadius: "6px", objectFit: "cover", flexShrink: 0, background: "var(--d-bg-1)" }} />
                         <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
-                          <div style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#b5341f", fontWeight: "600" }}>
+                          <div style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f87171", fontWeight: "600" }}>
                             {item.category} · {item.ago}
                           </div>
-                          <div style={{ fontSize: "12.5px", fontWeight: "600", color: "#161614", lineHeight: "1.35" }}>
+                          <div style={{ fontSize: "12.5px", fontWeight: "600", color: "#ffffff", lineHeight: "1.35" }}>
                             {item.title}
                           </div>
-                          <span style={{ fontSize: "11px", color: "#6b6a63", marginTop: "auto" }}>
+                          <span style={{ fontSize: "11px", color: "var(--d-txt-3)", marginTop: "auto" }}>
                             {item.source} ✓
                           </span>
                         </div>
@@ -702,10 +792,10 @@ export default function Products() {
                       style={{
                         width: "100%",
                         padding: "9px",
-                        background: "#f0efea",
-                        border: "1px solid #cfcdc3",
+                        background: "var(--d-bg-2)",
+                        border: "1px solid var(--d-line)",
                         borderRadius: "6px",
-                        color: "#161614",
+                        color: "var(--d-txt)",
                         fontSize: "12px",
                         fontWeight: "600",
                         cursor: "pointer",
@@ -719,8 +809,8 @@ export default function Products() {
                   {/* COLUMN 3: ANALYTICS & MARKET WIDGETS */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
                     {/* Trending Product Intel */}
-                    <div style={{ background: "#f7f6f3", border: "1px solid #e2e0d8", borderRadius: "8px", padding: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
-                      <div style={{ fontFamily: "var(--mono)", fontSize: "11px", fontWeight: "700", letterSpacing: ".08em", color: "#6b6a63", textTransform: "uppercase" }}>
+                    <div style={{ background: "var(--d-bg-2)", border: "1px solid var(--d-line)", borderRadius: "8px", padding: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: "11px", fontWeight: "700", letterSpacing: ".08em", color: "var(--d-txt-3)", textTransform: "uppercase" }}>
                         📈 TRENDING PRODUCT INTEL
                       </div>
                       <div>
@@ -728,51 +818,51 @@ export default function Products() {
                           <div
                             key={t.id || idx}
                             onClick={() => setActiveProdArticle(t)}
-                            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", fontSize: "11.5px", padding: "5px 0", borderBottom: idx < 3 ? "1px solid #e2e0d8" : "none", cursor: "pointer" }}
+                            style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px", fontSize: "11.5px", padding: "5px 0", borderBottom: idx < 3 ? "1px solid var(--d-line)" : "none", cursor: "pointer" }}
                             role="button"
                             tabIndex={0}
                           >
-                            <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#6b6a63", width: "12px" }}>{idx + 1}</span>
-                            <span style={{ flex: 1, color: "#161614", fontWeight: "500", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
-                            <span style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "#b5341f" }}>{t.category}</span>
+                            <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)", width: "12px" }}>{idx + 1}</span>
+                            <span style={{ flex: 1, color: "#ffffff", fontWeight: "500", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{t.title}</span>
+                            <span style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "#f87171" }}>{t.category}</span>
                           </div>
                         ))}
                       </div>
                     </div>
 
                     {/* Deployment Status */}
-                    <div style={{ background: "#f7f6f3", border: "1px solid #e2e0d8", borderRadius: "8px", padding: "14px", display: "flex", flexDirection: "column", gap: "6px" }}>
-                      <div style={{ fontFamily: "var(--mono)", fontSize: "11px", fontWeight: "700", letterSpacing: ".08em", color: "#6b6a63", textTransform: "uppercase" }}>
+                    <div style={{ background: "var(--d-bg-2)", border: "1px solid var(--d-line)", borderRadius: "8px", padding: "14px", display: "flex", flexDirection: "column", gap: "6px" }}>
+                      <div style={{ fontFamily: "var(--mono)", fontSize: "11px", fontWeight: "700", letterSpacing: ".08em", color: "var(--d-txt-3)", textTransform: "uppercase" }}>
                         📉 DEPLOYMENT CONTRACT SCALE
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                          <span style={{ fontSize: "11px", color: "#6b6a63" }}>Induction Orders</span>
-                          <div style={{ fontSize: "18px", fontWeight: "700", color: "#161614", fontFamily: "var(--mono)" }}>
+                          <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>Induction Orders</span>
+                          <div style={{ fontSize: "18px", fontWeight: "700", color: "#ffffff", fontFamily: "var(--mono)" }}>
                             480 Units / ₹45 Cr
                           </div>
-                          <span style={{ fontSize: "11px", color: "var(--fav-badge)", fontWeight: "600", fontFamily: "var(--mono)" }}>
+                          <span style={{ fontSize: "11px", color: "#22c55e", fontWeight: "600", fontFamily: "var(--mono)" }}>
                             Active Delivery Pipeline
                           </span>
                         </div>
                         <svg width="60" height="30" viewBox="0 0 70 36" fill="none">
-                          <path d="M2 30 L18 20 L35 24 L50 8 L68 12" stroke="var(--fav-badge)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                          <path d="M2 30 L18 20 L35 24 L50 8 L68 12" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                       </div>
                     </div>
 
                     {/* Product Mentions */}
-                    <div style={{ background: "#f7f6f3", border: "1px solid #e2e0d8", borderRadius: "8px", padding: "14px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                    <div style={{ background: "var(--d-bg-2)", border: "1px solid var(--d-line)", borderRadius: "8px", padding: "14px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                       <div>
-                        <div style={{ fontFamily: "var(--mono)", fontSize: "10.5px", fontWeight: "700", color: "#6b6a63", textTransform: "uppercase" }}>
+                        <div style={{ fontFamily: "var(--mono)", fontSize: "10.5px", fontWeight: "700", color: "var(--d-txt-3)", textTransform: "uppercase" }}>
                           💬 {selectedProduct.name.toUpperCase()} MENTIONS
                         </div>
-                        <div style={{ fontSize: "20px", fontWeight: "700", color: "#161614", fontFamily: "var(--mono)", marginTop: "2px" }}>
+                        <div style={{ fontSize: "20px", fontWeight: "700", color: "#ffffff", fontFamily: "var(--mono)", marginTop: "2px" }}>
                           842
                         </div>
-                        <span style={{ fontSize: "11px", color: "#6b6a63" }}>Mentions in last 24h</span>
+                        <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>Mentions in last 24h</span>
                       </div>
-                      <span style={{ fontSize: "11.5px", color: "var(--fav-badge)", fontWeight: "600", fontFamily: "var(--mono)" }}>
+                      <span style={{ fontSize: "11.5px", color: "#22c55e", fontWeight: "600", fontFamily: "var(--mono)" }}>
                         ↑ 35% vs yesterday
                       </span>
                     </div>
@@ -783,10 +873,10 @@ export default function Products() {
                       style={{
                         width: "100%",
                         padding: "9px",
-                        background: "#f0efea",
-                        border: "1px solid #cfcdc3",
+                        background: "var(--d-bg-2)",
+                        border: "1px solid var(--d-line)",
                         borderRadius: "6px",
-                        color: "#161614",
+                        color: "var(--d-txt)",
                         fontSize: "12px",
                         fontWeight: "600",
                         cursor: "pointer",
@@ -818,16 +908,10 @@ export default function Products() {
                 border: "1px solid var(--d-line)",
               }}
             >
-              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span className="eyebrow" style={{ fontSize: "10px", color: "var(--d-txt-3)" }}>
-                  {selectedCompany.name.toUpperCase()} PRODUCTS
-                </span>
+              <div>
                 <h2 style={{ fontSize: "16px", fontWeight: "700", color: "var(--d-txt)", margin: 0 }}>
                   {selectedCompany.name} Product Portfolio
                 </h2>
-                <div className="sub" style={{ fontSize: "12px", color: "var(--d-txt-3)", marginTop: "2px" }}>
-                  {filteredCompanyProducts.length} product{filteredCompanyProducts.length !== 1 ? "s" : ""} tracked · select line item to view specifications & product news
-                </div>
               </div>
 
               <div style={{ display: "flex", gap: "10px", alignItems: "center", marginLeft: "auto", flexWrap: "wrap" }}>

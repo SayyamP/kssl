@@ -87,17 +87,18 @@
   .pg-r-h .ct{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--l-txt);line-height:1.25}
   .pg-r-sub{font-size:11.5px;color:var(--l-txt-3);margin-top:6px;line-height:1.5}
   .pg-r-sec{padding:15px 18px;border-bottom:1px solid var(--l-line)}
-  .pg-r-sec .eyebrow{color:var(--l-txt-3);display:block;margin-bottom:11px}
-  .pg-rel{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--d-bg-2);font-size:12px;line-height:1.45}
-  .pg-rel:last-child{border-bottom:none}
+  .pg-r-sec .eyebrow{color:var(--l-txt-3);display:block;margin-bottom:14px}
+  .pg-rellist{display:flex;flex-direction:column;gap:14px}
+  .pg-rel{display:flex;gap:10px;padding:10px 10px;border:1px solid var(--l-line-2);border-radius:6px;background:var(--l-bg-1);font-size:12px;line-height:1.45;margin-bottom:12px}
+  .pg-rel:last-child{margin-bottom:0}
   .pg-rel .rmark{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:4px}
   .pg-rel .rmark.rel-jv{background:#1f6e45}
   .pg-rel .rmark.rel-tech{background:#9a6a08}
   .pg-rel .rmark.rel-supply{background:#3a6ea5}
   .pg-rel .rmark.rel-mou{background:#8a8a93}
   .pg-rel .rmark.rel-acq{background:#7a3a8f}
-  .pg-rellist .pg-rel{cursor:pointer;transition:background .12s;padding:9px 8px;margin:0 -8px}
-  .pg-rellist .pg-rel:hover{background:var(--d-bg-2)}
+  .pg-rellist .pg-rel{cursor:pointer;transition:all .12s;padding:10px 10px;margin:0 0 12px 0}
+  .pg-rellist .pg-rel:hover{background:var(--l-bg-2);border-color:var(--l-line)}
   .pg-rel .rnote{font-family:var(--mono);font-size:10px;color:var(--d-txt-3);line-height:1.4}
   .pg-updates{background:var(--l-bg-1);color:var(--l-txt);padding:12px 18px;font-size:12px;line-height:1.55;border-bottom:1px solid var(--l-line)}
   .pg-updates .pu-l{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--fav);margin-bottom:6px}

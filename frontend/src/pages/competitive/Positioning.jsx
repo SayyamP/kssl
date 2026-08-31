@@ -78,18 +78,21 @@ export default function Positioning() {
             <span className="eyebrow">Category · class-matched pair</span>
             <div className="matchup">
               <div className="side comp">
-                <div className="lab">Competitor product</div>
                 <div className="pn">Select a rival model</div>
-                <div className="by">made by —</div>
               </div>
               <span className="vsbadge">VS</span>
               <div className="side bf">
-                <div className="lab">{data.client?.short || "KSSL"} product</div>
                 <div className="pn">{data.client?.short || "KSSL"} · —</div>
-                <div className="by">{data.client?.name || "the client"}</div>
               </div>
             </div>
-            <div className="mu-match-reason">Matched on spec class.</div>
+            <div style={{ marginTop: "11px", paddingTop: "11px", borderTop: "1px dashed var(--l-line-2)" }}>
+              <span className="eyebrow" style={{ fontSize: "10px", color: "var(--l-txt-3)", display: "block", marginBottom: "6px", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: "700" }}>
+                PAIRING LOGIC
+              </span>
+              <div className="mu-match-reason" style={{ borderTop: "none", paddingTop: 0, marginTop: 0 }}>
+                Matched on spec class.
+              </div>
+            </div>
           </div>
         </div>
       )}

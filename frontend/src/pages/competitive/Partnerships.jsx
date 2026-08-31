@@ -41,15 +41,20 @@ export default function Partnerships() {
   const [hq, setHq] = useState("");
   const [tie, setTie] = useState(savedCid ? savedPart.tie || null : null); // a partner row id, or null for the competitor read
   const [mode, setMode] = useState(savedPart.mode || "syn"); // 'syn' | 'field'
+  const [relCardIndex, setRelCardIndex] = useState(null);
 
   const svgRef = useRef(null);
   const drawerRef = useRef(null);
 
   useEffect(() => {
+    setRelCardIndex(null);
+  }, [cid, tie, mode]);
+
+  useEffect(() => {
     if (drawerRef.current) {
       drawerRef.current.scrollTop = 0;
     }
-  }, [cid, tie, mode]);
+  }, [cid, tie, mode, relCardIndex]);
 
   useEffect(() => {
     try {
@@ -148,7 +153,7 @@ export default function Partnerships() {
   const drawerBody = () => {
     if (!c) return "";
     if (mode === "field") return partners.fieldReadHtml(cid);
-    if (tie) return partners.tieHtml(c, cid, tie, clientName);
+    if (tie) return partners.tieHtml(c, cid, tie, clientName, relCardIndex);
     return partners.compReportHtml(c, cid, clientName);
   };
 
@@ -165,6 +170,7 @@ export default function Partnerships() {
     <div
       className={`pos-view v-partnerships ${c ? "has-sel" : "no-sel"}`}
       style={{
+        position: "relative",
         gridTemplateColumns: c ? "290px 1fr 380px" : "460px 1fr 0px",
         transition: "grid-template-columns 0.28s cubic-bezier(0.22, 0.61, 0.36, 1)",
       }}
@@ -296,15 +302,42 @@ export default function Partnerships() {
       <div className={`pg-drawer${cid ? " open" : ""}`} id="pg-drawer">
         <div style={{ display: "flex", flex: 1, flexDirection: "column", height: "100%", overflow: "hidden" }}>
           <div className="pg-drawer-scroll" ref={drawerRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", paddingBottom: "24px" }}>
-            <button
-              aria-label="Close"
-              className="col-close"
-              onClick={() => setCid(null)}
-              title="Close"
-              type="button"
-            >
-              ✕
-            </button>
+            <div style={{ position: "absolute", top: "12px", right: "14px", display: "flex", alignItems: "center", gap: "6px", zIndex: 30 }}>
+              {(tie || mode === "field") && (
+                <button
+                  type="button"
+                  className="col-close"
+                  onClick={() => {
+                    setTie(null);
+                    setMode("syn");
+                  }}
+                  title="Back"
+                  style={{
+                    position: "static",
+                    width: "auto",
+                    height: "24px",
+                    padding: "0 8px",
+                    fontSize: "11px",
+                    fontWeight: "600",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "3px",
+                  }}
+                >
+                  ‹ Back
+                </button>
+              )}
+              <button
+                aria-label="Close"
+                className="col-close"
+                onClick={() => setCid(null)}
+                title="Close"
+                type="button"
+                style={{ position: "static" }}
+              >
+                ✕
+              </button>
+            </div>
             <div className="pg-drawer-head" dangerouslySetInnerHTML={{ __html: drawerHeadText() }} />
             <HtmlBlock
               className="pg-drawer-body"
@@ -314,6 +347,13 @@ export default function Partnerships() {
                   setMode("syn");
                 },
                 "[data-fieldread]": () => setMode("field"),
+                "[data-relcard]": (el) => {
+                  const ix = Number(el.getAttribute("data-relcard"));
+                  setRelCardIndex(ix);
+                },
+                "[data-backrelcards]": () => {
+                  setRelCardIndex(null);
+                },
                 ".sib-row[data-pid]": (el) => selectPartner(el.getAttribute("data-pid")),
                 ".pg-rel[data-pid]": (el) => selectPartner(el.getAttribute("data-pid")),
                 "[data-vulnclick]": (el) => {
@@ -338,9 +378,32 @@ export default function Partnerships() {
               id="pg-ov-side"
             />
           </div>
-          <ScopeChat placeholder="Ask about this competitor / partner…" scopeKey="partner" />
         </div>
       </div>
+
+      {/* FULL-SCREEN OVERLAY COVERING GRAPH AND DRAWER WHEN A RELATIONSHIP CARD IS OPENED */}
+      {relCardIndex !== null && tie && c && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: "290px",
+            right: 0,
+            zIndex: 200,
+            background: "#ffffff",
+            overflowY: "auto",
+            padding: "24px",
+          }}
+        >
+          <HtmlBlock
+            handlers={{
+              "[data-backrelcards]": () => setRelCardIndex(null),
+            }}
+            html={partners.tieHtml(c, cid, tie, clientName, relCardIndex)}
+          />
+        </div>
+      )}
     </div>
   );
 }

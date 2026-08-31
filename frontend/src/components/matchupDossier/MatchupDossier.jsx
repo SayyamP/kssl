@@ -56,18 +56,19 @@ export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTen
           </span>
           <div className="matchup">
             <div className="side comp">
-              <div className="lab">Competitor product</div>
               <div className="pn">{m.comp}</div>
-              <div className="by">{m.compBy}</div>
             </div>
             <span className="vsbadge">VS</span>
             <div className="side bf">
-              <div className="lab">{data.client?.short || "KSSL"} product</div>
               <div className="pn">{m.bf}</div>
-              <div className="by">{m.bfBy}</div>
             </div>
           </div>
-          <div className="mu-match-reason" dangerouslySetInnerHTML={{ __html: m.reason }} />
+          <div style={{ marginTop: "11px", paddingTop: "11px", borderTop: "1px dashed var(--l-line-2)" }}>
+            <span className="eyebrow" style={{ fontSize: "10px", color: "var(--l-txt-3)", display: "block", marginBottom: "6px", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: "700" }}>
+              Pairing Logic
+            </span>
+            <div className="mu-match-reason" style={{ borderTop: "none", paddingTop: 0, marginTop: 0 }} dangerouslySetInnerHTML={{ __html: m.reason }} />
+          </div>
         </div>
 
         {/* verdict always visible */}
@@ -185,34 +186,9 @@ export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTen
                   .join("") + srcKvRow(m.srcs)
               }
             />
-            {report ? null : (
-              <>
-                <button
-                  className="tech-report-btn"
-                  disabled={generating}
-                  onClick={generate}
-                  style={{ margin: "16px 0 0", width: "100%" }}
-                  type="button"
-                >
-                  {generating ? "▤ Generating…" : "▤ Generate detailed intelligence report"}
-                </button>
-                <div className="tech-report-hint" style={{ margin: "7px 0 0" }}>
-                  CEO briefing · spec gap, competitive edge &amp; cross-pillar market exposure
-                </div>
-              </>
-            )}
-            {report ? (
-              <HtmlBlock
-                handlers={{ "[data-print]": () => window.print() }}
-                html={report}
-                id="pos-report-out"
-              />
-            ) : null}
           </div>
         </div>
       </div>
-
-      <ScopeChat placeholder="Ask about this matchup…" scopeKey="matchup" />
     </div>
   );
 }
