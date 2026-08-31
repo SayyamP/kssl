@@ -71,7 +71,15 @@ export function wireDataset(raw) {
     );
     const fromGeo = (d.geoComps || []).find((c) => c.isBf);
     const resolved = fromComps || (fromGeo && fromGeo.id);
-    if (resolved) d.client = { ...(d.client || {}), id: resolved };
+    if (resolved) {
+      d.client = { ...(d.client || {}), id: resolved };
+      // The client is never its own competitor: keep its row for lookups
+      // (matchup KSSL side, shared-partner ties) but drop it from every
+      // competitor LIST so KSSL never appears as a rival/partner to itself.
+      if (Array.isArray(d.compOrder)) {
+        d.compOrder = d.compOrder.filter((k) => k !== resolved);
+      }
+    }
   } catch (e) {
     logger.warn("wiring:client.id", e);
   }

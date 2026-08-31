@@ -28,7 +28,7 @@ const PILLAR_OF_VIEW = {
 };
 
 export default function Layout() {
-  const { pillar, view, chatCtx, setChatCtx, jumpTo } = useAppState();
+  const { pillar, view, chatCtx, setChatCtx, jumpTo, railCollapsed } = useAppState();
   const { data, viewMeta } = useData();
 
   /* Overview state lives here because two pieces of chrome above the feed depend on
@@ -200,7 +200,7 @@ export default function Layout() {
           }}
         />
       ) : null}
-      <div className={`shell${wideNoDrawer && !hasSelection ? " ov-nosel" : ""}`}>
+      <div className={`shell${wideNoDrawer && !hasSelection ? " ov-nosel" : ""}${railCollapsed ? " rail-collapsed" : ""}`}>
         <Sidebar />
         {/* One boundary per view case (keyed so a crash in one view resets when the
             user navigates away) — a bad panel must never unmount the whole app. */}

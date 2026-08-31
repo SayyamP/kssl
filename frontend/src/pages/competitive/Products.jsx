@@ -105,7 +105,7 @@ const getCompanyFilterMeta = (co, id) => {
 
 export default function Products() {
   const { data } = useData();
-  const { setScope } = useAppState();
+  const { setScope, setRailCollapsed } = useAppState();
 
   const clientCid = (data.client && data.client.id) || "KSSL";
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
@@ -981,7 +981,10 @@ export default function Products() {
                       {prodList.map((p, idx) => (
                         <div
                           key={p.id}
-                          onClick={() => setSelectedProduct(p)}
+                          onClick={() => {
+                            setSelectedProduct(p);
+                            setRailCollapsed(true);
+                          }}
                           role="button"
                           tabIndex={0}
                           style={{

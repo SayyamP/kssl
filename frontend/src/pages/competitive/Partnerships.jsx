@@ -18,7 +18,7 @@ const sectorText = (co) => unescapeEntities(co && co.sector);
    its own angle, so no two lines coincide and no line runs through another node. */
 export default function Partnerships() {
   const { data, partners } = useData();
-  const { setScope } = useAppState();
+  const { setScope, setRailCollapsed } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
   const getSavedPart = () => {
     try {
@@ -91,6 +91,7 @@ export default function Partnerships() {
     const co = data.competitors[nextCid];
     if (!co) return;
     setCid(nextCid);
+    setRailCollapsed(true);
     setTie(null);
     setScope("partner", { type: "partner", comp: { ...co, id: nextCid }, partner: null }, {
       pillar: "Competitive",

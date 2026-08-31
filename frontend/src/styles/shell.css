@@ -52,6 +52,11 @@
 
   /* LEFT RAIL */
   .rail{border-right:1px solid var(--d-line);background:var(--d-bg);overflow-y:auto;display:flex;flex-direction:column}
+  .shell.rail-collapsed{grid-template-columns:44px 1fr}
+  .shell.rail-collapsed.ov-nosel{grid-template-columns:44px 1fr}
+  .rail.collapsed{overflow:hidden}
+  .rail-toggle{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:100%;height:38px;background:none;border:none;border-bottom:1px solid var(--d-line);color:inherit;opacity:.55;cursor:pointer;transition:opacity .12s}
+  .rail-toggle:hover{opacity:1}
   .rail-sec{border-bottom:1px solid var(--d-line);padding:16px 18px}
   .rail-sec.svc-sec{padding:16px 0 10px}
   .rail-sec .eyebrow{display:block;margin-bottom:13px}

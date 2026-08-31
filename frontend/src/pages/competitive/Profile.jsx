@@ -865,7 +865,7 @@ function Sec({ title, note, children }) {
 
 export default function Profile() {
   const { data } = useData();
-  const { setScope } = useAppState();
+  const { setScope, setRailCollapsed } = useAppState();
   const [query, setQuery] = useState("");
   const roster = useMemo(() => rosterOf(data), [data]);
   const [cid, setCid] = useState(() => (roster[0] ? roster[0].cid : ""));
@@ -1066,6 +1066,7 @@ export default function Profile() {
               key={r.cid}
               onClick={() => {
                 setCid(r.cid);
+                setRailCollapsed(true);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
