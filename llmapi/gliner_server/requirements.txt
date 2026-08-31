@@ -1,0 +1,13 @@
+# The GLiNER service. Pinned to the versions every published extraction number was
+# measured on: GLiNER's span offsets and threshold behaviour have both moved between
+# releases, and a different version does not crash -- it quietly returns different spans.
+# gliner 0.2.13 requires transformers < 4.46 at import, so the two move together.
+gliner==0.2.13
+transformers==4.45.2
+
+# CPU wheel only. None of these boxes has a GPU, and the default wheel drags in ~2 GB of
+# CUDA that could never be used. Installed from the CPU index in the Dockerfile.
+torch
+
+fastapi>=0.110
+uvicorn[standard]>=0.29

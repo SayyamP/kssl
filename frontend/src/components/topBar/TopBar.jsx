@@ -84,7 +84,7 @@ export default function TopBar() {
     if (type === "comp") {
       jumpTo("competitive", "profile", { cid: item.cid });
     } else if (type === "tender") {
-      jumpTo("market", "tender", { tenderId: item.id });
+      jumpTo("market", "tender", { tenderTitle: item.title });
     } else if (type === "signal") {
       jumpTo("competitive", "overview", { cardId: item.id });
     }
@@ -134,7 +134,7 @@ export default function TopBar() {
 
       <div className="topbar-search-wrap" ref={searchRef}>
         <div className="topbar-search-input-box">
-          <span className="topbar-search-icon">🔍</span>
+          <span className="topbar-search-icon">⌕</span>
           <input
             type="text"
             className="topbar-search-input"

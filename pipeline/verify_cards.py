@@ -11,13 +11,14 @@ not entailment). Unsupported cards are deleted and counted -- an audit trail lin
 per deletion, never a silent disappearance.
 """
 import argparse
-import json
 import os
 import sys
-import urllib.request
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from llmapi import client as llm_client  # noqa: E402  (every model call goes through the API)
 
 DSN = os.environ.get("KSSL_DSN", "host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl")
-OLLAMA = os.environ.get("KSSL_OLLAMA", "http://127.0.0.1:11434")
 MODEL = os.environ.get("KSSL_MODEL", "qwen2.5:14b-instruct")
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -47,24 +48,11 @@ UNSUPPORTED: <one short reason>"""
 
 
 
-# Where the model runs. Defaults are unchanged; the env vars exist so a fill can be
-# pushed off the GPU when the extraction owns it (num_gpu=0 -> CPU/RAM inference).
-# num_ctx is ALWAYS set explicitly: a model whose default context is 262k asks ollama
-# for a 95 GB KV cache and the request dies as an opaque HTTP 500.
-def llm_opts(npredict):
-    o = {"temperature": 0, "num_predict": npredict, "num_ctx": int(os.environ.get("KSSL_NUM_CTX", 8192))}
-    if os.environ.get("KSSL_LLM_CPU") == "1":
-        o["num_gpu"] = 0
-    return o
-
-
-def ask(prompt, timeout=120):
-    body = json.dumps({"model": MODEL, "prompt": prompt, "stream": False,
-                       "options": llm_opts(80)})
-    req = urllib.request.Request(OLLAMA + "/api/generate", data=body.encode("utf-8"),
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8")).get("response", "").strip()
+def ask(prompt, timeout=None):
+    """A verdict is 80 tokens. Everything about HOW it is generated -- node, threads,
+    num_gpu, timeout -- belongs to the API, which is why this module no longer carries
+    its own third copy of llm_opts."""
+    return llm_client.ask(prompt, npredict=80, timeout=timeout, model=MODEL)
 
 
 def parse_verdict(raw):

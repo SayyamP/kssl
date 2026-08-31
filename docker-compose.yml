@@ -31,13 +31,10 @@ services:
       retries: 20
 
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
+    build: ./backend
     container_name: kssl-backend
     environment:
       KSSL_DSN: host=db port=5432 dbname=kssl user=postgres password=kssl
-      KSSL_SERVE_ORIGIN: all
     ports:
       - "127.0.0.1:8600:8600"
     depends_on:

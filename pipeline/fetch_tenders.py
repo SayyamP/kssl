@@ -315,11 +315,47 @@ def load_sam_keys():
     return []
 
 
+_CT_SEG = re.compile(r"\s+[‒–—\-]\s+")
+
+
+def clean_title(title, country=None):
+    """One readable, consistent tender title from the raw feed text. The portals write
+    it three different ways -- TED as 'Country - CPV label - buyer's own ref/foreign
+    title', GeM with a '- GEM/2026/B/...' suffix, CanadaBuys with a 'W8472-225864 '
+    solicitation prefix -- and some are ALL CAPS. The specific notice number stays in
+    the id and the source link; the title is for reading. Never invents words."""
+    t = _html.unescape(str(title or "")).strip()
+    parts = [p.strip() for p in _CT_SEG.split(t) if p.strip()]
+    # TED 'Country - CPV label - ...': the CPV label is the clean English description;
+    # the tail is the buyer's internal reference or a foreign-language title -> drop it.
+    if country and parts and parts[0].lower() == country.lower():
+        parts = parts[1:]
+        if len(parts) >= 2:
+            parts = parts[:1]
+    t = " - ".join(parts) if parts else t
+    # leading CanadaBuys solicitation code 'W8472-225864 ' FIRST, so its internal hyphen
+    # is never mistaken for a separator by the reference strips below.
+    t = re.sub(r"^\s*[A-Z]{1,3}\d{2,}[-–—]\d{3,}\w*\s+", "", t)
+    # trailing solicitation / reference codes
+    t = re.sub(r"(?i)\s*[-–—]\s*GEM/\S+.*$", "", t)
+    t = re.sub(r"(?i)\s*[-–—]\s*DAT\s*\d+.*$", "", t)
+    t = re.sub(r"(?i)\s*[-–—]\s*(Marche|Marché)\s+public.*$", "", t)
+    t = re.sub(r"(?i)\s*[-–—]\s*N[°º]\s*\S+.*$", "", t)
+    # ' - 6003105378-BAAINBw' (space-surrounded dash ONLY -- never a hyphen inside a code)
+    t = re.sub(r"\s+[-–—]\s+\d{6,}[-–—\w]*.*$", "", t)
+    # ALL-CAPS listing -> Title Case
+    letters = [c for c in t if c.isalpha()]
+    if letters and sum(1 for c in letters if c.isupper()) / len(letters) > 0.7:
+        t = t.title()
+    t = re.sub(r"\s+", " ", t).strip(" -–—·")
+    return t[:100] or _html.unescape(str(title or ""))
+
+
 def make_row(tid, title, issuer, country, cat, url, src_label, status,
              deadline_dt=None, deadline_raw=None, posted_dt=None, value=None, qty=None):
     deadline = fmt_deadline(deadline_dt) if deadline_dt else nn(deadline_raw)
     return {
-        "id": tid, "title": nn(title), "issuer": nn(issuer), "country": nn(country),
+        "id": tid, "title": clean_title(title, country), "issuer": nn(issuer), "country": nn(country),
         "cat": cat, "value": nn(value), "qty": nn(qty), "deadline": deadline,
         "dl": None, "reqNote": None, "req": [], "matches": [], "lean": None,
         "leanTxt": None, "status": status, "url": nn(url), "urlKind": "tender",

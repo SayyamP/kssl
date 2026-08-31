@@ -58,3 +58,19 @@ Each step is idempotent and each has `--demo` (a runnable self-check with no sid
 | frontend preview | 127.0.0.1:5178 |
 
 Nothing here touches the main Parallax stores (:5440, :9500, :9600, :9700).
+
+## Repository layout
+
+    backend/ frontend/ pipeline/ extraction/ llmapi/ db/   # code
+    docs/                                                   # all documentation (PLAN, UI_CONTRACT, contracts)
+    docker-compose.vps.yml   docker-compose.prod.yml        # base stack + GHCR image override
+    deploy/deploy.sh   .github/workflows/                   # CI/CD
+
+Documentation lives under [`docs/`](docs/) — kept out of the code tree.
+
+## Deployment (CI/CD)
+
+Push to `kssl-deploy` → GitHub Actions builds SHA-pinned `frontend`/`backend` images to
+GHCR, then SSH-deploys to VPS-B, recreating **only** those two services (the extraction
+farm and DB/LLM containers are never touched). See [`docs/DEPLOY.md`](docs/DEPLOY.md).
+Rollback: re-run the *Deploy to VPS-B* workflow with a previous SHA.

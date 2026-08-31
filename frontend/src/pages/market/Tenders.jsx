@@ -13,6 +13,40 @@ const fitClass = (p) => {
 
 const has = (v) => v != null && String(v).trim() !== "";
 
+/* The source record's own reference (the part after the 'ted_/ca_/gem_/uk_/sam_'
+   prefix on the id) — the number a buyer's portal actually indexes the notice by. */
+const noticeRef = (t) => {
+  if (!t || !t.id) return null;
+  const s = String(t.id);
+  const u = s.indexOf("_");
+  return u > -1 ? s.slice(u + 1) : s;
+};
+const sourceName = (t) =>
+  (t && t.srcs && t.srcs[0] && t.srcs[0].label) ||
+  (t && t.url ? t.url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : null);
+
+/* The facts a procurement notice actually carries — everything the reader needs to
+   act, drawn only from the record. Empty fields are dropped, never shown blank. */
+const factRows = (t) => {
+  if (!t) return [];
+  const statusTxt = has(t.status)
+    ? t.status.charAt(0).toUpperCase() + t.status.slice(1)
+    : t.urlKind === "award"
+      ? "Awarded"
+      : "Open";
+  return [
+    ["Category", t.cat],
+    ["Buyer", t.issuer],
+    ["Country", t.country],
+    ["Estimated value", t.value],
+    ["Quantity", t.qty],
+    ["Closing date", t.deadline],
+    ["Status", statusTxt],
+    ["Notice ref.", noticeRef(t)],
+    ["Source", sourceName(t)],
+  ].filter(([, v]) => has(v));
+};
+
 /* A meta line is only the parts the record carries — a null `value` used to leave
    its separator behind, so every card read "… ·  · …". A part is a string, or
    [text, className] where the original markup styled that span. */
@@ -27,12 +61,6 @@ const metaLine = (parts) =>
       </Fragment>
     ));
 
-const EMPTY_NOTE = {
-  req: "Not assessed — the source record carries no requirement breakdown for this tender.",
-  matches:
-    "Not assessed — no KSSL product has been matched against this tender yet.",
-  lean: "Not assessed — no bid recommendation has been made on this tender.",
-};
 const dlClass = (d, statusClass) => {
   if (statusClass) return statusClass;
   const n = Number(d);
@@ -111,7 +139,7 @@ export default function Tenders({ mode = "tender" }) {
 
   const list = useMemo(
     () =>
-      data.tenders
+      (data.tenders || [])
         .filter((t) => (!country || t.country === country) && (!cat || t.cat === cat))
         .filter((t) => {
           if (!productType) return true;
@@ -134,7 +162,7 @@ export default function Tenders({ mode = "tender" }) {
   );
 
   const select = (id) => {
-    const t = data.tenders.find((x) => x.id === id);
+    const t = (data.tenders || []).find((x) => x.id === id);
     if (!t) return;
     setSel(id);
     setScope("tender", { type: "tender", data: t }, {
@@ -149,8 +177,8 @@ export default function Tenders({ mode = "tender" }) {
     const p = takePending("tender");
     if (p && p.tenderTitle) {
       const t =
-        data.tenders.find((x) => x.title === p.tenderTitle) ||
-        data.tenders.find(
+        (data.tenders || []).find((x) => x.title === p.tenderTitle) ||
+        (data.tenders || []).find(
           (x) => x.title.indexOf(p.tenderTitle) > -1 || p.tenderTitle.indexOf(x.title) > -1,
         );
       if (t) {
@@ -161,14 +189,14 @@ export default function Tenders({ mode = "tender" }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [takePending]);
 
-  const t = sel ? data.tenders.find((x) => x.id === sel) : null;
+  const t = sel ? (data.tenders || []).find((x) => x.id === sel) : null;
 
   const menuItems = (which) => {
     if (which === "productType") {
       const isAirNaval = (x) => /uav|drone|naval|marine|missile|air defence/i.test(`${x.cat} ${x.title}`);
       const counts = {
-        "Land Systems": data.tenders.filter((x) => !isAirNaval(x)).length,
-        "Air, Naval & Missiles": data.tenders.filter(isAirNaval).length,
+        "Land Systems": (data.tenders || []).filter((x) => !isAirNaval(x)).length,
+        "Air, Naval & Missiles": (data.tenders || []).filter(isAirNaval).length,
       };
       return [
         { v: "Land Systems", n: counts["Land Systems"] },
@@ -179,11 +207,11 @@ export default function Tenders({ mode = "tender" }) {
        values that exist; a country no tender mentions is not offered as a filter. */
     const cfgOrder = which === "country" ? data.tpAllCountries || [] : data.tpAllCats || [];
     const items = [
-      ...new Set(data.tenders.map((x) => (which === "country" ? x.country : x.cat)).filter(Boolean)),
+      ...new Set((data.tenders || []).map((x) => (which === "country" ? x.country : x.cat)).filter(Boolean)),
     ];
     const counts = {};
     items.forEach((v) => {
-      counts[v] = data.tenders.filter((x) => (which === "country" ? x.country : x.cat) === v).length;
+      counts[v] = (data.tenders || []).filter((x) => (which === "country" ? x.country : x.cat) === v).length;
     });
     // most tenders first, then the config's ordering, then alphabetically
     const cfgIx = (v) => {
@@ -366,33 +394,42 @@ export default function Tenders({ mode = "tender" }) {
               </div>
 
               <div className="tp-asmt-sec">
-                <span className="eyebrow">What the tender requires</span>
-                {!has(t.reqNote) && !(t.req || []).length ? (
-                  <div className="tp-na">{EMPTY_NOTE.req}</div>
-                ) : null}
-                {has(t.reqNote) ? (
-                  <div className="req" dangerouslySetInnerHTML={{ __html: t.reqNote }} />
-                ) : null}
-                {(t.req || []).map((r, i) => (
-                  <div className="kv" key={`${r[0]}-${i}`}>
-                    <span className="k">{r[0]}</span>
-                    <span className="v" dangerouslySetInnerHTML={{ __html: r[1] }} />
-                  </div>
-                ))}
-                {(t.req || []).some((r) => /indigen|content|offset/i.test(`${r[0]} ${r[1]}`)) ? (
-                  <div className="req-gloss">
-                    “Indigenous content” = the DAP 2020 threshold a bid must clear for its
-                    procurement category (50%+ for Buy Indian-IDDM). A bid that cannot declare the
-                    threshold is technically non-compliant regardless of price.
-                  </div>
-                ) : null}
+                <span className="eyebrow">Tender details</span>
+                <div className="tp-facts">
+                  {factRows(t).map(([k, v]) => (
+                    <div className="kv" key={k}>
+                      <span className="k">{k}</span>
+                      <span className="v">{v}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
 
+              {has(t.reqNote) || (t.req || []).length ? (
+                <div className="tp-asmt-sec">
+                  <span className="eyebrow">What the tender requires</span>
+                  {has(t.reqNote) ? (
+                    <div className="req" dangerouslySetInnerHTML={{ __html: t.reqNote }} />
+                  ) : null}
+                  {(t.req || []).map((r, i) => (
+                    <div className="kv" key={`${r[0]}-${i}`}>
+                      <span className="k">{r[0]}</span>
+                      <span className="v" dangerouslySetInnerHTML={{ __html: r[1] }} />
+                    </div>
+                  ))}
+                  {(t.req || []).some((r) => /indigen|content|offset/i.test(`${r[0]} ${r[1]}`)) ? (
+                    <div className="req-gloss">
+                      “Indigenous content” = the DAP 2020 threshold a bid must clear for its
+                      procurement category (50%+ for Buy Indian-IDDM). A bid that cannot declare the
+                      threshold is technically non-compliant regardless of price.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {(t.matches || []).length ? (
               <div className="tp-asmt-sec">
                 <span className="eyebrow">Matched {clientName} products</span>
-                {(t.matches || []).length ? null : (
-                  <div className="tp-na">{EMPTY_NOTE.matches}</div>
-                )}
                 {(t.matches || []).map((m, i) => (
                   <div className="tp-match" key={`${m.n}-${i}`}>
                     <div className="mh">
@@ -408,16 +445,15 @@ export default function Tenders({ mode = "tender" }) {
                   </div>
                 ))}
               </div>
+              ) : null}
 
               <div className="tp-asmt-sec">
-                <div className={`tp-lean${has(t.lean) ? ` ${t.lean}` : " na"}`}>
-                  <span className="tl">Bid assessment</span>
-                  {has(t.leanTxt) ? (
+                {has(t.leanTxt) ? (
+                  <div className={`tp-lean${has(t.lean) ? ` ${t.lean}` : ""}`}>
+                    <span className="tl">Bid assessment</span>
                     <span dangerouslySetInnerHTML={{ __html: t.leanTxt }} />
-                  ) : (
-                    <span className="tp-na">{EMPTY_NOTE.lean}</span>
-                  )}
-                </div>
+                  </div>
+                ) : null}
                 {srcChips(t.srcs && t.srcs.length ? t.srcs : t.url ? [{ label: "Source", url: t.url }] : null) ? (
                   <div style={{ marginTop: "10px" }}>
                     <span className="eyebrow">Source</span>

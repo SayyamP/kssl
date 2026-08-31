@@ -180,7 +180,7 @@ export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTen
             <HtmlBlock
               className="compdet"
               html={
-                (m.det || [])
+                (Array.isArray(m.det) ? m.det : [])
                   .map((dd) => `<div class="kv"><span class="k">${dd[0]}</span><span class="v">${dd[1]}</span></div>`)
                   .join("") + srcKvRow(m.srcs)
               }

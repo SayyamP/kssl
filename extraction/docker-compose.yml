@@ -1,0 +1,55 @@
+# VPS-B automatic extraction. Three long-running roles from one image; the queue in Postgres is the
+# hand-off between them, so they never talk directly and any one can restart without the others.
+#
+#   docker compose run --rm migrate     # once, to create the tables
+#   docker compose up -d                 # worker + feeder (+ cards) run forever
+#
+# The corpus tunnel (DC Postgres -> 127.0.0.1:15432) must be up on the host; feeder reads through it.
+# The farm (LLM + GLiNER) is reached over the internet with the key in .env.
+services:
+  # One-shot: apply db/*.sql to VPS-B Postgres. `docker compose run --rm migrate`.
+  migrate:
+    build: .
+    image: kssl-extraction:latest
+    env_file: .env
+    network_mode: host
+    command: ["migrate"]
+    restart: "no"
+
+  # The worker: claim -> extract (farm) -> store, forever. Scale with --scale worker=N; each worker
+  # claims its own documents (FOR UPDATE SKIP LOCKED), so N workers is N-way parallelism.
+  worker:
+    build: .
+    image: kssl-extraction:latest
+    env_file: .env
+    network_mode: host
+    command: ["worker"]
+    restart: unless-stopped
+
+  # The feeder: sync new corpus docs -> enqueue (presignal gate) -> reap expired leases, on a timer.
+  feeder:
+    build: .
+    image: kssl-extraction:latest
+    env_file: .env
+    network_mode: host
+    command: ["feeder"]
+    restart: unless-stopped
+
+  # Cards for the dashboard. UI is out of scope for now -- enable when the serving layer is wired.
+  # cards:
+  #   build: .
+  #   image: kssl-extraction:latest
+  #   env_file: .env
+  #   network_mode: host
+  #   command: ["cards"]
+  #   restart: unless-stopped
+
+  # Layer B: canonical entities from the extracted spans, on a slow timer. Same-script merges;
+  # cross-script (embedding) blocking is a documented extension. Enable when Layer A has a backlog.
+  layerb:
+    build: .
+    image: kssl-extraction:latest
+    env_file: .env
+    network_mode: host
+    command: ["layerb"]
+    restart: unless-stopped

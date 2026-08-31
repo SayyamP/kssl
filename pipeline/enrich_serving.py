@@ -41,22 +41,29 @@ Known schema deviations from the natural keys one would pick (reported, not hidd
 """
 import argparse
 import json
-import os
 import re
 import stage_timer
 import sys
-import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))
 
 from serving_fill import (  # noqa: E402  (helpers are REUSED, not duplicated)
-    DSN, MODEL, OLLAMA, article_date, ask, clip, date_label, esc, is_dup, llm_opts,
+    DSN, MODEL, article_date, ask, clip, date_label, esc, is_dup,
     is_listing, is_recent_ym, is_relevant, kssl_cats, load_terms, parse_date,
     recent_cutoff, suppressed_ids, title_tokens,
 )
-from source_tiers import publishable  # noqa: E402  (ONE source bar, shared)
+from llmapi import client as llm_client  # noqa: E402  (every model call goes through the API)
+# `publishable` (the tier-graded source bar) lives in the ENGINE's source_tiers; the pipeline's
+# own source_tiers.py is a different module (tier_of/LABEL), so load the engine copy by path
+# rather than colliding the module name on sys.path.
+import importlib.util as _ilu  # noqa: E402
+_st_spec = _ilu.spec_from_file_location(
+    "engine_source_tiers", str(HERE.parent / "extraction" / "engine" / "source_tiers.py"))
+_st = _ilu.module_from_spec(_st_spec); _st_spec.loader.exec_module(_st)  # type: ignore
+publishable = _st.publishable  # noqa: E402  (ONE source bar, shared)
 from aliases import (  # noqa: E402  (ONE identity layer, shared with serving_fill)
     canonical as canon_name, client_led, fold as fold_name, has_proper_name,
     is_client,
@@ -71,24 +78,22 @@ MATCHUP_ID0 = 9000   # integer PK range for pipeline matchups
 
 
 def _ask(prompt, npredict=600, timeout=None):
-    # same reason as serving_fill.ask: 240s is a GPU default
-    timeout = timeout or int(os.environ.get(
-        "KSSL_LLM_TIMEOUT",
-        "1200" if os.environ.get("KSSL_LLM_CPU") == "1" else "240"))
     """serving_fill.ask with a configurable budget: profile/tender JSON replies do not
-    fit the card step's 300-token cap, and a truncated JSON is a lost row."""
-    body = json.dumps({"model": MODEL, "prompt": prompt, "stream": False,
-                       "options": llm_opts(npredict)})
-    req = urllib.request.Request(OLLAMA + "/api/generate", data=body.encode("utf-8"),
-                                 headers={"Content-Type": "application/json"})
+    fit the card step's 300-token cap, and a truncated JSON is a lost row.
+
+    Goes through the LLM API like every other model call. The budget still lives here
+    because it is a property of THIS step's output, not of the node that serves it --
+    the node decides how long that many tokens may take, which is why the timeout is no
+    longer computed from a hardcoded GPU-era default.
+    """
     # same instrumentation as serving_fill.ask: these two functions are every
     # model call the pipeline makes, so between them they account for the whole
     # LLM stage.
     with stage_timer.stage("llm", meta={"model": MODEL, "npredict": npredict}) as st:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            payload = json.loads(r.read().decode("utf-8"))
-        st.items(1).tokens(int(payload.get("eval_count") or 0))
-        return payload.get("response", "").strip()
+        text, meta = llm_client.ask(prompt, npredict=npredict, timeout=timeout,
+                                    model=MODEL, with_meta=True)
+        st.items(1).tokens(int(meta.get("eval_count") or 0))
+        return text
 
 
 def slug(name):
@@ -426,6 +431,14 @@ def load_profiles(cur):
 
 
 def step_companies(cur, con, docs, props_by_doc, limit=None):
+    # Carry interim OSINT columns (agent-populated leadership/facilities, and hq where
+    # the corpus has none) across the rebuild. This step DELETEs+re-INSERTs pipeline
+    # competitors from the corpus and its INSERT does not carry those columns, so
+    # without this snapshot every enrich pass silently wipes them (the Adani-empty bug).
+    cur.execute("""SELECT comp_id, leadership, facilities, hq FROM serving.competitors
+                     WHERE origin='pipeline'
+                       AND (leadership IS NOT NULL OR facilities IS NOT NULL)""")
+    _carry = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
     # Own range only: revive_partners writes companies the crawl never profiled at
     # ord >= REV_ORD0. A blanket delete took them, and their ties, with it.
     cur.execute("DELETE FROM serving.competitors WHERE origin='pipeline' AND ord < %s",
@@ -536,6 +549,16 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
                      r["site"], json.dumps(r["srcs"]),
                      json.dumps([esc(x) for x in p["products"]]),
                      p.get("threat_note")))
+    # Restore the snapshotted interim columns onto the freshly-rebuilt rows.
+    for cid, (ld, fac, hq0) in _carry.items():
+        cur.execute("""UPDATE serving.competitors
+                         SET leadership = COALESCE(%s::jsonb, leadership),
+                             facilities = COALESCE(%s::jsonb, facilities),
+                             hq         = COALESCE(NULLIF(hq,''), %s)
+                       WHERE comp_id=%s AND origin='pipeline'""",
+                    (json.dumps(ld) if ld is not None else None,
+                     json.dumps(fac) if fac is not None else None,
+                     hq0, cid))
     con.commit()
     print("companies: %d written, %d refused, %d skipped no-props, %d not a company, "
           "%d over limit"
@@ -1032,6 +1055,15 @@ def step_tenders(cur, con, docs, props_by_doc, limit=None):
     # (ids prefixed sam_/ted_/gem_/cppp_); a blanket delete here wiped its 88-row
     # feed once -- two writers, one table, so each owns its own id space.
     cur.execute("DELETE FROM serving.tender WHERE origin='pipeline' AND id ~ '^[0-9]+$'")
+    # News-derived tenders are RETIRED: the Market pillar is fed only by real
+    # procurement-portal APIs (pipeline/fetch_tenders.py). This step no longer screens
+    # defence news into tenders -- it now only purges any legacy news rows and writes
+    # nothing, so a news "tender" can never reappear. (User: tenders from news sites out.)
+    con.commit()
+    print("tenders: news screener retired; %d legacy news row(s) purged, 0 written"
+          % cur.rowcount, flush=True)
+    return {"written": 0, "purged": cur.rowcount, "refused": 0, "stale": 0,
+            "undated": 0, "offtopic": 0, "no_evidence": 0, "client_subject": 0}
     cur.execute("""SELECT id FROM serving.signal_card
                     WHERE origin='pipeline' AND lane='market'""")
     market_docs = {r[0][3:] for r in cur.fetchall()}   # strip 'pl_'

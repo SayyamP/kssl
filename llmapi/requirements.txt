@@ -1,0 +1,9 @@
+# The API server only. The pipeline CLIENT is stdlib and needs nothing from this file.
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+
+# Outbound calls only. httpx.post() builds and tears down a Client -- transport, pool and
+# an SSL context -- on EVERY call: measured at 8.45ms against 0.29ms for a shared one, all
+# of it GIL-held, plus a socket into TIME_WAIT per request. The server makes many outbound
+# calls, so it pools; the client makes one per document over loopback and uses urllib.
+httpx>=0.27

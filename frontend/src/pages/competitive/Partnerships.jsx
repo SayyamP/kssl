@@ -64,7 +64,8 @@ export default function Partnerships() {
   const hqOptions = useMemo(() => {
     const set = new Set();
     data.compOrder.forEach((k) => {
-      if (data.competitors[k].hq) set.add(data.competitors[k].hq.trim());
+      const co = data.competitors[k];
+      if (co && co.hq) set.add(co.hq.trim());
     });
     return [...set].filter(Boolean).sort();
   }, [data]);

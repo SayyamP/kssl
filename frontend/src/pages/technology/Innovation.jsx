@@ -45,7 +45,7 @@ export default function Innovation() {
   };
   const savedInnov = getSavedInnov();
 
-  const [cat, setCat] = useState(savedInnov.cat || data.techCats[0].id);
+  const [cat, setCat] = useState(savedInnov.cat || (data.techCats && data.techCats[0] ? data.techCats[0].id : null));
   const [sel, setSel] = useState(savedInnov.sel !== undefined ? savedInnov.sel : null);
   const [report, setReport] = useState(null);
   const [generating, setGenerating] = useState(false);
@@ -210,7 +210,11 @@ export default function Innovation() {
           ))}
         </div>
 
-        <div className="tech-det" id="tech-det" style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {/* No inline `display` — CSS owns show/hide via .tech-body.has-sel/.no-sel.
+            An inline display:flex here overrode `.no-sel .tech-det{display:none}`, so
+            with nothing selected the white detail pane stacked below the list in the
+            single-column no-sel grid and ate the bottom half of the page. */}
+        <div className="tech-det" id="tech-det" style={{ height: "100%", overflow: "hidden", flexDirection: "column" }}>
           <div id="tech-dossier-inner" style={{ display: "flex", flex: 1, flexDirection: "column", height: "100%", overflow: "hidden" }}>
             <div className="tech-dossier-scroll" ref={detRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", paddingBottom: "24px" }}>
               <div className={`tech-d-h ${iv && iv.gap ? iv.gap : ""}`} id="tech-d-h">
@@ -265,7 +269,7 @@ export default function Innovation() {
                       onClick={generate}
                       type="button"
                     >
-                      {generating ? "▤ Generating…" : "▤ Generate detailed intelligence report"}
+                      {generating ? "Generating…" : "Generate detailed intelligence report"}
                     </button>
                     <div className="tech-report-hint">
                       Full CEO briefing · adds competitive landscape &amp; live market exposure across

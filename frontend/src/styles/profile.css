@@ -495,3 +495,47 @@
   color: #f0593c;
 }
 
+
+/* ============ HONEST-DATA PROFILE ADDITIONS ============ */
+.cp-collapse-btn{background:var(--d-bg-2);border:1px solid var(--d-line);color:var(--d-txt-2);
+  width:24px;height:24px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;
+  display:flex;align-items:center;justify-content:center;padding:0}
+.cp-collapse-btn:hover{background:var(--d-bg-3);color:var(--d-txt)}
+.mu-rail-collapsed{grid-column:1;background:var(--d-bg-1);border-right:1px solid var(--d-line);
+  display:flex;justify-content:center;padding-top:16px}
+.cp-back-btn{background:var(--d-bg-2);border:1px solid var(--d-line);color:var(--d-txt);
+  padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;margin-bottom:16px}
+.cp-back-btn:hover{background:var(--d-bg-3)}
+.cp-article-meta{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.cp-article-title{font-size:20px;font-weight:700;color:var(--d-txt);line-height:1.35;margin:0}
+.cp-fact-row{display:grid;grid-template-columns:160px 1fr;gap:12px;padding:9px 0;
+  border-bottom:1px solid var(--d-line);font-size:13px}
+.cp-fact-row:last-child{border-bottom:none}
+.cp-fact-k{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--d-txt-3)}
+.cp-fact-v{color:var(--d-txt);font-weight:500}
+.cp-chip-btn{cursor:pointer;transition:border-color .12s,background .12s}
+.cp-chip-btn:hover{background:var(--d-bg-3);border-color:var(--fav);color:var(--d-txt)}
+.cp-lead-src{font-size:10.5px;color:var(--fav-badge);text-decoration:none;font-family:var(--mono)}
+.cp-lead-src:hover{text-decoration:underline}
+
+/* ============ PRODUCT SPECS TAB ============ */
+.prod-specs-tab{background:var(--d-bg-1);border:1px solid var(--d-line);border-radius:8px;padding:22px}
+.prod-specs-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;
+  border-bottom:1px solid var(--d-line);padding-bottom:16px}
+.prod-spec-table{border:1px solid var(--d-line);border-radius:6px;overflow:hidden}
+.prod-spec-row{display:grid;grid-template-columns:220px 1fr;gap:16px;padding:11px 16px;
+  border-bottom:1px solid var(--d-line);font-size:13px;align-items:center}
+.prod-spec-row:nth-child(odd){background:var(--d-bg)}
+.prod-spec-row:last-child{border-bottom:none}
+.prod-spec-k{font-family:var(--mono);font-size:12px;color:var(--d-txt-3);font-weight:600}
+.prod-spec-v{color:var(--d-txt);font-weight:600}
+
+/* ============ COMPANY DETAILS — ROW TABLE (old format) ============ */
+.cp-meta-table{display:flex;flex-direction:column;background:var(--d-bg-1);
+  border:1px solid var(--d-line);border-radius:6px;overflow:hidden;margin-bottom:18px}
+.cp-meta-trow{display:grid;grid-template-columns:200px 1fr;gap:12px;padding:11px 16px;
+  border-bottom:1px solid var(--d-line);font-size:13px;align-items:center}
+.cp-meta-trow:last-child{border-bottom:none}
+.cp-meta-tk{font-family:var(--mono);font-size:12px;color:var(--d-txt-3);font-weight:600;
+  text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
+.cp-meta-tv{color:var(--d-txt);font-weight:600}

@@ -27,7 +27,7 @@ export default function SubHead({ title, count }) {
     }
 
     navigator.clipboard.writeText(text);
-    showToast("✓ Executive Summary copied to clipboard!");
+    showToast("Executive Summary copied to clipboard");
   };
 
   const handleDownloadJson = () => {
@@ -50,7 +50,7 @@ export default function SubHead({ title, count }) {
     a.download = `Parallax_Intel_Report_${pillar}_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
-    showToast("✓ Intelligence JSON downloaded!");
+    showToast("Intelligence JSON downloaded");
   };
 
   const handlePrint = () => {
@@ -71,21 +71,21 @@ export default function SubHead({ title, count }) {
           onClick={handleCopySummary}
           title="Copy Executive Summary to Clipboard"
         >
-          📋 Copy Summary
+          Copy Summary
         </button>
         <button
           className="subhead-btn"
           onClick={handleDownloadJson}
           title="Download View JSON Data"
         >
-          💾 Export JSON
+          Export JSON
         </button>
         <button
           className="subhead-btn primary"
           onClick={handlePrint}
           title="Print / Save PDF Report"
         >
-          🖨️ Print Report
+          Print Report
         </button>
       </div>
     </div>

@@ -20,10 +20,11 @@ export const RAIL = {
     { view: "profile", label: "Competitor", ix: "01" },
     { view: "products", label: "Products", ix: "02" },
     { view: "positioning", label: "Positioning", ix: "03" },
-    { view: "gap-competitive", label: "Gap Analysis", ix: "04" },
-    { view: "partnerships", label: "Partnerships", ix: "05" },
-    { view: "geo", label: "Geo Footprint", ix: "06" },
-    { view: "patents-comp", label: "Patents", ix: "07" },
+    /* Gap Analysis removed from the rail per request. Still ROUTED in Layout so a saved
+       #v=gap-competitive link resolves rather than booting into a blank pane. */
+    { view: "partnerships", label: "Partnerships", ix: "04" },
+    { view: "geo", label: "Geo Footprint", ix: "05" },
+    { view: "patents-comp", label: "Patents", ix: "06" },
   ],
   market: [
     /* Overview is the SIGNAL FEED again, as the other two pillars' overviews are — the

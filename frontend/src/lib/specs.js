@@ -288,7 +288,7 @@ export function matchupGapHtml(m, model) {
       h += '<div class="mugc-chiprow">';
       mktC.forEach((c) => {
         const lbl = (c.label || "").replace(/^(KSSL|Kalyani Strategic Systems) · /, "");
-        h += `<span class="mugc-chip market clickable" role="button" tabindex="0" data-tender="${esc(lbl).replace(/"/g, "&quot;")}" title="Open this tender in the Market pillar">📄 ${esc(lbl.slice(0, 40))} ↗</span>`;
+        h += `<span class="mugc-chip market clickable" role="button" tabindex="0" data-tender="${esc(lbl).replace(/"/g, "&quot;")}" title="Open this tender in the Market pillar">${esc(lbl.slice(0, 40))} ↗</span>`;
       });
       h += "</div>";
       if (techC.length)

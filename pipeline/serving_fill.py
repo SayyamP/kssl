@@ -27,16 +27,21 @@ import os
 import re
 import stage_timer
 import sys
-import urllib.request
 from pathlib import Path
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))
 from aliases import (  # noqa: E402  (shared identity layer)
-    canonical as canon_name, client_led, fold as fold_name, is_client, is_one_org,
+    canonical as canon_name, client_led, fold as fold_name, is_client, is_force, is_one_org,
 )
+from llmapi import client as llm_client  # noqa: E402  (every model call goes through the API)
 
 DSN = os.environ.get("KSSL_DSN", "host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl")
+# NOT used by this module any more -- every model call here goes through the LLM API.
+# It survives for bench_models.py, which reads `sf.OLLAMA` and must dial a model server
+# DIRECTLY: it exists to compare models on one endpoint, and a benchmark that silently
+# failed over to a second node would be measuring the router instead of the model.
 OLLAMA = os.environ.get("KSSL_OLLAMA", "http://127.0.0.1:11434")
 # The card step reads PROPOSITIONS, not raw text -- the hard reading was already done
 # by Layer A, and what is left is a short judgement plus ~100 tokens of output. The 14b
@@ -79,6 +84,24 @@ def country_names():
     return _COUNTRIES
 
 
+# A force/ministry/government body is a BUYER, never a rival defence maker. The competitive
+# pillar is "a rival COMPANY's move", so a force named as the competitor is a mislabel; the
+# SAME body in a MARKET signal (a force placing an order) is the legitimate actor -- so the
+# caller gates the competitive pillar only. The test itself is aliases.is_force (folds first,
+# multilingual, already the group's canonical "not a company" gate) -- not a second copy here.
+
+# Generic filler the prompt forbids in sowhat -- its two literal examples, word-anchored.
+# ponytail: deliberately narrow. A blunt "could potentially" killed specific sowhats where
+# the phrase is only appended garnish ("...could potentially displace KSSL's bid"); widen
+# this list only if contentless cards actually slip through, never pre-emptively.
+_FILLER_RX = re.compile(
+    r"\bcould potentially impact\b|\bsets? (?:a )?new standards?\b", re.I)
+
+
+def is_filler(sowhat):
+    return bool(_FILLER_RX.search(sowhat or ""))
+
+
 PROMPT = """You are an analyst for KSSL (Kalyani Strategic Systems, the defence arm of the
 Kalyani Group / Bharat Forge -- Indian maker of artillery, ammunition, armoured vehicles,
 small arms, drones). Below are the extracted statements of ONE news article, each with its
@@ -86,12 +109,14 @@ supporting quote.
 
 Decide: does this article carry ONE signal a KSSL analyst should see? File it into exactly
 one pillar:
-- competitive: a RIVAL defence company's move -- an order won, a partnership, an expansion,
-  a product launch that changes KSSL's competitive field.
+- competitive: a RIVAL defence COMPANY's move -- an order won, a partnership, an expansion,
+  a product launch that changes KSSL's competitive field. The actor is a maker/supplier;
+  an armed force, ministry or government buyer is a MARKET signal, never a competitive one.
 - market: a procurement or demand event -- a tender, a government order, a budget, an import
   or export decision that changes what buyers want.
 - technology: a capability or R&D advance -- a new system demonstrated, a technical
   milestone, an innovation that shifts what is technically expected in a KSSL category.
+  The company is the MAKER/developer; a fielding armed force or ministry is not the actor.
 Routine corporate news, politics without procurement, and non-defence stories are NOT
 signals. Kalyani / KSSL / Bharat Forge is the CLIENT GROUP, never a rival and never a
 threat: its own capability news files under technology, a procurement it wins under market,
@@ -104,10 +129,12 @@ nearest category.
 Otherwise reply with ONLY this JSON (no prose around it):
 {"pillar": "<competitive | market | technology>",
  "title": "<one factual headline, max 90 chars, only facts the statements state>",
- "company": "<the ONE organization that ACTED -- for a market signal the issuing agency
-             or government body the statements name, never just the country. If two
-             organizations acted jointly, name the one the statements put first; NEVER
-             write 'X and Y' in this field>",
+ "company": "<the ONE organization that ACTED. For a COMPETITIVE or TECHNOLOGY signal this
+             is the rival COMPANY -- the maker, developer or supplier; an armed force,
+             ministry or government body is NOT it (a force buying or fielding is a MARKET
+             signal). For a market signal name the issuing agency or government body. NEVER
+             just the country, and if two organizations acted jointly name the one the
+             statements put first -- NEVER write 'X and Y'>",
  "category": "<exactly one of: %s>",
  "dir": "<threat ONLY if a rival gains in a KSSL category, else watch>",
  "what": "<one factual sentence: what happened, exactly as stated -- announced is not
@@ -401,53 +428,38 @@ def is_dup(seen, company, title):
 
 
 
-# Where the model runs. Defaults are unchanged; the env vars exist so a fill can be
-# pushed off the GPU when the extraction owns it (num_gpu=0 -> CPU/RAM inference).
-# num_ctx is ALWAYS set explicitly: a model whose default context is 262k asks ollama
-# for a 95 GB KV cache and the request dies as an opaque HTTP 500.
-def llm_opts(npredict):
-    o = {"temperature": 0, "num_predict": npredict, "num_ctx": int(os.environ.get("KSSL_NUM_CTX", 8192))}
-    if os.environ.get("KSSL_LLM_CPU") == "1":
-        o["num_gpu"] = 0
-    # On a CPU box in a container, ollama sizes its thread pool from the HOST's
-    # core count and ignores the cgroup quota, so a capped container spends its
-    # slice context-switching. Measured on the 8-core VPS with qwen2.5:7b:
-    #
-    #     cap        default threads      num_thread = cap
-    #     3 cores       4.1 tok/s            9.0 tok/s
-    #     4 cores       6.0 tok/s           11.4 tok/s
-    #
-    # Set KSSL_LLM_THREADS to the container's cpu cap. Unset, nothing changes.
-    threads = os.environ.get("KSSL_LLM_THREADS")
-    if threads and threads.isdigit() and int(threads) > 0:
-        o["num_thread"] = int(threads)
-    return o
+# llm_opts() and LLM_TIMEOUT used to live here, and in two more modules besides.
+# Both now belong to the API (llmapi/nodes.py: options(), read_timeout()), because both
+# are properties of the NODE serving the call, not of the caller:
+#
+#   * num_thread must equal the serving container's cpu cap. Ollama sizes its thread pool
+#     from the HOST's core count and ignores the cgroup, so a capped container spends its
+#     slice context-switching. Measured on the 8-core VPS with qwen2.5:7b, 4 cores:
+#     6.0 tok/s default -> 11.4 tok/s pinned.
+#   * num_gpu=0 is true of vps-b and false of a GPU box.
+#   * the timeout is derived from the tokens asked for and THAT node's measured tok/s.
+#     The old fixed 180s was a GPU-era number: on 4 pinned cores at ~11 tok/s a long
+#     prefill plus a 300-token answer runs past it, the socket closes with an empty body,
+#     and the reply is lost whole while the work is charged anyway.
+#
+# num_ctx is still always set explicitly server-side: a model whose default context is
+# 262k asks ollama for a 95 GB KV cache and the request dies as an opaque HTTP 500.
 
 
-# 180s is a GPU-era default. On the VPS the 7B does ~11 tok/s across 4 pinned
-# cores, so a long document's prefill plus a 300-token answer runs past it and
-# the call dies -- and a timeout downstream is indistinguishable from a refusal
-# unless something says otherwise. KSSL_LLM_TIMEOUT overrides; CPU mode gets a
-# much longer default because that is the mode that needs it.
-LLM_TIMEOUT = int(os.environ.get(
-    "KSSL_LLM_TIMEOUT",
-    "900" if os.environ.get("KSSL_LLM_CPU") == "1" else "180"))
+def ask(prompt, timeout=None, doc_id=None, npredict=300):
+    """One card-step generation, through the LLM API.
 
-
-def ask(prompt, timeout=None, doc_id=None):
-    timeout = timeout or LLM_TIMEOUT
-    body = json.dumps({"model": MODEL, "prompt": prompt, "stream": False,
-                       "options": llm_opts(300)})
-    req = urllib.request.Request(OLLAMA + "/api/generate", data=body.encode("utf-8"),
-                                 headers={"Content-Type": "application/json"})
-    # Every model call in the card path goes through here, so this is the one
-    # place that can answer "what does the LLM stage cost". ollama returns its
-    # own token count, so the recorded tok/s is the model's, not a stopwatch's.
+    The API owns node selection, the Bearer key, the num_thread/num_gpu options and the
+    timeout -- all of which used to be four copies of the same code in this package. What
+    stays here is the instrumentation, because this is still the one place that can answer
+    "what does the LLM stage cost": the server returns the model's own eval_count, so the
+    recorded tok/s is the model's and not a stopwatch's.
+    """
     with stage_timer.stage("llm", doc_id=doc_id, meta={"model": MODEL}) as st:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            payload = json.loads(r.read().decode("utf-8"))
-        st.items(1).tokens(int(payload.get("eval_count") or 0))
-        return payload.get("response", "").strip()
+        text, meta = llm_client.ask(prompt, npredict=npredict, timeout=timeout,
+                                    model=MODEL, with_meta=True)
+        st.items(1).tokens(int(meta.get("eval_count") or 0))
+        return text
 
 
 def parse_card(raw, cats):
@@ -480,6 +492,13 @@ def parse_card(raw, cats):
         return None                      # 'Arquus and Daimler Truck' is TWO orgs
     if fold_name(company) in country_names():
         return None                      # a bare country is not the actor (audit H4)
+    if pillar in ("competitive", "technology") and is_force(company):
+        return None                      # a force/ministry is a buyer, not a rival maker/
+                                         # demonstrator; competitive+technology are the rival
+                                         # surfaces (fill() bars client news from both). Only
+                                         # MARKET keeps a force -- there it IS the buyer.
+    if is_filler(sowhat):
+        return None                      # generic filler -> the prompt's own NONE case
     company = canon_name(company)        # ONE identity per company, at the parser
     if direction not in ("threat", "watch"):
         direction = "watch"
@@ -717,6 +736,21 @@ def _demo():
     agency = parse_card('{"pillar":"market","title":"T","company":"US Department of '
                         'State","category":"Artillery","dir":"watch","sowhat":"S"}', cats)
     assert agency, "a NAMED agency is still a valid market-signal actor"
+    # a force/ministry is a MARKET actor (a buyer), never a rival maker on the COMPETITIVE
+    # or TECHNOLOGY surface (the U.S. Army card the UI showed was filed under technology)
+    for body in ("U.S. Army", "Indian Army", "Ministry of Defence", "Pentagon"):
+        for rival_pillar in ("competitive", "technology"):
+            assert parse_card('{"pillar":"%s","title":"T","company":"%s",'
+                              '"category":"Artillery","dir":"threat","sowhat":"S"}'
+                              % (rival_pillar, body), cats) is None, \
+                "gov/military body is not a rival maker (%s): %s" % (rival_pillar, body)
+        assert parse_card('{"pillar":"market","title":"T","company":"%s",'
+                          '"category":"Artillery","dir":"watch","sowhat":"S"}' % body,
+                          cats), "...but the same body IS a valid market actor: %s" % body
+    # generic filler in sowhat is the prompt's own NONE case -- gated, not trusted
+    assert parse_card('{"pillar":"market","title":"T","company":"Saab","category":"Artillery",'
+                      '"dir":"watch","sowhat":"This could potentially impact the market."}',
+                      cats) is None, "generic filler sowhat is refused"
     assert len(kssl_cats()) == 9
     assert esc('<b>&"x"') == "&lt;b&gt;&amp;\"x\"", "HTML must be escaped, quotes kept readable"
     assert clip("abcdef", 4).endswith("…") and clip("abc", 4) == "abc"

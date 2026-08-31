@@ -176,5 +176,158 @@ services:
     mem_limit: ${KSSL_LLM_MEM:-8g}
     restart: unless-stopped
 
+  # GLiNER, on THIS box. It used to run in-process as a torch model inside whichever
+  # worker needed it, and the only alternative was the farm -- the least reliable node in
+  # the fleet. Now every node serves it and the router picks, so nothing depends on the farm.
+  gliner:
+    build: {context: ./llmapi/gliner_server}
+    image: kssl-gliner:latest
+    container_name: kssl-gliner
+    environment:
+      GLINER_BIND: 0.0.0.0
+      GLINER_PORT: ${GLINER_PORT:-8620}
+      GLINER_MODEL: ${GLINER_MODEL:-urchade/gliner_multi-v2.1}
+      GLINER_THRESHOLD: ${GLINER_THRESHOLD:-0.2}
+      # torch scales at ~6% efficiency past 8 threads and competes with Ollama for the
+      # same cores. Fewer here means more left for generation, which is the real bottleneck.
+      GLINER_THREADS: ${GLINER_THREADS:-2}
+    expose: ["${GLINER_PORT:-8620}"]
+    volumes: [hf_models:/models]
+    healthcheck:
+      # 503 until the model is resident, so a cold container is never routed to.
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:${GLINER_PORT:-8620}/healthz >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+    cpus: ${GLINER_CPUS:-2}
+    mem_limit: ${GLINER_MEM:-4g}
+    restart: unless-stopped
+
+  # --- the two tunnels that make vps-a and the DC reachable from here -----------------
+  # VPS-B is the hub and dials OUT to both. That works because the DC drops every inbound
+  # port except ssh, and it means the hub owns both tunnels: either can be restarted
+  # without touching a machine other people also use.
+  #
+  # Each publishes NOTHING. The forward binds inside the container on the compose network,
+  # so llmapi reaches it by service name and the world cannot.
+  tunnel-vpsa:
+    build: {context: ./llmapi/tunnel}
+    image: kssl-tunnel-hub:latest
+    container_name: kssl-tunnel-vpsa
+    environment:
+      REMOTE_NAME: vps-a
+      REMOTE_HOST: ${VPSA_SSH_HOST:?set VPSA_SSH_HOST in .env}
+      REMOTE_USER: ${VPSA_SSH_USER:-root}
+      REMOTE_PORT: ${VPSA_SSH_PORT:-22}
+      TARGET: ${VPSA_TARGET:-127.0.0.1:11434}   # as seen FROM vps-a: its own loopback
+      LOCAL_PORT: ${VPSA_TUNNEL_PORT:-11502}
+      # second forward: that box's GLiNER, on the same ssh session
+      TARGET2: ${VPSA_GLINER_TARGET:-127.0.0.1:8620}
+      LOCAL_PORT2: ${VPSA_GLINER_TUNNEL_PORT:-11512}
+    volumes:
+      - ${VPSA_SSH_KEY:?set VPSA_SSH_KEY in .env}:/keys/id_tunnel:ro
+    restart: unless-stopped
+    mem_limit: 64m
+
+  tunnel-dc:
+    build: {context: ./llmapi/tunnel}
+    image: kssl-tunnel-hub:latest
+    container_name: kssl-tunnel-dc
+    environment:
+      REMOTE_NAME: dc
+      REMOTE_HOST: ${DC_SSH_HOST:?set DC_SSH_HOST in .env}
+      REMOTE_USER: ${DC_SSH_USER:-sysadmin}
+      REMOTE_PORT: ${DC_SSH_PORT:-45632}
+      # NOT the DC's loopback. kssl-extract-ollama publishes no port to its own host, so
+      # the only way in is its docker-network address -- resolved on the REMOTE side.
+      TARGET: ${DC_TARGET:-172.24.0.2:11434}
+      LOCAL_PORT: ${DC_TUNNEL_PORT:-11503}
+      # second forward: that box's GLiNER, on the same ssh session
+      TARGET2: ${DC_GLINER_TARGET:-127.0.0.1:8620}
+      LOCAL_PORT2: ${DC_GLINER_TUNNEL_PORT:-11513}
+    volumes:
+      - ${DC_SSH_KEY:?set DC_SSH_KEY in .env}:/keys/id_tunnel:ro
+    restart: unless-stopped
+    mem_limit: 64m
+
+  # The LLM / GLiNER API. Every model call in the system goes through this, and it runs
+  # HERE -- on VPS-B, beside the Ollama it fronts and inside the same failure domain as
+  # the pipeline that calls it.
+  #
+  # NOT PUBLISHED, and not behind Traefik. It holds the farm's Bearer key and answers only
+  # the pipeline on this host, so it binds loopback and joins the compose network for the
+  # containers that need it. Nothing about it is a public surface.
+  #
+  # It reaches its own box's Ollama by SERVICE NAME, not 127.0.0.1: inside a container,
+  # loopback is the container, so VPSB_URL is overridden here to the compose alias. This
+  # is exactly the "the address is relative to the caller" trap llmapi/nodes.py refuses.
+  llmapi:
+    build:
+      context: ./llmapi
+      dockerfile: Dockerfile
+    image: kssl-llmapi:latest
+    container_name: kssl-llmapi
+    environment:
+      LLMAPI_BIND: 0.0.0.0
+      LLMAPI_PORT: ${LLMAPI_PORT:-8610}
+      LLM_ORIGIN: ${LLM_ORIGIN:-vps-b}
+      LLM_NODE_ORDER: ${LLM_NODE_ORDER:-vps-b,farm}
+      NODE_MODEL: ${NODE_MODEL:-qwen2.5:7b}
+      NODE_NUM_CTX: ${NODE_NUM_CTX:-8192}
+      # the local node, as addressed FROM THIS CONTAINER
+      VPSB_URL: http://llm:11434
+      VPSB_ENABLED: "1"
+      VPSB_TOK_S: ${VPSB_TOK_S:-11.95}
+      VPSB_THREADS: ${KSSL_LLM_THREADS:-4}
+      VPSB_CPU: "1"
+      FARM_URL: ${FARM_URL:-https://ollama.i3softlab.com}
+      FARM_ENABLED: ${FARM_ENABLED:-1}
+      FARM_OPENAI: "1"
+      FARM_API_KEY: ${FARM_API_KEY:-}
+      FARM_TOK_S: ${FARM_TOK_S:-53.5}
+      # vps-a and the DC, reached through the two tunnel containers by SERVICE NAME. Not
+      # 127.0.0.1: inside this container loopback is this container, which is exactly the
+      # trap nodes.check_config() refuses at startup.
+      VPSA_URL: http://tunnel-vpsa:${VPSA_TUNNEL_PORT:-11502}
+      VPSA_ENABLED: ${VPSA_ENABLED:-0}
+      VPSA_TOK_S: ${VPSA_TOK_S:-8.3}
+      DC_URL: http://tunnel-dc:${DC_TUNNEL_PORT:-11503}
+      DC_ENABLED: ${DC_ENABLED:-0}
+      DC_TOK_S: ${DC_TOK_S:-1.5}
+      # GLiNER now runs on EVERY node; the router picks the same way it does for
+      # generation. The farm is one entry in the list, not the only one.
+      GLINER_NODE_ORDER: ${GLINER_NODE_ORDER:-vps-b,vps-a,dc,farm}
+      VPSB_GLINER_URL: http://gliner:${GLINER_PORT:-8620}/extract
+      VPSA_GLINER_URL: http://tunnel-vpsa:${VPSA_GLINER_TUNNEL_PORT:-11512}/extract
+      DC_GLINER_URL: http://tunnel-dc:${DC_GLINER_TUNNEL_PORT:-11513}/extract
+      FARM_GLINER_URL: ${FARM_GLINER_URL:-https://ollama.i3softlab.com/extract}
+      GLINER_ENABLED: ${GLINER_ENABLED:-1}
+      GLINER_THRESHOLD: ${GLINER_THRESHOLD:-0.2}
+      LLM_TIMEOUT_FLOOR: ${LLM_TIMEOUT_FLOOR:-180}
+      LLM_TIMEOUT_CEIL: ${LLM_TIMEOUT_CEIL:-1800}
+      LLM_RETRIES: ${LLM_RETRIES:-2}
+    expose:
+      - "${LLMAPI_PORT:-8610}"
+    ports:
+      # loopback only -- for the pipeline running on the HOST rather than in a container
+      - "127.0.0.1:${LLMAPI_PORT:-8610}:${LLMAPI_PORT:-8610}"
+    depends_on:
+      llm:
+        condition: service_healthy
+      gliner:
+        condition: service_healthy
+    healthcheck:
+      # /healthz 503s when no node can serve a call, so an unkeyed farm or a missing URL
+      # shows up as an unhealthy container instead of as failed cards an hour later.
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:${LLMAPI_PORT:-8610}/healthz >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    cpus: ${LLMAPI_CPUS:-0.5}
+    mem_limit: ${LLMAPI_MEM:-512m}
+    restart: unless-stopped
+
 volumes:
   kssl_pgdata:

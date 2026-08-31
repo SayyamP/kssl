@@ -1,0 +1,15 @@
+# Production override — run the app from SHA-pinned GHCR images instead of building
+# on the VPS. The base file (docker-compose.vps.yml) stays the source of truth and
+# keeps `build:` for local dev and for the stable infra services (db/llm/gliner/
+# tunnels/llmapi), which this override never mentions and the deploy never touches.
+#
+# Deploy (see deploy/deploy.sh):
+#   docker compose -f docker-compose.vps.yml -f docker-compose.prod.yml \
+#     up -d --no-build frontend backend
+#
+# TAG is the git short SHA of the build; deploy.sh writes it into the server .env.
+services:
+  frontend:
+    image: ghcr.io/137mallory/kssl-frontend:${TAG:-latest}
+  backend:
+    image: ghcr.io/137mallory/kssl-backend:${TAG:-latest}

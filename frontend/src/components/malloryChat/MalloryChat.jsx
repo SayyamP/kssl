@@ -106,7 +106,7 @@ export default function MalloryChat() {
               }
               type="button"
             >
-              🗑️
+              Clear
             </button>
             <button className="mchat-close" onClick={() => setCollapsed(true)} type="button">
               ✕
@@ -139,7 +139,7 @@ export default function MalloryChat() {
                         navigator.clipboard.writeText(tmp.innerText || tmp.textContent);
                       }}
                     >
-                      📋 Copy
+                      Copy
                     </button>
                   )}
                 </div>
