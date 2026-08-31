@@ -521,70 +521,52 @@ const getCorporateStructureMap = (p) => {
 };
 
 // Generate Company-Specific Interactive News Articles Dataset
-const getCompanyNewsArticles = (companyName) => {
-  const name = cleanCompanyName(companyName) || "Bharat Dynamics";
-
-  return [
-    {
-      id: `${name}-news-1`,
-      category: "Defence",
-      ago: "2 hours ago",
-      title: `Defence Ministry Restructures ${name} Missile Framework, Opens Projects for Private Partners`,
-      excerpt: `The Ministry of Defence has restructured the development framework for tactical missiles and defense platforms, allowing private defense companies to participate in upcoming projects earlier exclusive to ${name}.`,
-      fullText: `The Ministry of Defence has formally announced a major policy restructuring allowing domestic private defense manufacturers to co-develop tactical missiles, precision ammunition, and allied defense systems alongside ${name}.\n\nThis policy shift aims to accelerate defense production under the Atmanirbhar Bharat initiative and expand India's defense manufacturing capacity for both domestic armed forces requirements and international exports. Key defense primes including Tata, L&T, and Adani are expected to participate in upcoming defense tenders.`,
-      source: "ET The Economic Times",
-      image: "https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&w=800&q=80",
-      isTopStory: true,
-      impact: "High strategic impact on long-term missile procurement share and private sector partnership models.",
-    },
-    {
-      id: `${name}-news-2`,
-      category: "Financial",
-      ago: "4 hours ago",
-      title: `${name} Q1 Net Profit Jumps 547% YoY on Strong Operating Performance`,
-      excerpt: `${name} reported a 547% year-on-year surge in Q1 net profit driven by higher execution of defense supply orders and improved operational margins.`,
-      fullText: `${name} delivered strong Q1 financial results with net revenue surging significantly over the previous fiscal quarter. Operational margins expanded due to timely delivery of primary defense systems and cost optimization across manufacturing units.\n\nThe order book remains robust with multi-year visibility backed by Ministry of Defence procurement pipelines and international export agreements.`,
-      source: "Business Standard",
-      image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=300&q=80",
-      impact: "Positive financial indicator confirming strong execution and order pipeline stability.",
-    },
-    {
-      id: `${name}-news-3`,
-      category: "Government",
-      ago: "6 hours ago",
-      title: `General Export Licenses Impact: ${name} Shares Dip 4% in Early Trade`,
-      excerpt: `Regulatory updates regarding general export licenses for friendly foreign countries caused short-term volatility in ${name} stock prices during early trading sessions.`,
-      fullText: `Stock exchanges recorded short-term price adjustments for ${name} following new regulatory guidelines issued for defense export licensing workflows. Analysts note that long-term export fundamentals remain strong following recent international supply contracts for Akash missile systems.`,
-      source: "Moneycontrol",
-      image: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=300&q=80",
-      impact: "Temporary market volatility with neutral long-term operational impact.",
-    },
-    {
-      id: `${name}-news-4`,
-      category: "Workforce",
-      ago: "1 day ago",
-      title: `Shri Shailesh Vagerwal Takes Charge as New CMD of ${name}`,
-      excerpt: `Shri Shailesh Vagerwal has formally assumed charge as the Chairman & Managing Director of ${name}, bringing over three decades of defense engineering leadership.`,
-      fullText: `In an official announcement, ${name} confirmed that Shri Shailesh Vagerwal has assumed charge as Chairman & Managing Director. Under his leadership, the defense prime will focus on expanding manufacturing capacity, accelerating R&D for next-generation defense platforms, and strengthening export delivery pipelines.`,
-      source: "The Hindu BusinessLine",
-      image: "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=300&q=80",
-      impact: "Executive leadership transition aligning company roadmap with national defense export goals.",
-    },
-    {
-      id: `${name}-news-5`,
-      category: "Markets",
-      ago: "1 day ago",
-      title: `BSE and NSE Impose ₹13.03 Lakh Fine on ${name} for Compliance Lapse`,
-      excerpt: `Stock exchanges BSE and NSE imposed an administrative fine of ₹13.03 lakh on ${name} regarding delayed reporting of board committee disclosures.`,
-      fullText: `${name} has issued a clarification to stock exchanges regarding an administrative penalty imposed by BSE and NSE concerning procedural timing of board committee disclosures. The company stated that corrective internal compliance procedures have been instituted.`,
-      source: "NDTV Profit",
-      image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=300&q=80",
-      impact: "Minor administrative compliance note with zero impact on defense manufacturing operations.",
-    },
-  ];
+const pubFromUrl = (url) => {
+  try {
+    const h = new URL(url).hostname.replace(/^(www|m|amp)\./, "");
+    const p = h.split(".");
+    const n = p.length > 1 ? p[p.length - 2] : p[0];
+    return n.charAt(0).toUpperCase() + n.slice(1);
+  } catch (e) { return ""; }
 };
 
-// Interactive SVG Corporate Hierarchy Map & Node Graph Component
+const getCompanyNewsArticles = (companyName, data) => {
+  // Real per-company signals from the served dataset (serving.signal_card),
+  // across all three lanes. No fabrication: a company with no news on record
+  // returns [] and the section renders an honest empty state.
+  const target = (companyName || "").trim().toLowerCase();
+  if (!target || !data) return [];
+  const lanes = [
+    ...(data.competitiveCards || []),
+    ...(data.marketCards || []),
+    ...(data.techCards || []),
+  ];
+  const mine = lanes.filter(
+    (c) => (c.company || "").trim().toLowerCase() === target,
+  );
+  mine.sort((a, b) => (a.rank ?? 999) - (b.rank ?? 999));
+  const catOf = (c) => {
+    if (Array.isArray(c.tags) && c.tags.length) return String(c.tags[0]);
+    if (typeof c.tags === "string" && c.tags.trim()) return c.tags.split(",")[0].trim();
+    return c.lens || "Defence";
+  };
+  return mine.map((c, i) => {
+    const summary = c.sowhat || c.meta || "";
+    return {
+      id: c.id,
+      category: catOf(c),
+      ago: c.ago || "",
+      title: c.title,
+      excerpt: summary,
+      fullText: summary,
+      source: pubFromUrl(c.url) || c.meta || "Source",
+      url: c.url || "",
+      image: c.image || "",
+      isTopStory: i === 0,
+      impact: c.sowhat || "",
+    };
+  });
+};
 function CorporateHierarchySvgMap({ structMap }) {
   const [hoveredNode, setHoveredNode] = useState(null);
   const [zoom, setZoom] = useState(1);
@@ -1021,7 +1003,7 @@ export default function Profile() {
   const displayName = p ? cleanCompanyName(p.name) : "";
   const companyMeta = p ? getCompanyDetailsMeta(p) : null;
   const structMap = p ? getCorporateStructureMap(p) : null;
-  const companyArticles = useMemo(() => (p ? getCompanyNewsArticles(p.name) : []), [p]);
+  const companyArticles = useMemo(() => (p ? getCompanyNewsArticles(p.name, data) : []), [p, data]);
 
   // Filter articles based on selected Category Pill
   const filteredArticles = useMemo(() => {
@@ -1344,7 +1326,11 @@ export default function Profile() {
                         tabIndex={0}
                       >
                         <div className="ln-story-img-wrap">
-                          <img src={topStory.image} alt="Top Story" className="ln-story-img" />
+                          {topStory.image ? (
+                            <img src={topStory.image} alt="Top Story" className="ln-story-img" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                          ) : (
+                            <div className="ln-story-img" style={{ display: "flex", alignItems: "center", justifyContent: "center", background: "var(--d-bg-2,#1a1a1a)", color: "var(--d-txt-3,#888)", fontSize: "12px", letterSpacing: ".05em", textTransform: "uppercase" }}>{topStory.category}</div>
+                          )}
                           <span className="ln-top-badge">TOP STORY</span>
                         </div>
                         <div className="ln-story-content">
@@ -1374,7 +1360,11 @@ export default function Profile() {
                           role="button"
                           tabIndex={0}
                         >
-                          <img src={item.image} alt="News Thumb" className="ln-feed-thumb" />
+                          {item.image ? (
+                            <img src={item.image} alt="" className="ln-feed-thumb" onError={(e) => { e.currentTarget.style.visibility = "hidden"; }} />
+                          ) : (
+                            <div className="ln-feed-thumb" style={{ background: "var(--d-bg-2,#1a1a1a)" }} />
+                          )}
                           <div className="ln-feed-info">
                             <div className="ln-feed-meta">{item.category} · {item.ago}</div>
                             <div className="ln-feed-title">{item.title}</div>
@@ -1429,48 +1419,11 @@ export default function Profile() {
                         </div>
                       </div>
 
-                      {/* Market Impact */}
-                      <div className="ln-widget">
-                        <div className="ln-widget-h">
-                          📉 MARKET IMPACT
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                            <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>{displayName} Share Price</span>
-                            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-                              <span style={{ fontSize: "20px", fontWeight: "700", color: "#fff", fontFamily: "var(--mono)" }}>
-                                1,428.50
-                              </span>
-                              <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>INR</span>
-                            </div>
-                            <span style={{ fontSize: "11.5px", color: "#f0593c", fontWeight: "600", fontFamily: "var(--mono)" }}>
-                              -42.35 (-2.88%) Today
-                            </span>
-                          </div>
-                          {/* Red Sparkline SVG */}
-                          <svg width="70" height="36" viewBox="0 0 70 36" fill="none">
-                            <path d="M2 10 L15 14 L28 8 L42 22 L55 18 L68 32" stroke="#f0593c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </div>
-                      </div>
-
-                      {/* Mentions Count */}
-                      <div className="ln-widget">
-                        <div className="ln-widget-h">
-                          💬 {displayName.toUpperCase()} MENTIONS
-                        </div>
-                        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                          <div>
-                            <div style={{ fontSize: "22px", fontWeight: "700", color: "#fff", fontFamily: "var(--mono)" }}>
-                              1,247
-                            </div>
-                            <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>Mentions in last 24h</span>
-                          </div>
-                          <span style={{ fontSize: "12px", color: "var(--fav-badge)", fontWeight: "600", fontFamily: "var(--mono)" }}>
-                            ↑ 23% vs yesterday
-                          </span>
-                        </div>
-                      </div>
+                      {/* Market Impact and social-mention widgets removed:
+                          no real share-price or mention data in the corpus,
+                          and fabricated placeholders were showing an identical
+                          price/count for every company (incl. non-listed bodies
+                          like DRDO). Honest omission over invented numbers. */}
 
                       {/* Set News Alerts Button */}
                       <button

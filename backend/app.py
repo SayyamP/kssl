@@ -52,8 +52,8 @@ COMP_FIELDS = ["name", "dir", "sector", "hq", "threat", "assess", "updates",
                # the verbatim line it was read from - see pipeline/harvest/promote.py
                "leadership", "facilities", "sales"]
 CARD_FIELDS = ["id", "dir", "rank", "title", "meta", "company", "lens",
-               "sowhat", "sec", "url", "ago", "tags"]
-CARD_OPT = frozenset(["company", "lens", "sec", "url"])
+               "sowhat", "sec", "url", "ago", "tags", "image"]
+CARD_OPT = frozenset(["company", "lens", "sec", "url", "image"])
 DETAIL_FIELDS = ["rank", "dir", "title", "facts", "what", "why", "lens",
                  "actions", "url", "suggest", "kind", "match", "pursue"]
 DETAIL_OPT = frozenset(["lens", "url", "kind", "match", "pursue"])
