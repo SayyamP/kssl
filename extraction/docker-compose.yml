@@ -35,14 +35,14 @@ services:
     command: ["feeder"]
     restart: unless-stopped
 
-  # Cards for the dashboard. UI is out of scope for now -- enable when the serving layer is wired.
-  # cards:
-  #   build: .
-  #   image: kssl-extraction:latest
-  #   env_file: .env
-  #   network_mode: host
-  #   command: ["cards"]
-  #   restart: unless-stopped
+  # Cards for the dashboard: projects extracted.* -> serving.card (upsert, own table).
+  cards:
+    build: .
+    image: kssl-extraction:latest
+    env_file: .env
+    network_mode: host
+    command: ["cards"]
+    restart: unless-stopped
 
   # Layer B: canonical entities from the extracted spans, on a slow timer. Same-script merges;
   # cross-script (embedding) blocking is a documented extension. Enable when Layer A has a backlog.
