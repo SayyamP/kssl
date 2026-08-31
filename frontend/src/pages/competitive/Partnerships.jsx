@@ -92,7 +92,6 @@ export default function Partnerships() {
     if (!co) return;
     setCid(nextCid);
     setTie(null);
-    setMode("syn");
     setScope("partner", { type: "partner", comp: { ...co, id: nextCid }, partner: null }, {
       pillar: "Competitive",
       view: "Partnerships",
@@ -105,7 +104,6 @@ export default function Partnerships() {
     const p = (c.partners || []).find((x) => x.id === pid);
     if (!p) return;
     setTie(pid);
-    setMode("syn");
     setScope("partner", { type: "partner", comp: c, partner: p }, {
       pillar: "Competitive",
       view: "Partnerships",
@@ -129,7 +127,7 @@ export default function Partnerships() {
         node.classList.add("sel");
         node.classList.remove("dim");
       }
-      const centre = svg.querySelector(".pg-node.comp");
+      const centre = svg.querySelector(".pg-node.center-root");
       if (centre) centre.classList.remove("dim");
       svg.querySelectorAll(`.pg-edge[data-b="${CSS.escape(selectedNodeId)}"]`).forEach((e) => {
         e.classList.add("hl");
@@ -153,15 +151,15 @@ export default function Partnerships() {
 
   const drawerBody = () => {
     if (!c) return "";
-    if (mode === "field") return partners.fieldReadHtml(cid);
-    if (tie) return partners.tieHtml(c, cid, tie, clientName, relCardIndex);
-    return partners.compReportHtml(c, cid, clientName);
+    if (tie) {
+      return partners.tieHtml(c, cid, tie, clientName, relCardIndex);
+    }
+    return partners.allPartnersRosterHtml(c, cid, clientName);
   };
 
   const drawerHeadText = () => {
-    if (mode === "field") return "Field-level intelligence";
     if (tie) return "Relationship detail";
-    return c ? partners.drawerHead(c, cid) : "Intelligence";
+    return c ? `${c.name} · Mapped Partners` : "Mapped Partners";
   };
 
   const nNode = c ? partners.pgNodes(c).length : 0;
@@ -260,12 +258,12 @@ export default function Partnerships() {
             id="pg-svg"
             preserveAspectRatio="xMidYMid meet"
             ref={svgRef}
-            viewBox="22 30 700 404"
+            viewBox="0 0 900 500"
             dangerouslySetInnerHTML={{ __html: c ? partners.graphSvg(c) : "" }}
             onClick={(e) => {
               const g = e.target.closest(".pg-node");
               if (!g) return;
-              if (g.classList.contains("comp")) {
+              if (g.classList.contains("comp") || g.classList.contains("center-root")) {
                 setTie(null);
                 setMode("syn");
               } else {
@@ -288,12 +286,16 @@ export default function Partnerships() {
         <div className="pg-graph-foot">
           <div className="pg-legend">
             <span className="lg">
-              <span className="ln" style={{ background: "#3a4556" }} />
-              Partner relationship
+              <span className="nd" style={{ background: "#ffffff", boxShadow: "0 0 6px #ffffff" }} />
+              Selected OEM (White Node)
             </span>
             <span className="lg">
-              <span className="ln" style={{ background: "#e8483a", height: "3px" }} />
-              Overlapping partner — also on {clientName}’s roster (Red line)
+              <span className="nd" style={{ background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
+              Direct Partner (Green Node)
+            </span>
+            <span className="lg">
+              <span className="nd" style={{ background: "#ef4444", boxShadow: "0 0 6px #ef4444" }} />
+              Overlapping Partner (Red Node)
             </span>
           </div>
         </div>
@@ -355,6 +357,8 @@ export default function Partnerships() {
                 "[data-backrelcards]": () => {
                   setRelCardIndex(null);
                 },
+                ".pg-partner-roster-card[data-pid]": (el) => selectPartner(el.getAttribute("data-pid")),
+                ".pg-ov-tie[data-pid]": (el) => selectPartner(el.getAttribute("data-pid")),
                 ".sib-row[data-pid]": (el) => selectPartner(el.getAttribute("data-pid")),
                 ".pg-rel[data-pid]": (el) => selectPartner(el.getAttribute("data-pid")),
                 "[data-vulnclick]": (el) => {

@@ -313,48 +313,163 @@ export function createPartners(d) {
   }
 
   function graphSvg(c) {
-    const { nodes, edges } = layoutGraph(c);
-    const nmap = {};
-    nodes.forEach((nd) => {
-      nmap[nd.id] = nd;
+    if (!c) return "";
+    const centerName = esc(c.name || c.label || "Main Company");
+    const centerId = c.id || "main";
+
+    // Center coordinates for radial layout canvas
+    const cx = 450;
+    const cy = 250;
+
+    // Direct partners for selected company
+    const parts = pgNodes(c).sort((a, b) => pgRowRank(b) - pgRowRank(a));
+    const m = parts.length;
+    const displayParts = m > 16 ? parts.slice(0, 16) : parts;
+    const count = displayParts.length;
+
+    let svg = "";
+
+    // SVG DEFS & RICH AMBIENT CANVAS BACKGROUND (Matching sc/image.png)
+    const defsHtml = `
+      <defs>
+        <!-- Deep radial canvas background gradient matching sc/image.png -->
+        <radialGradient id="pgBgGrad" cx="50%" cy="50%" r="65%">
+          <stop offset="0%" stop-color="#0b1326" />
+          <stop offset="55%" stop-color="#070a14" />
+          <stop offset="100%" stop-color="#030408" />
+        </radialGradient>
+        <!-- Center Spotlight Aura Glow -->
+        <radialGradient id="pgCenterAura" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="rgba(56, 189, 248, 0.22)" />
+          <stop offset="60%" stop-color="rgba(34, 197, 94, 0.08)" />
+          <stop offset="100%" stop-color="rgba(0, 0, 0, 0)" />
+        </radialGradient>
+      </defs>
+    `;
+
+    // 1. CANVAS SPOTLIGHT AURA
+    svg += defsHtml;
+    svg += `<circle cx="${cx}" cy="${cy}" r="260" fill="url(#pgCenterAura)" />`;
+
+    // 2. STAR DUST PARTICLE MATRIX (Procedural ambient particles matching sc/image.png)
+    let particleHtml = `<g class="pg-particles">`;
+    const particlePositions = [
+      { x: 140, y: 80, r: 1.2, op: 0.3, col: "#38bdf8" },
+      { x: 220, y: 340, r: 1.5, op: 0.4, col: "#22c55e" },
+      { x: 310, y: 110, r: 1.0, op: 0.25, col: "#ffffff" },
+      { x: 190, y: 220, r: 1.4, op: 0.35, col: "#38bdf8" },
+      { x: 580, y: 70, r: 1.1, op: 0.3, col: "#ffffff" },
+      { x: 670, y: 150, r: 1.3, op: 0.4, col: "#22c55e" },
+      { x: 740, y: 310, r: 1.0, op: 0.25, col: "#38bdf8" },
+      { x: 620, y: 410, r: 1.5, op: 0.35, col: "#ffffff" },
+      { x: 280, y: 430, r: 1.2, op: 0.3, col: "#38bdf8" },
+      { x: 420, y: 450, r: 1.1, op: 0.25, col: "#22c55e" },
+      { x: 480, y: 50, r: 1.4, op: 0.35, col: "#38bdf8" },
+      { x: 110, y: 280, r: 1.0, op: 0.2, col: "#ffffff" },
+      { x: 790, y: 220, r: 1.3, op: 0.3, col: "#38bdf8" },
+      { x: 360, y: 60, r: 1.2, op: 0.35, col: "#22c55e" },
+      { x: 530, y: 440, r: 1.0, op: 0.25, col: "#ffffff" },
+    ];
+    particlePositions.forEach((pt) => {
+      particleHtml += `<circle cx="${pt.x}" cy="${pt.y}" r="${pt.r}" fill="${pt.col}" opacity="${pt.op}" />`;
     });
-    let eh = "";
-    edges.forEach((e) => {
-      const a = nmap[e.a];
-      const b = nmap[e.b];
-      const isShared = e.koel || e.shared;
-      const w = isShared ? 3.2 : 1.6;
-      const strokeColor = isShared ? "#e8483a" : "#3a4556";
-      eh += `<line class="pg-edge rel-${e.rel}${isShared ? " shared" : ""}" data-b="${e.b}" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" style="stroke:${strokeColor};stroke-width:${w};opacity:${isShared ? 1 : 0.7}"></line>`;
-    });
-    let nh = "";
-    nodes.forEach((nd) => {
-      if (nd.type === "comp") {
-        const tcls = nd.dir === "threat" ? " threat" : nd.dir === "fav" ? " fav" : "";
-        nh += `<g class="pg-node comp${tcls}" data-id="${nd.id}"><circle cx="${nd.x}" cy="${nd.y}" r="17"></circle><text class="lbl center la-m" x="${nd.x}" y="${nd.y - 26}">${esc(nd.label)}</text></g>`;
-      } else {
-        const kc = kindClass(nd.kind);
-        const isCore = (nd.insight || "").indexOf("[CORE]") >= 0;
-        const r = (isCore ? 11 : 8) + (nd.sig || 1) * 1.4;
-        const ring = isCore
-          ? `<circle cx="${nd.x}" cy="${nd.y}" r="${r + 4}" fill="none" stroke="#9c2b2b" stroke-width="1.3" stroke-opacity="0.55"></circle>`
-          : "";
-        const isShared = nd.koel || nd.shared || (nd.rows && nd.rows.some((r) => r.koel || r.shared));
-        const shd = isShared ? " shared" : "";
-        const L = pgLabel(nd, r);
-        const nRows = (nd.rows && nd.rows.length) || 1;
-        const pill =
-          nRows > 1
-            ? `<text class="lbl nrow ${L.cls}" x="${L.x}" y="${L.y + 11}">${nRows} ties</text>`
-            : "";
-        nh +=
-          `<g class="pg-node ptr ${kc} rel-${nd.rel}${isCore ? " core" : ""}${shd}" data-id="${nd.id}">` +
-          `<title>${esc(L.full)}${nRows > 1 ? ` — ${nRows} mapped relationships` : ""}</title>${ring}` +
-          `<circle cx="${nd.x}" cy="${nd.y}" r="${r}"></circle>` +
-          `<text class="lbl ${L.cls}" x="${L.x}" y="${L.y}">${esc(L.t)}</text>${pill}</g>`;
+    particleHtml += `</g>`;
+    svg += particleHtml;
+
+    // 3. CONCENTRIC DOTTED ORBITAL GUIDE RINGS & AXIS TICKS (Matching sc/image.png)
+    svg += `<g class="pg-bg-guides">`;
+    svg += `  <circle cx="${cx}" cy="${cy}" r="85" fill="none" stroke="rgba(56, 189, 248, 0.12)" stroke-width="1.2" stroke-dasharray="3 6" />`;
+    svg += `  <circle cx="${cx}" cy="${cy}" r="140" fill="none" stroke="rgba(56, 189, 248, 0.08)" stroke-width="1.2" stroke-dasharray="4 7" />`;
+    svg += `  <circle cx="${cx}" cy="${cy}" r="190" fill="none" stroke="rgba(56, 189, 248, 0.05)" stroke-width="1" stroke-dasharray="3 9" />`;
+    svg += `  <line x1="${cx - 210}" y1="${cy}" x2="${cx + 210}" y2="${cy}" stroke="rgba(255,255,255,0.03)" stroke-width="1" />`;
+    svg += `  <line x1="${cx}" y1="${cy - 210}" x2="${cx}" y2="${cy + 210}" stroke="rgba(255,255,255,0.03)" stroke-width="1" />`;
+    svg += `</g>`;
+
+    let edgeHtml = "";
+    let nodeHtml = "";
+
+    displayParts.forEach((p, i) => {
+      const ang = -Math.PI / 2 + i * ((2 * Math.PI) / count);
+      // Alternate radius if count > 6 to avoid label overlap and give visual depth
+      const rDist = count > 6 ? (i % 2 === 0 ? 165 : 120) : 145;
+      const nx = cx + rDist * Math.cos(ang);
+      const ny = cy + rDist * Math.sin(ang);
+
+      const isShared = p.koel || p.shared || (p.rows && p.rows.some((r) => r.koel || r.shared));
+      const isOverlap = !!isShared;
+
+      // Color scheme:
+      // WHITE = Selected Company Root
+      // GREEN = Normal direct partner
+      // RED = Overlapping partner (also works with KSSL or competitors)
+      const strokeColor = isOverlap ? "#ef4444" : "#22c55e";
+      const fillColor = isOverlap ? "#ef4444" : "#22c55e";
+      const lineClass = isOverlap ? "shared" : "";
+
+      // Connecting Radial Line
+      edgeHtml += `<line class="pg-edge ${lineClass}" data-b="${p.id}" x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" style="stroke: ${strokeColor}; stroke-width: ${isOverlap ? "2px" : "1.5px"}; opacity: ${isOverlap ? "0.85" : "0.55"};" />`;
+
+      // Satellite Sub-Nodes (Expandable Hierarchy Satellites inspired by sc/image.png)
+      const satCount = 2 + (i % 2);
+      const satSpread = 0.45;
+      for (let s = 0; s < satCount; s++) {
+        const satAng = ang + (s - (satCount - 1) / 2) * satSpread;
+        const satDist = 28;
+        const sx = nx + satDist * Math.cos(satAng);
+        const sy = ny + satDist * Math.sin(satAng);
+
+        edgeHtml += `<line x1="${nx}" y1="${ny}" x2="${sx}" y2="${sy}" style="stroke: ${strokeColor}; stroke-width: 1px; opacity: 0.35;" />`;
+        nodeHtml += `<circle cx="${sx}" cy="${sy}" r="3" fill="${fillColor}" opacity="0.7" />`;
       }
+
+      // Main Circular Partner Node
+      const rNode = 12;
+      const labelText = esc(p.label || "");
+      const kindText = esc(p.kind || "Partner");
+
+      // Smart label placement by hemisphere
+      const cosA = Math.cos(ang);
+      const sinA = Math.sin(ang);
+      let textAnchor = "middle";
+      let lx = nx;
+      let ly = ny + rNode + 14;
+
+      if (cosA > 0.35) {
+        textAnchor = "start";
+        lx = nx + rNode + 8;
+        ly = ny + 4;
+      } else if (cosA < -0.35) {
+        textAnchor = "end";
+        lx = nx - rNode - 8;
+        ly = ny + 4;
+      } else if (sinA < 0) {
+        textAnchor = "middle";
+        lx = nx;
+        ly = ny - rNode - 8;
+      }
+
+      nodeHtml +=
+        `<g class="pg-node ptr ${isOverlap ? "overlap" : "direct"}" data-id="${p.id}">` +
+        `<title>${labelText} — ${isOverlap ? "Overlapping Partner (Connected to Competitors)" : "Direct Partner"}</title>` +
+        `<circle cx="${nx}" cy="${ny}" r="${rNode + 5}" fill="${fillColor}" opacity="0.16" />` +
+        `<circle cx="${nx}" cy="${ny}" r="${rNode + 2}" fill="none" stroke="${strokeColor}" stroke-width="1.2" opacity="0.4" />` +
+        `<circle cx="${nx}" cy="${ny}" r="${rNode}" fill="${fillColor}" stroke="#ffffff" stroke-width="1.5" />` +
+        `<text class="lbl-ptr" x="${lx}" y="${ly}" text-anchor="${textAnchor}" fill="#ffffff" font-size="11.5px" font-weight="700" font-family="var(--mono)">${labelText}</text>` +
+        `<text class="lbl-sub" x="${lx}" y="${ly + 13}" text-anchor="${textAnchor}" fill="#94a3b8" font-size="9.5px" font-family="var(--mono)">${kindText}</text>` +
+        `</g>`;
     });
-    return eh + nh;
+
+    // CENTER NODE (Selected Company - White Glowing Root Node)
+    const centerHtml =
+      `<g class="pg-node center-root" data-id="${centerId}">` +
+      `<circle cx="${cx}" cy="${cy}" r="46" fill="rgba(255,255,255,0.06)" />` +
+      `<circle cx="${cx}" cy="${cy}" r="34" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" />` +
+      `<circle cx="${cx}" cy="${cy}" r="22" fill="#ffffff" stroke="#ffffff" stroke-width="2" style="filter: drop-shadow(0 0 12px rgba(255,255,255,0.9));" />` +
+      `<text x="${cx}" y="${cy + 38}" text-anchor="middle" fill="#ffffff" font-size="13.5px" font-weight="800" font-family="var(--mono)" letter-spacing="0.05em">${centerName}</text>` +
+      `<text x="${cx}" y="${cy + 52}" text-anchor="middle" fill="#94a3b8" font-size="9.5px" font-family="var(--mono)" letter-spacing="0.08em">SELECTED OEM</text>` +
+      `</g>`;
+
+    return svg + edgeHtml + nodeHtml + centerHtml;
   }
 
   /* the shared-partner read under the graph */
@@ -952,6 +1067,56 @@ export function createPartners(d) {
     };
   }
 
+  function allPartnersRosterHtml(c, cid, clientNameOverride) {
+    if (!c) return "";
+    const clientName = clientNameOverride || (d.client && (d.client.short || d.client.name)) || "KSSL";
+    const parts = pgNodes(c);
+
+    let h = "";
+    h += `<div style="padding: 16px 18px; border-bottom: 1px solid var(--l-line, #e2e0d8);">`;
+    h += `  <div style="font-family: var(--mono); font-size: 11px; color: #b5341f; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;">`;
+    h += `    ${esc(c.name)} ALLIANCE NETWORK (${parts.length} MAPPED PARTNERS)`;
+    h += `  </div>`;
+    h += `  <div style="font-size: 12px; color: #6b6a63; margin-top: 4px; line-height: 1.4;">`;
+    h += `    Click on any partner card below or any node on the graph to open its full relationship detail page.`;
+    h += `  </div>`;
+    h += `</div>`;
+
+    h += `<div style="display: flex; flex-direction: column; gap: 10px; padding: 16px 18px;">`;
+    parts.forEach((p) => {
+      const isShared = p.koel || p.shared || (p.rows && p.rows.some((r) => r.koel || r.shared));
+      const isOverlap = !!isShared;
+      const statusBadge = isOverlap
+        ? `<span style="font-family: var(--mono); font-size: 9.5px; background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;">🔴 Overlapping Partner</span>`
+        : `<span style="font-family: var(--mono); font-size: 9.5px; background: rgba(34, 197, 94, 0.12); color: #16a34a; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;">🟢 Direct Partner</span>`;
+
+      const kindText = esc(p.kind || p.ptype || REL_LABEL[p.rel] || "Partner");
+      const noteText = esc(p.note || p.insight || "Strategic defense manufacturing and supply tie.");
+
+      h +=
+        `<div class="pg-partner-roster-card" data-pid="${escAll(p.id)}" style="padding: 14px; background: #ffffff; border: 1px solid #e2e0d8; border-radius: 8px; cursor: pointer; transition: all 0.15s ease-in-out; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">` +
+        `<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: nowrap; width: 100%;">` +
+        `<span style="font-size: 13.5px; font-weight: 700; color: #161614; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;" title="${esc(p.label)}">${esc(p.label)}</span>` +
+        `${statusBadge}` +
+        `</div>` +
+        `<div style="display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10.5px; color: #6b6a63;">` +
+        `<span style="background: #f0efea; padding: 2px 6px; border-radius: 3px; font-weight: 600; white-space: nowrap;">${kindText}</span>` +
+        `<span>·</span>` +
+        `<span style="white-space: nowrap;">${esc(p.country || "INDIA")}</span>` +
+        `</div>` +
+        `<div style="font-size: 12px; color: #4b5563; line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">` +
+        `${noteText}` +
+        `</div>` +
+        `<div style="font-size: 11px; font-weight: 600; color: #b5341f; margin-top: 2px; display: inline-flex; align-items: center; gap: 4px;">` +
+        `View Relationship Detail →` +
+        `</div>` +
+        `</div>`;
+    });
+    h += `</div>`;
+
+    return h;
+  }
+
   return {
     pgSharedIndex,
     pgSharedFor,
@@ -964,6 +1129,7 @@ export function createPartners(d) {
     overlapHtml,
     overlapDefsHtml,
     compReportHtml,
+    allPartnersRosterHtml,
     drawerHead,
     tieHtml,
     fieldReadHtml,

@@ -429,7 +429,7 @@ export default function Geo() {
   const dir = prod ? geo.dirForAct(prod.c) : "watch";
 
   return (
-    <div className="geo-view v-geo" ref={rootRef}>
+    <div className="geo-view v-geo" ref={rootRef} style={{ position: "relative" }}>
       {/* top control bar: two dropdowns */}
       <div className="geo-bar">
         <span className="eyebrow">
@@ -599,8 +599,10 @@ export default function Geo() {
             selectedCountry={country || (pair ? pair.country : null)}
           />
         </div>
-        {showDetail && (country || pair || comp) ? (
-          <div className="geo-det-overlay" id="geo-det">
+      </div>
+
+      {showDetail && (country || pair || comp) ? (
+        <div className="geo-det-overlay" id="geo-det">
             <div
               className={`geo-d-h dir-${dir}`}
               style={{
@@ -883,14 +885,14 @@ export default function Geo() {
         {activeGeoNewsArticle && (
           <div
             style={{
-              position: "fixed",
+              position: "absolute",
               top: 0,
-              left: "290px",
+              left: 0,
               right: 0,
               bottom: 0,
               background: "#ffffff",
               color: "#161614",
-              zIndex: 999,
+              zIndex: 4000,
               padding: "24px 32px",
               overflowY: "auto",
               display: "flex",
@@ -964,7 +966,6 @@ export default function Geo() {
             )}
           </div>
         )}
-      </div>
     </div>
   );
 }

@@ -353,7 +353,7 @@
   background: var(--l-bg);
   color: var(--l-txt);
   box-shadow: 0 0 40px rgba(0, 0, 0, 0.7);
-  z-index: 1000;
+  z-index: 3000;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -362,7 +362,7 @@
 
 .geo-det-overlay-body {
   display: grid;
-  grid-template-columns: 60% 40%;
+  grid-template-columns: 340px 1fr;
   flex: 1;
   overflow: hidden;
   min-height: 0;
@@ -373,7 +373,7 @@
 }
 
 .geo-det-overlay-body.has-prod {
-  grid-template-columns: 55% 45%;
+  grid-template-columns: 340px 1fr;
 }
 
 .geo-rel-overlay-list {

@@ -10,7 +10,7 @@
   .v-partnerships.has-sel .pg-canvas{animation:panelSlideWide .42s cubic-bezier(.22,.61,.36,1)}
   .v-partnerships.has-sel .pg-drawer{animation:panelSlideWide .42s cubic-bezier(.22,.61,.36,1)}
   .v-partnerships.no-sel .pg-canvas,.v-partnerships.no-sel .pg-drawer{opacity:0;pointer-events:none}
-  .pg-canvas{background:var(--d-bg);display:flex;flex-direction:column;overflow:hidden;position:relative}
+  .pg-canvas{background: radial-gradient(circle at 50% 40%, #0b1326 0%, #070a14 60%, #030408 100%);display:flex;flex-direction:column;overflow:hidden;position:relative}
   /* competitor list items */
   .pg-comp{padding:14px 20px;border-bottom:1px solid var(--d-line);border-left:2px solid transparent;cursor:pointer;transition:background .12s}
   .pg-comp:hover{background:var(--d-bg-1)}
