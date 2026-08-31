@@ -128,7 +128,7 @@ def canonical(name):
 _FORCE_RX = re.compile(
     r"(?<!\w)("
     r"navy|army|air ?force|armed forces|coast ?guard|marine corps|"
-    r"defence forces|defense forces|national guard|"
+    r"defence forces|defense forces|national guard|national police|gendarmerie|pentagon|"
     r"ministry|ministries|ministere|ministero|ministerio|ministerstvo|"
     r"minist[eè]re|departments? of|department for|"
     r"government|governments|gouvernement|regierung|regering|regeringen|regeringens|"
@@ -239,6 +239,7 @@ def _demo():
     assert is_force("US Navy") and is_force("Indian Army") and is_force("U.S. Air Force")
     assert is_force("Ministry of Defence") and is_force("Ministerstvo obrany")
     assert is_force("US Department of State") and is_force("Department for Transport")
+    assert is_force("Gendarmerie Nationale") and is_force("the Pentagon")         and is_force("National Police"), "gendarmerie/pentagon/national police are forces too"
     assert is_force("den brasilianska regeringen"), "the Swedish 'the Brazilian government'"
     assert is_force("Bundesministerium der Verteidigung"), "German compounds fold in too"
     assert not is_force("Saab") and not is_force("Bharat Forge")         and not is_force("Northrop Grumman"), "real companies must survive the check"

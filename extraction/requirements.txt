@@ -1,0 +1,4 @@
+# VPS-B extraction worker — runtime deps only. LLM/GLiNER are remote (farm), so no torch/CUDA.
+psycopg[binary]>=3.1      # engine (route.py, run_node.py, store_pg.py)
+psycopg2-binary>=2.9      # sync_documents.py, select_worklist.py, layer_b_pg.py
+httpx>=0.27

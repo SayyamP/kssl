@@ -363,6 +363,9 @@ export default function Geo() {
   const relHeader = () => {
     if (pair) {
       const c = data.geoComps.find((x) => x.id === pair.cid);
+      if (!c) {
+        return { kind: "Products supplied", name: pair.country, subHtml: "" };
+      }
       const counts = {};
       prods.forEach((p) => {
         counts[p.c] = (counts[p.c] || 0) + 1;

@@ -21,7 +21,7 @@ export default function Overview({
   onSelectionChange,
 }) {
   const { data } = useData();
-  const { setScope } = useAppState();
+  const { setScope, takePending } = useAppState();
   const [selected, setSelected] = useState(null);
 
   // the shell's third column collapses when nothing is selected, so Layout has to know
@@ -60,6 +60,15 @@ export default function Overview({
       selection: detail.title,
     });
   };
+
+  // Opened from global search targeting a specific signal card.
+  useEffect(() => {
+    const pend = takePending("overview");
+    if (pend && pend.cardId && data.details && data.details[pend.cardId]) {
+      select(pend.cardId);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takePending]);
 
   // the metric tiles open the first matching signal, as the tiles did before
   useEffect(() => {

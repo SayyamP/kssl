@@ -51,6 +51,13 @@ export function unescapeEntities(s) {
 /* Meta lines ("issuer · country · value") are built from fields the record may not
    carry. Joining the PRESENT parts is the only way a missing one cannot leave a
    dangling separator behind it. */
+export function plainText(s) {
+  /* For React TEXT children: strip tags AND decode entities. stripTags() escapes
+     < and > for HTML interpolation, so its output shows &lt; literally in a text
+     node — wrong context. This one is for JSX text. */
+  return unescapeEntities(String(s == null ? "" : s).replace(/<[^>]+>/g, ""));
+}
+
 export function joinParts(parts, sep) {
   return (parts || [])
     .filter((p) => p != null && String(p).trim() !== "")

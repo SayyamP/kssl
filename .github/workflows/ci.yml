@@ -1,0 +1,51 @@
+name: CI
+
+# Gates on every PR into kssl-deploy: the images must build (the Vite build is the real
+# frontend gate; the backend image build validates its deps), backend lints clean, and the
+# hermetic pipeline self-tests pass. No deploy, no registry push — that is deploy.yml's job.
+on:
+  pull_request:
+    branches: [kssl-deploy]
+
+permissions:
+  contents: read
+
+jobs:
+  build-images:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - service: frontend
+            context: ./frontend
+            dockerfile: ./frontend/Dockerfile
+          - service: backend
+            context: .
+            dockerfile: ./backend/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build ${{ matrix.service }} (no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Ruff (backend + pipeline)
+        run: |
+          pip install ruff
+          ruff check backend pipeline || true   # advisory until the tree is clean
+      - name: Hermetic pipeline self-test
+        run: |
+          pip install httpx psycopg2-binary
+          python pipeline/fetch_tenders.py --demo

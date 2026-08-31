@@ -256,9 +256,13 @@ export default function MarketOverview() {
 
   const titleCell = (t) => (
     <td className="ovt-t">
-      <a href={t.url} rel="noopener noreferrer" target="_blank" title={t.title}>
-        {t.title}
-      </a>
+      {t.url ? (
+        <a href={t.url} rel="noopener noreferrer" target="_blank" title={t.title}>
+          {t.title}
+        </a>
+      ) : (
+        <span title={t.title}>{t.title}</span>
+      )}
       <span className="ovt-buyer">{[t.issuer, t.country].filter(Boolean).join(" · ")}</span>
     </td>
   );

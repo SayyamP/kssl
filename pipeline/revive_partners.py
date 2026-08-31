@@ -565,6 +565,12 @@ def write(cur, con, keep, newco, rkeep):
     # Own range only. enrich_serving.step_companies / step_partnerships delete
     # every pipeline row they see; both were taught to stop at REV_ORD0 so the two
     # writers cannot take each other's rows with them.
+    # Carry interim OSINT columns across this rebuild too (see enrich_serving.step_companies).
+    cur.execute("""SELECT comp_id, leadership, facilities, hq FROM serving.competitors
+                     WHERE origin='pipeline' AND ord >= %s
+                       AND (leadership IS NOT NULL OR facilities IS NOT NULL)""",
+                (REV_ORD0,))
+    _carry = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
     cur.execute("DELETE FROM serving.competitors WHERE origin='pipeline' AND ord >= %s",
                 (REV_ORD0,))
     for i, (cid, m) in enumerate(sorted(newco.items())):
@@ -576,6 +582,15 @@ def write(cur, con, keep, newco, rkeep):
                        ON CONFLICT (comp_id) DO NOTHING""",
                     (cid, REV_ORD0 + i, m["name"], m["dir"], m["sector"], m["hq"],
                      json.dumps(m["srcs"][:4])))
+    for cid, (ld, fac, hq0) in _carry.items():
+        cur.execute("""UPDATE serving.competitors
+                         SET leadership = COALESCE(%s::jsonb, leadership),
+                             facilities = COALESCE(%s::jsonb, facilities),
+                             hq         = COALESCE(NULLIF(hq,''), %s)
+                       WHERE comp_id=%s AND origin='pipeline'""",
+                    (json.dumps(ld) if ld is not None else None,
+                     json.dumps(fac) if fac is not None else None,
+                     hq0, cid))
     for cid, plist in keep.items():
         # keep whatever the pipeline itself found; replace only revived entries
         cur.execute("SELECT partners FROM serving.competitors WHERE comp_id=%s "

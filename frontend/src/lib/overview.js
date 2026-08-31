@@ -221,18 +221,24 @@ export function navCounts(d, gapModel) {
       (k) => k !== ((d.client && d.client.id) || "KSSL"),
     ).length;
 
-    // Products: count of distinct KSSL products across matchups
-    const ksslProds = new Set();
+    /* Products explorer lists COMPETITOR products (Products.jsx builds them from the
+       comp side of matchups + each competitor's own products), so the badge counts
+       those — not KSSL's own SKUs, which is what it used to show (a "1" over a catalog
+       of dozens). Same two sources the page reads, deduped by name. */
+    const clientId = (d.client && d.client.id) || "KSSL";
+    const compProds = new Set();
     Object.values(d.matchups || {}).forEach((m) => {
-      let rawBf = m.bf || m.anchor || "";
-      let name = rawBf.replace(/^KSSL\s*·\s*/i, "").trim();
-      if (!name || name === "KSSL present" || name.startsWith("KSSL")) {
-        const match = rawBf.match(/KSSL\s*·\s*(.*)/i);
-        if (match) name = match[1].trim();
-      }
-      if (name && name !== "KSSL present") ksslProds.add(name);
+      const nm = (m.comp || "").replace(/.*·\s*/, "").trim();
+      if (nm) compProds.add(nm.toLowerCase());
     });
-    counts.products = ksslProds.size;
+    Object.entries(d.competitors || {}).forEach(([cid, co]) => {
+      if (cid === clientId) return;
+      (co.products || []).forEach((p) => {
+        const nm = typeof p === "string" ? p : (p.name || p.n || "");
+        if (nm) compProds.add(nm.toLowerCase());
+      });
+    });
+    counts.products = compProds.size;
 
     const { open, awarded, closed } = bucketTenders(d.tenders);
     /* The Market overview badge counts the TENDERS it opens — all of them, since the

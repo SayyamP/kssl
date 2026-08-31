@@ -35,7 +35,7 @@ export default function Patents() {
     const a = (data.PATENTS && data.PATENTS.techAreas) || [];
     return a.length ? a : data.techCats.map((c) => c.name);
   }, [data]);
-  const [area, setArea] = useState(savedPat.area || areas[0]);
+  const [area, setArea] = useState(savedPat.area || areas[0] || null);
   const [techRes, setTechRes] = useState(null);
 
   useEffect(() => {
@@ -79,8 +79,9 @@ export default function Patents() {
 
   const compList = data.compOrder.filter(
     (k) =>
-      !compQuery.trim() ||
-      data.competitors[k].name.toLowerCase().includes(compQuery.trim().toLowerCase()),
+      data.competitors[k] &&
+      (!compQuery.trim() ||
+        data.competitors[k].name.toLowerCase().includes(compQuery.trim().toLowerCase())),
   );
   const areaList = areas.filter(
     (a) => !techQuery.trim() || a.toLowerCase().includes(techQuery.trim().toLowerCase()),
