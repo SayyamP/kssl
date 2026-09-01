@@ -76,8 +76,8 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/137mallory/kssl-${{ matrix.service }}:${{ needs.resolve.outputs.sha }}
-            ghcr.io/137mallory/kssl-${{ matrix.service }}:latest
+            ghcr.io/137mallory/kssl-deploy/${{ matrix.service }}:${{ needs.resolve.outputs.sha }}
+            ghcr.io/137mallory/kssl-deploy/${{ matrix.service }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

@@ -10,6 +10,6 @@
 # TAG is the git short SHA of the build; deploy.sh writes it into the server .env.
 services:
   frontend:
-    image: ghcr.io/137mallory/kssl-frontend:${TAG:-latest}
+    image: ghcr.io/137mallory/kssl-deploy/frontend:${TAG:-latest}
   backend:
-    image: ghcr.io/137mallory/kssl-backend:${TAG:-latest}
+    image: ghcr.io/137mallory/kssl-deploy/backend:${TAG:-latest}
