@@ -94,12 +94,59 @@ def country_names():
 # ponytail: deliberately narrow. A blunt "could potentially" killed specific sowhats where
 # the phrase is only appended garnish ("...could potentially displace KSSL's bid"); widen
 # this list only if contentless cards actually slip through, never pre-emptively.
+# Fable-5 ban-list: a sowhat that hedges instead of stating a concrete consequence is
+# filler. Banning the hedge words forces the model to cite a real number/product/capability
+# or reply NONE -- "no generic filler" as a vibe let it paraphrase its way around.
+# Narrow ban-list: the pure-filler TELLS a sowhat has no substance. A card that carries a
+# real fact plus a mild hedge ("...which could threaten KSSL") is fine; the _has_concrete
+# gate handles substance. Banning common hedges ("could impact") killed good cards, so only
+# the phrases that are ALWAYS filler are banned here.
 _FILLER_RX = re.compile(
-    r"\bcould potentially impact\b|\bsets? (?:a )?new standards?\b", re.I)
+    r"\bcompetitive landscape\b|\bmarket position\b|\bshowcas(?:e|es|ing)\b|"
+    r"\bcompetitive categor(?:y|ies)\b|\bsets? (?:a )?new standards?\b", re.I)
+
+
+def _has_concrete(sowhat):
+    """A real sowhat carries a concrete anchor: a digit, or a capitalised token that is
+    not KSSL/Kalyani/Bharat Forge (a product, company or place the statements named)."""
+    if any(c.isdigit() for c in sowhat):
+        return True
+    for tok in re.findall(r"[A-Z][A-Za-z0-9-]{2,}", sowhat):
+        if tok.lower() not in ("kssl", "kalyani", "bharat", "forge", "the", "this"):
+            return True
+    return False
+
+
+_YEAR_RX = re.compile(r"\b(?:19|20)\d\d\b")
+
+
+def content_year_max(props):
+    """Newest 4-digit year mentioned across the evidence quotes, or None. `props` rows are
+    (subject, predicate, object, modality, ev_quote) -- the quote is the 5th field."""
+    yrs = []
+    for pr in props:
+        q = pr[4] if len(pr) > 4 else ""
+        yrs += [int(y) for y in _YEAR_RX.findall(q or "")]
+    return max(yrs) if yrs else None
 
 
 def is_filler(sowhat):
     return bool(_FILLER_RX.search(sowhat or ""))
+
+
+_MONEY_RX = re.compile(r"[$€£]?\s?(\d[\d,.]*)\s?(bn|billion|b|m|million|mn)\b", re.I)
+
+
+def money_key(company, text, known_rx=None):
+    """fix3: (folded company, amount, b/m) -- the same award reported by two outlets shares
+    it even when titles differ ('$515m' vs '$515 million', 'US Navy' vs 'U.S. Navy'). The
+    company is CANONICAL: a known maker named in the text wins over the field, so the key is
+    stable no matter which of the two cards got maker-recovered first (Fable-5 R4)."""
+    mm = _MONEY_RX.search(text or "")
+    if not mm:
+        return None
+    comp = (known_rx and find_competitor(text, known_rx)) or company
+    return (fold_name(comp), mm.group(1).replace(",", "").rstrip("."), mm.group(2).lower()[0])
 
 
 PROMPT = """You are an analyst for KSSL (Kalyani Strategic Systems, the defence arm of the
@@ -112,11 +159,15 @@ one pillar:
 - competitive: a RIVAL defence COMPANY's move -- an order won, a partnership, an expansion,
   a product launch that changes KSSL's competitive field. The actor is a maker/supplier;
   an armed force, ministry or government buyer is a MARKET signal, never a competitive one.
-- market: a procurement or demand event -- a tender, a government order, a budget, an import
-  or export decision that changes what buyers want.
+- market: a procurement or demand event with NO single winning maker -- a tender issued, a
+  budget, a stated requirement, an import or export decision. (A contract AWARDED to a named
+  supplier is that supplier's WIN and is competitive, not market -- see the tiebreak.)
 - technology: a capability or R&D advance -- a new system demonstrated, a technical
   milestone, an innovation that shifts what is technically expected in a KSSL category.
   The company is the MAKER/developer; a fielding armed force or ministry is not the actor.
+Tiebreak for a contract/order AWARD: if the actor named is the WINNING maker/supplier it is
+COMPETITIVE, not market. market is buyer-side only -- a tender issued, a budget approved, a
+requirement announced, an import/export policy -- an event with no single maker as the actor.
 Routine corporate news, politics without procurement, and non-defence stories are NOT
 signals. Kalyani / KSSL / Bharat Forge is the CLIENT GROUP, never a rival and never a
 threat: its own capability news files under technology, a procurement it wins under market,
@@ -126,22 +177,36 @@ If there is no signal, reply exactly: NONE
 If the signal fits NONE of the listed categories, also reply NONE -- never stretch the
 nearest category.
 
+CONSISTENCY: if the "company" you name is a maker/supplier that WON a contract, order, or
+selection (not a government body), then "pillar" MUST be competitive -- never market.
+
 Otherwise reply with ONLY this JSON (no prose around it):
 {"pillar": "<competitive | market | technology>",
  "title": "<one factual headline, max 90 chars, only facts the statements state>",
  "company": "<the ONE organization that ACTED. For a COMPETITIVE or TECHNOLOGY signal this
              is the rival COMPANY -- the maker, developer or supplier; an armed force,
              ministry or government body is NOT it (a force buying or fielding is a MARKET
-             signal). For a market signal name the issuing agency or government body. NEVER
-             just the country, and if two organizations acted jointly name the one the
-             statements put first -- NEVER write 'X and Y'>",
+             signal). For a market signal name the issuing agency or government body. For a
+             CONTRACT or ORDER a supplier WON, the actor is the WINNING supplier (name it,
+             e.g. the shipbuilder or manufacturer) -- NEVER the government that awarded it,
+             even if the government issued the announcement. NEVER just the country, and if
+             two organizations acted jointly name the one the statements put first -- NEVER
+             write 'X and Y'>",
  "category": "<exactly one of: %s>",
- "dir": "<threat ONLY if a rival gains in a KSSL category, else watch>",
+ "dir": "<threat ONLY for a concrete GAIN by a rival in a KSSL category -- an order,
+         contract, selection, or delivery won. A display, demo, exhibition, or bare
+         announcement is watch, never threat>",
  "what": "<one factual sentence: what happened, exactly as stated -- announced is not
           delivered, an order is not a delivery, a plan is not a contract>",
- "sowhat": "<1-2 sentences: the SPECIFIC significance the statements support. No generic
-            filler ('could potentially impact KSSL', 'sets new standards'); if the
-            statements do not say why it matters, reply NONE instead>"}
+ "sowhat": "<Sentence 1 (required): the key fact FROM THE STATEMENTS and what it changes --
+            a comparison, a consequence, or a capability gap. Restating specifications is
+            NOT significance. Sentence 2 (OPTIONAL): the KSSL line it competes in, chosen
+            ONLY from artillery / ammunition / armoured vehicles / small arms / drones, and
+            ONLY if the product itself belongs to that line -- a system that counters,
+            carries, or merely coexists with a category is NOT in it. If no line genuinely
+            fits, write sentence 1 ONLY -- do NOT invent a KSSL connection. Good: 'The
+            58-calibre gun reaches 60-80 km, a longer range than 52-calibre artillery in
+            the same class.' Bad: 'showcases advances that could impact KSSL's landscape.'>"}
 
 Write title, what and sowhat in ENGLISH, whatever language the statements are in.
 Rules: use ONLY the statements below; no numbers or names that are not in them.
@@ -462,9 +527,158 @@ def ask(prompt, timeout=None, doc_id=None, npredict=300):
         return text
 
 
-def parse_card(raw, cats):
-    """-> dict or None. Field-by-field: a malformed reply is refused whole, because a card
-    with an invented category or a missing title is worse than no card."""
+# --- code-side classification (Fable-5 R2: with a 7B the LLM writes prose, CODE classifies;
+#     every rule left in the prompt was violated, every rule moved to code held) ----------
+# The fabricated KSSL tie takes two shapes: a hedged clause ("...which could threaten KSSL's
+# small arms...") and a plain aside ("...competes with KSSL's drone offerings"). Cut both,
+# not the whole sentence -- the 7B interleaves real substance with the invented tie.
+_TAIL_RX = re.compile(
+    r"[,;]?\s*(?:(?:which|that)\s+)?(?:could|potentially|may|would|pos\w+)\b[^.!?]*?\bKSSL\b[^.!?]*",
+    re.I)
+_TIE_PLAIN = re.compile(
+    r"[,;]?\s*[^.!?]*\bKSSL['’]?s?\b\s*(?:drone|artiller|ammunition|small[- ]arms|armou?red|"
+    r"offering|portfolio|position|product|categor|market|landscape|system|space|segment|"
+    r"capabilit)[^.!?]*", re.I)
+# a competitive EVENT: an award/win/partnership/expansion/acquisition/MoU (NOT a product
+# unveil, which is tech). Widened per Fable-5 R3: sign MoU/agreement, invites partnership,
+# teaming, acquisition, new facility all read as competitive when a maker is the actor.
+_EVENT_RX = re.compile(
+    r"\b(won|wins?|awarded?|contract|order(?:s|ed)?|selected?|secured?|clinch\w*|bagged|"
+    r"partnership|joint venture|teaming|team(?:ed|s)? up|expand\w*|acquir\w*|acquisition|"
+    r"mou|memorandum|sign\w*|invit\w*|framework|new (?:facility|plant|line))\b", re.I)
+# the FIVE KSSL product lines -- a threat badge is meaningless outside them (a rival gaining
+# in missiles or naval, which KSSL does not make, is watch, not threat).
+_CORE_CATS = {"artillery", "ammunition", "protected & armoured vehicles",
+              "armoured vehicle mro", "small arms", "uavs & drones"}
+# capital-city / metonym names journalists use for a government -- not a company.
+_CITIES = {"tokyo", "seoul", "moscow", "beijing", "london", "paris", "delhi", "new delhi",
+           "washington", "berlin", "rome", "madrid", "ankara", "canberra", "ottawa",
+           "brussels", "warsaw", "kyiv", "kiev", "tel aviv", "riyadh", "abu dhabi"}
+# forces / countries the reference lists miss (is_force/country_names don't know them).
+_EXTRA_FORCE = {"bundeswehr", "gendarmerie", "carabinieri", "peshmerga", "the bundeswehr"}
+_EXTRA_COUNTRY = {"taiwan", "kosovo", "palestine", "somaliland"}
+_LEAD_SKIP = {"the", "new", "additional", "five", "seven", "major", "us", "u.s.",
+              "first", "second", "third", "fourth", "fifth"}
+_ORG_TOKEN = re.compile(r"([A-Z][A-Za-z0-9&.\-]+(?:\s+[A-Z][A-Za-z0-9&.\-]+){0,3})")
+
+
+_BUYER_RX = re.compile(
+    r"\b(mod|dod|ministry|ministr\w+|government|govt|armed forces?|defen[cs]e forces?|"
+    r"contracting command|procurement|air force|army|navy|coast guard|national guard)\b",
+    re.I)
+
+
+def is_buyer(name):
+    """A force / ministry / government / country / capital-city -- a BUYER, not a maker."""
+    n = (name or "").strip().lower()
+    return (is_force(name) or n in _EXTRA_FORCE or n in _EXTRA_COUNTRY or n in _CITIES
+            or fold_name(name) in country_names() or bool(_BUYER_RX.search(n)))
+
+
+def maker_from_title(title):
+    """The winning maker is usually the first real org in the headline ('Elbit awarded ...',
+    'KONGSBERG and OSI sign ...'). Take the first capitalised org that is not a buyer."""
+    for m in _ORG_TOKEN.finditer(title or ""):
+        cand = m.group(1).strip().rstrip(",.").rstrip("'s").strip()
+        while cand and cand.split()[0].lower() in _LEAD_SKIP:
+            cand = " ".join(cand.split()[1:])
+        if cand and cand[:1].isupper() and not is_buyer(cand) and not is_org_fragment(cand):
+            return cand
+    return None
+# a real GAIN (gates dir=threat); a demo/announcement is not a gain
+_GAIN_RX = re.compile(
+    r"\b(won|wins?|awarded|award|contract|order|selected|delivered?|acquired|secured|"
+    r"rights|deal|bagged|clinch(?:ed)?)\b", re.I)
+_HELI_RX = re.compile(r"\b(helicopter|rotorcraft|rotary-wing)\b", re.I)
+_LASER_RX = re.compile(r"\b(laser|directed[- ]energy|high-energy)\b", re.I)
+_AUTOCANNON_RX = re.compile(r"\b\d{2}\s*[x×]\s*\d{2,}\s*mm\b", re.I)
+# Hebrew / Arabic / Cyrillic / CJK / Japanese -- the prompt says English; a card in the
+# source language is unusable in the UI, and the 7B echoes the source when it slips.
+_NONLATIN_RX = re.compile(r"[֐-׿؀-ۿЀ-ӿ一-鿿぀-ヿ]")
+_GENERIC_ORG = {"nigam", "limited", "ltd", "defence", "defense", "systems", "corporation",
+                "corp", "industries", "group", "aerospace", "technologies", "technology",
+                "company", "navy", "army", "forces", "force", "ministry", "command"}
+_ORG_SUFFIX = {"limited", "ltd", "inc", "corp", "corporation", "co", "company", "plc",
+               "gmbh", "sa", "ag", "llc", "pvt", "private", "nigam"}
+
+
+def is_org_fragment(company):
+    """fix5: an NER fragment, not a real name -- 'Nigam Limited' is AVNL (Armoured Vehicles
+    Nigam Limited) with the identifying words dropped, leaving just 'corporation limited'."""
+    toks = [t.lower() for t in re.findall(r"[A-Za-z0-9]+", company or "")]
+    core = [t for t in toks if t not in _ORG_SUFFIX]
+    return (not core) or (len(core) == 1 and core[0] in _GENERIC_ORG)
+
+
+_KSSL_SENT = re.compile(r"\bKSSL\b", re.I)
+
+
+def strip_kssl_tail(sowhat):
+    """fix1: remove the fabricated KSSL-tie. Per sentence: if it mentions KSSL, cut the hedge
+    clause; keep only a substantive remainder that doesn't just restate 'This/KSSL...' -- a
+    bare demonstrative ('This capability.') or a 'KSSL competes...' aside is dropped whole, so
+    no dangling fragment survives. Fall back to the original only if we emptied everything."""
+    out = []
+    for sent in re.split(r"(?<=[.!?])\s+", (sowhat or "").strip()):
+        if not _KSSL_SENT.search(sent):
+            out.append(sent)
+            continue
+        core = _TIE_PLAIN.sub("", _TAIL_RX.sub("", sent))
+        # tidy a dangling connective the cut left behind ('...Middle East and')
+        core = re.sub(r"[\s,;]+(?:and|but|which|that|as|so|to|for|with)?[\s,;.]*$", "",
+                      core, flags=re.I).strip().rstrip(",;. ")
+        if _KSSL_SENT.search(core):      # couldn't cleanly excise KSSL -> drop the sentence
+            core = ""
+        words = len(re.findall(r"\w+", core))
+        demo = bool(re.match(r"\s*(this|these|it)\b", core, re.I))
+        if core and _has_concrete(core) and words > 4 and not (demo and words <= 7):
+            out.append(core if core.endswith((".", "!", "?")) else core + ".")
+        # else drop the sentence -- fabricated tie or a bare demonstrative fragment
+    # empty -> the whole sowhat was a fabricated tie; parse_card drops the card (no significance)
+    return " ".join(out).strip()
+
+
+def category_conflict(cat, text):
+    """fix4: True when the article's own words contradict the LLM's category pick."""
+    c = (cat or "").lower()
+    if _HELI_RX.search(text) and ("vehicle" in c or "small arms" in c):
+        return True
+    if _LASER_RX.search(text) and ("drone" in c or "uav" in c):
+        return True
+    if _AUTOCANNON_RX.search(text) and (c == "small arms" or "drone" in c or "uav" in c):
+        return True
+    if re.search(r"\b(aew&?c|early[- ]warning|awacs|maritime patrol aircraft|globaleye)\b",
+                 text, re.I) and ("drone" in c or "uav" in c):
+        return True                      # an AEW&C aircraft is not a drone
+    return False
+
+
+def company_grounded(company, props):
+    """fix5: the company name (or a distinctive token of it) must appear in the evidence."""
+    if not props:
+        return True
+    toks = [t for t in re.findall(r"[A-Za-z0-9]+", company or "") if len(t) > 2]
+    if not toks:
+        return False
+    hay = " ".join("%s %s %s" % (pr[0], pr[2], pr[4] or "") for pr in props).lower()
+    return any(t.lower() in hay for t in toks)
+
+
+def find_competitor(text, comp_patterns):
+    """fix2b: the known competitor named in the TITLE or evidence -- recovers the maker when
+    the LLM put the government BUYER in the company field ('Elbit awarded ...' -> Israel MoD)."""
+    if not comp_patterns or not text:
+        return None
+    for rx in comp_patterns:
+        mm = rx.search(text)
+        if mm:
+            return mm.group(0)
+    return None
+
+
+def parse_card(raw, cats, props=None, comp_patterns=None, known_rx=None):
+    """-> dict or None. The 7B writes the prose; this function CLASSIFIES in code, because
+    every rule left to the model in-prompt (pillar, dir, category, KSSL tie) is violated."""
     if not raw or raw.strip().upper().startswith("NONE"):
         return None
     m = re.search(r"\{.*\}", raw, re.S)
@@ -478,33 +692,67 @@ def parse_card(raw, cats):
         return None
     pillar = str(d.get("pillar") or "").strip().lower()
     if pillar not in ("competitive", "market", "technology"):
-        return None                      # invented/missing pillar refuses the card
+        return None
     title = str(d.get("title") or "").strip()
-    company = str(d.get("company") or "").strip()
+    company = str(d.get("company") or "").strip().strip(",.;:'\"“” ")
     cat = str(d.get("category") or "").strip()
     direction = str(d.get("dir") or "").strip().lower()
-    sowhat = str(d.get("sowhat") or "").strip()
+    whatv = str(d.get("what") or "").strip()
+    sowhat = strip_kssl_tail(str(d.get("sowhat") or "").strip())      # fix1
     if not title or not company or not sowhat:
         return None
     if cat not in cats:
         return None
+    ev = (whatv + " " + title)
+    if _NONLATIN_RX.search(title + " " + company + " " + sowhat):
+        return None                      # the model failed to output English -> unusable in UI
+    if category_conflict(cat, ev):
+        return None                      # fix4: helicopter-in-armoured, laser-in-drones, etc.
+    # fix2: recover the MAKER when the LLM named a force (buyer/customer) as the actor, and
+    # make an award/partnership/expansion COMPETITIVE. Search the TITLE too -- the winner is
+    # usually in the headline ('Elbit awarded ...') even when the company field holds the buyer.
+    is_event = bool(_EVENT_RX.search(ev))
+    blob = title + " " + whatv + " " + " ".join("%s %s" % (pr[0], pr[2]) for pr in (props or []))
+    if is_buyer(company):
+        # recover the maker ONLY as a KNOWN company named in the title/evidence -- never a
+        # title regex (which grabbed 'SPY-6' and 'Japan Awarding Contract'). No known maker in
+        # the evidence -> leave the buyer; a buyer-named market card is honest, inventing a
+        # maker from world knowledge would break the no-fabrication contract.
+        maker = find_competitor(blob, known_rx or comp_patterns)
+        if maker and not is_buyer(maker):
+            company = maker
+            pillar = "competitive" if is_event else "technology"
+    elif is_event:
+        pillar = "competitive"
     if not is_one_org(company):
-        return None                      # 'Arquus and Daimler Truck' is TWO orgs
-    if fold_name(company) in country_names():
-        return None                      # a bare country is not the actor (audit H4)
+        return None
+    if fold_name(company) in country_names() or company.strip().lower() in _EXTRA_COUNTRY:
+        return None
     if pillar in ("competitive", "technology") and is_force(company):
-        return None                      # a force/ministry is a buyer, not a rival maker/
-                                         # demonstrator; competitive+technology are the rival
-                                         # surfaces (fill() bars client news from both). Only
-                                         # MARKET keeps a force -- there it IS the buyer.
-    if is_filler(sowhat):
-        return None                      # generic filler -> the prompt's own NONE case
-    company = canon_name(company)        # ONE identity per company, at the parser
+        return None
+    if is_org_fragment(company) or not company_grounded(company, props):
+        return None                      # fix5: NER fragment / ungrounded company name
+    if not (company[:1].isupper() or company[:1].isdigit()):
+        return None                      # 'three defense newcomers' is not a proper org name
+    if company.strip().lower() in _CITIES:
+        return None                      # 'Tokyo' is a metonym for a government, not a company
+    if is_filler(sowhat) or not _has_concrete(sowhat):
+        return None
+    company = canon_name(company).strip().rstrip(" ,;.")     # fix5: no trailing punctuation
+    if not company:
+        return None
+    # fix3: threat only for a concrete GAIN by a rival IN A CORE KSSL LINE; a rival gaining in
+    # missiles or naval (which KSSL does not make) is watch, and so is a demo/announcement.
+    gain = bool(_GAIN_RX.search(ev))
+    in_core = cat.lower() in _CORE_CATS
+    if direction == "threat" and not (gain and pillar == "competitive" and in_core):
+        direction = "watch"
+    elif gain and pillar == "competitive" and in_core:
+        direction = "threat"
     if direction not in ("threat", "watch"):
         direction = "watch"
     return {"pillar": pillar, "title": title[:120], "company": company[:80],
-            "category": cat, "dir": direction, "sowhat": sowhat[:500],
-            "what": str(d.get("what") or "").strip()[:400]}
+            "category": cat, "dir": direction, "sowhat": sowhat[:500], "what": whatv[:400]}
 
 
 def _monthval(ago):
@@ -584,15 +832,31 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         cur.execute("SELECT coalesce(max(ord), 0) FROM serving.signal_card WHERE lane=%s",
                     (lane,))
         ords[lane] = cur.fetchone()[0] + 1
-    stats = {"cards": 0, "none": 0, "thin": 0, "bad": 0, "stale": 0, "offtopic": 0,
-             "undated": 0, "dup": 0, "client_news": 0, "listing": 0, "suppressed": 0}
+    stats = {"cards": 0, "none": 0, "thin": 0, "bad": 0, "stale": 0, "cstale": 0,
+             "offtopic": 0, "undated": 0, "dup": 0, "client_news": 0, "listing": 0,
+             "suppressed": 0}
     patterns, comp_patterns = load_terms()
     cutoff, cur_year = recent_cutoff()
     LANE = {"competitive": "competitive", "market": "market", "technology": "tech"}
     banned = suppressed_ids()
-    cur.execute("""SELECT company, title FROM serving.signal_card
+    # fix2: comprehensive known-company matcher for maker recovery -- the buyer/force sits in
+    # the company field while the real maker is in the title ('Elbit awarded ...').
+    cur.execute("SELECT DISTINCT name FROM serving.competitors "
+                "WHERE name IS NOT NULL AND length(name) > 3")
+    known_rx = [re.compile(r"(?<!\w)" + re.escape(nm) + r"(?!\w)", re.I)
+                for (nm,) in cur.fetchall() if nm]
+    cur.execute("""SELECT company, title, sowhat FROM serving.signal_card
                     WHERE origin='pipeline'""")
-    seen = [((c or "").casefold(), title_tokens(t)) for c, t in cur.fetchall()]
+    _rows = cur.fetchall()
+    seen = [((c or "").casefold(), title_tokens(t)) for c, t, _s in _rows]
+    # fix3: (canonical company, amount) keys -> the same award via two outlets = one card.
+    # Seed from the ALREADY-STORED cards so a duplicate is caught across runs (the loop +
+    # one-off batches each start a fresh fill(); without this the same award slips a later run).
+    seen_money = set()
+    for c, t, sw in _rows:
+        mk = money_key(c or "", "%s %s" % (t or "", sw or ""), known_rx)
+        if mk:
+            seen_money.add(mk)
 
     for did, title, source, lang, url, dset in docs:
         cur.execute("INSERT INTO serving.signal_seen(document_id) VALUES(%s) ON CONFLICT DO NOTHING", (did,))
@@ -616,6 +880,15 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         if not is_recent_ym(ymd[:2], cutoff, cur_year):
             stats["stale"] += 1
             continue
+        # Content-staleness: a fresh publish date on a years-old story (a re-run article) is
+        # the fastest way to lose trust -- the Leonardo/BIDEC-2017 card dated 2026. Flag only
+        # when the CONTENT is unambiguously old: the newest year across the quotes is >=3
+        # years before the article's own year, so a single stale background reference in an
+        # otherwise-current story is not enough to drop it.
+        cy = content_year_max(props)
+        if cy is not None and cy <= ymd[0] - 3:
+            stats["cstale"] = stats.get("cstale", 0) + 1
+            continue
         if not is_relevant(patterns, title, props):
             stats["offtopic"] += 1
             continue
@@ -631,7 +904,7 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
             cur.execute("DELETE FROM serving.signal_seen WHERE document_id=%s", (did,))
             con.commit()
             continue
-        card = parse_card(raw, cats)
+        card = parse_card(raw, cats, props, comp_patterns, known_rx)
         if card is None:
             stats["none"] += 1
             continue
@@ -649,6 +922,12 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         if is_dup(seen, card["company"], card["title"]):
             stats["dup"] += 1
             continue
+        mkey = money_key(card["company"], "%s %s" % (card["title"], card["sowhat"]), known_rx)
+        if mkey and mkey in seen_money:
+            stats["dup"] += 1              # same company + same dollar figure = same event
+            continue
+        if mkey:
+            seen_money.add(mkey)
         seen.append((card["company"].casefold(), title_tokens(card["title"])))
         lane = LANE[card["pillar"]]
         ord_next = ords[lane]
@@ -707,6 +986,7 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
     if verbose:
         print("done: %(cards)d card(s) written, %(none)d judged not-a-signal, "
               "%(thin)d without propositions, %(stale)d dated too old, "
+              "%(cstale)d stale-content, "
               "%(undated)d with no provable date, %(offtopic)d off-portfolio, "
               "%(dup)d duplicate stor(ies), %(client_news)d client-news (not competitive), "
               "%(listing)d listing page(s), %(suppressed)d suppressed, "
@@ -717,44 +997,44 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
 def _demo():
     cats = ["Artillery", "Ammunition"]
     ok = parse_card('{"pillar":"competitive","title":"T","company":"C",'
-                    '"category":"Artillery","dir":"threat","sowhat":"S"}', cats)
+                    '"category":"Artillery","dir":"threat","sowhat":"Saab delivered 12 M4 guns."}', cats)
     assert ok and ok["dir"] == "threat"
     # prose around the JSON is tolerated; garbage inside it is not
     assert parse_card('Sure! {"pillar":"market","title":"T","company":"C",'
-                      '"category":"Artillery","dir":"watch","sowhat":"S"} '
+                      '"category":"Artillery","dir":"watch","sowhat":"Saab delivered 12 M4 guns."} '
                       'hope that helps', cats)
     assert parse_card("NONE", cats) is None
     assert parse_card("", cats) is None
     assert parse_card('{"title":"T"}', cats) is None, "missing fields refuse"
     assert parse_card('{"pillar":"competitive","title":"T","company":"C",'
-                      '"category":"Lasers","dir":"watch","sowhat":"S"}', cats) is None,         "invented category refuses"
+                      '"category":"Lasers","dir":"watch","sowhat":"Saab delivered 12 M4 guns."}', cats) is None,         "invented category refuses"
     bad_dir = parse_card('{"pillar":"technology","title":"T","company":"C",'
-                         '"category":"Ammunition","dir":"URGENT","sowhat":"S"}', cats)
+                         '"category":"Ammunition","dir":"URGENT","sowhat":"Saab delivered 12 M4 guns."}', cats)
     assert bad_dir and bad_dir["dir"] == "watch", "unknown dir falls to watch, not to threat"
     # audit H4: one identity, one organization, never a bare country
     bf = parse_card('{"pillar":"technology","title":"T","company":"Bharat Forge Limited",'
-                    '"category":"Artillery","dir":"watch","sowhat":"S"}', cats)
+                    '"category":"Artillery","dir":"watch","sowhat":"Saab delivered 12 M4 guns."}', cats)
     assert bf and bf["company"] == "Kalyani Strategic Systems",         "the card company is canonicalised at the parser, not at the writer"
     assert parse_card('{"pillar":"competitive","title":"T","company":"Arquus and Daimler '
-                      'Truck","category":"Artillery","dir":"watch","sowhat":"S"}',
+                      'Truck","category":"Artillery","dir":"watch","sowhat":"Saab delivered 12 M4 guns."}',
                       cats) is None, "two orgs jammed into one company field refuse"
     for bare in ("Thailand", "Australia", "India", "United States"):
         assert parse_card('{"pillar":"market","title":"T","company":"%s",'
-                          '"category":"Artillery","dir":"watch","sowhat":"S"}' % bare,
+                          '"category":"Artillery","dir":"watch","sowhat":"Saab delivered 12 M4 guns."}' % bare,
                           cats) is None, "a bare country is not the acting organization"
     agency = parse_card('{"pillar":"market","title":"T","company":"US Department of '
-                        'State","category":"Artillery","dir":"watch","sowhat":"S"}', cats)
+                        'State","category":"Artillery","dir":"watch","sowhat":"Saab delivered 12 M4 guns."}', cats)
     assert agency, "a NAMED agency is still a valid market-signal actor"
     # a force/ministry is a MARKET actor (a buyer), never a rival maker on the COMPETITIVE
     # or TECHNOLOGY surface (the U.S. Army card the UI showed was filed under technology)
     for body in ("U.S. Army", "Indian Army", "Ministry of Defence", "Pentagon"):
         for rival_pillar in ("competitive", "technology"):
             assert parse_card('{"pillar":"%s","title":"T","company":"%s",'
-                              '"category":"Artillery","dir":"threat","sowhat":"S"}'
+                              '"category":"Artillery","dir":"threat","sowhat":"Saab delivered 12 M4 guns."}'
                               % (rival_pillar, body), cats) is None, \
                 "gov/military body is not a rival maker (%s): %s" % (rival_pillar, body)
         assert parse_card('{"pillar":"market","title":"T","company":"%s",'
-                          '"category":"Artillery","dir":"watch","sowhat":"S"}' % body,
+                          '"category":"Artillery","dir":"watch","sowhat":"Saab delivered 12 M4 guns."}' % body,
                           cats), "...but the same body IS a valid market actor: %s" % body
     # generic filler in sowhat is the prompt's own NONE case -- gated, not trusted
     assert parse_card('{"pillar":"market","title":"T","company":"Saab","category":"Artillery",'
@@ -815,13 +1095,13 @@ def _demo():
     assert not is_dup(seen, "Saab", "Saab and BrahMos explore joint missile marketing in Manila"),         "a different story about the same topic is not a dup"
     assert not is_dup(seen, "BrahMos Aerospace", "BrahMos opens new production line in Lucknow")
     ok2 = parse_card('{"pillar":"market","title":"T","company":"C","category":"Artillery",'
-                     '"dir":"watch","sowhat":"S"}', ["Artillery"])
+                     '"dir":"watch","sowhat":"Saab delivered 12 M4 guns."}', ["Artillery"])
     assert ok2 and ok2["pillar"] == "market"
     assert parse_card('{"pillar":"nonsense","title":"T","company":"C",'
-                      '"category":"Artillery","dir":"watch","sowhat":"S"}',
+                      '"category":"Artillery","dir":"watch","sowhat":"Saab delivered 12 M4 guns."}',
                       ["Artillery"]) is None, "invented pillar refuses, never coerces"
     assert parse_card('{"title":"T","company":"C","category":"Artillery",'
-                      '"dir":"watch","sowhat":"S"}', ["Artillery"]) is None,         "missing pillar refuses"
+                      '"dir":"watch","sowhat":"Saab delivered 12 M4 guns."}', ["Artillery"]) is None,         "missing pillar refuses"
     _, comp_rx = load_terms()
     assert order_group("Rheinmetall AG", comp_rx) == 0, "rivals lead"
     assert order_group("Kalyani Strategic Systems Limited", comp_rx) == 1, "client is not a rival"

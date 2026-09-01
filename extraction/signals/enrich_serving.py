@@ -273,10 +273,17 @@ def company_mentions(aliases, docs, props_by_doc):
     """-> (doc_ids, props_with_url) where any alias word-boundary-matches the title
     or a proposition subject/object."""
     rxs = [word_rx(a) for a in aliases]
+    # A company whose only handles are short acronyms (<=4 chars, e.g. "AAE") collides with
+    # unrelated uses of the same letters -- "AAE" the UAE wiring maker vs "AAE" = Armee de
+    # l'Air et de l'Espace, the French air force. For an acronym-only company, refuse a doc
+    # that is itself about an armed force, so a Reaper deployment can't contaminate the profile.
+    short_only = bool(aliases) and all(len(str(a).strip()) <= 4 for a in aliases)
     hit_docs, hit_props = [], []
     for did, prs in props_by_doc.items():
         d = docs.get(did)
         if d is None:
+            continue
+        if short_only and is_force(d["title"] or ""):
             continue
         doc_hit = any(rx.search((d["title"] or "").lower()) for rx in rxs)
         doc_props = []
@@ -299,6 +306,10 @@ statements about "%s", each with its supporting quote.
 
 If "%s" is NOT a company (a country, government, ministry, armed force) or the
 statements are too thin to profile it, reply exactly: NONE
+If the statements appear to describe MORE THAN ONE organization sharing this name -- e.g.
+a company AND an armed force, air force, navy or government body that share an acronym --
+use ONLY the statements clearly about the defence COMPANY and ignore the rest; if you
+cannot tell which statements are about the company, reply exactly: NONE
 
 Otherwise reply with ONLY this JSON (no prose around it):
 {"sector": "<its defence sector(s), stated or directly evident in the statements, else null>",
@@ -1510,13 +1521,13 @@ def step_matchups(cur, con, docs, props_by_doc, limit=None):
                 skipped_nospec += 1
                 continue
             n += 1
-            reason = ("<b>%s</b> (%s) appears in the extracted corpus as a %s-category "
-                      "product (keyword-matched to the KSSL portfolio). %s The "
-                      "statements below are the corpus evidence; no spec-level "
-                      "comparison is asserted beyond what they state."
-                      % (esc(product), esc(p["name"]), esc(cat_label[band]),
-                         ("KSSL's counter in this category is <b>%s</b>."
-                          % esc(anchor)) if anchor else ""))
+            # Reason is user-facing: state the comparison factually, never pipeline
+            # self-narration ("keyword-matched", "appears in the corpus"). The sourced
+            # evidence lives in `det`; the specs table carries the numbers.
+            reason = ("<b>%s</b> (%s) is a %s-category system."
+                      % (esc(product), esc(p["name"]), esc(cat_label[band]))
+                      + ((" KSSL fields <b>%s</b> in this category." % esc(anchor))
+                         if anchor else ""))
             cur.execute("""INSERT INTO serving.matchup
                              (matchup_id, cat, anchor, "global", dir, country, comp,
                               "compBy", bf, "bfBy", ks_thin, reason, edge, specs,
