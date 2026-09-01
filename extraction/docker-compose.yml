@@ -25,6 +25,12 @@ services:
     network_mode: host
     command: ["worker"]
     restart: unless-stopped
+    # Queue-mode parallelism = container replicas (run_node --workers is a no-op in --node mode;
+    # each replica claims its own docs via FOR UPDATE SKIP LOCKED). 45 saturates the 9-node farm
+    # extraction pool and stays under kssl-db max_connections=60 (45 workers + ~8 service conns).
+    # `docker compose up -d` honors this, so CI redeploys keep the scale instead of dropping to 1.
+    deploy:
+      replicas: 45
 
   # The feeder: sync new corpus docs -> enqueue (presignal gate) -> reap expired leases, on a timer.
   feeder:
