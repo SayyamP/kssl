@@ -21,7 +21,6 @@ frontend/node_modules/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
-extraction/worklist.json
 extraction/sel_3000.json
 
 # os

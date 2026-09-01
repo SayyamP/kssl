@@ -40,6 +40,21 @@ for c in kssl-frontend kssl-backend; do
   fi
 done
 
+# --- Extraction stack (its own compose project, network_mode: host) -------------
+# Rebuild the image from the just-synced source and recreate the roles. `up -d` only
+# recreates containers whose image actually changed, so a push that didn't touch
+# extraction/ is a no-op. Preserve the live worker count -- a bare `up -d` resets the
+# `worker` service to 1 replica and would kill the rest of the fleet. restart:
+# unless-stopped + the feeder's lease reaping make a rolling recreate safe (in-flight
+# leases expire and requeue).
+if [ -f extraction/docker-compose.yml ]; then
+  echo ">> extraction: rebuild + recreate (preserving worker scale)"
+  WN=$(docker ps --filter "name=extraction-worker" -q | wc -l | tr -d ' ')
+  [ "${WN:-0}" -lt 1 ] && WN=1
+  ( cd extraction && docker compose build && docker compose up -d --scale worker="$WN" ) \
+    || echo "!! extraction recreate reported an error — see 'docker compose -f extraction/docker-compose.yml logs'"
+fi
+
 docker image prune -f >/dev/null 2>&1 || true
 echo ">> deployed $SHA OK"
 "${COMPOSE[@]}" ps frontend backend

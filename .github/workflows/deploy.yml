@@ -16,6 +16,7 @@ on:
       - "backend/**"
       - "bench/**"
       - "pipeline/**"
+      - "extraction/**"
       - "db/**"
       - "docker-compose*.yml"
       - "deploy/**"
@@ -47,6 +48,7 @@ jobs:
     needs: resolve
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         include:
           - service: frontend
@@ -55,6 +57,9 @@ jobs:
           - service: backend
             context: .
             dockerfile: ./backend/Dockerfile
+          - service: extraction
+            context: ./extraction
+            dockerfile: ./extraction/Dockerfile
     steps:
       - uses: actions/checkout@v4
         with:
