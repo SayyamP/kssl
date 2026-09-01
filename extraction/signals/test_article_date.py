@@ -44,9 +44,12 @@ check("asdnews /2026/07/13/ (the reported bug)",
 check("https + no www",
       url_date("https://asdnews.com/news/defense/2025/10/08/red-cat-introduces-fang"),
       (2025, 10, 8))
-check("wordpress /2026/06/ style with day",
+# WordPress's default permalink has no day. Reading it as month precision is
+# the point of the fix: 35 cards showed "Jul 2026" for analisidifesa.it stories
+# published between 2017 and 2026 because this shape returned None.
+check("wordpress /YYYY/MM/ -> month precision",
       url_date("https://breakingdefense.com/2026/06/rheinmetall-vantor-plan-joint-isr/"),
-      None)                                   # month-only path: not a full date
+      (2026, 6, None))
 check("dashed 2026-07-13",
       url_date("https://example.com/news/2026-07-13/some-story"), (2026, 7, 13))
 check("date at end of path",
@@ -57,8 +60,12 @@ check("no date in path", url_date("https://example.com/news/some-story"), None)
 check("year only", url_date("https://example.com/2026/some-story"), None)
 check("compact id 20260713 is not a date",
       url_date("https://example.com/news/20260713/story"), None)
-check("month 13 rejected", url_date("https://example.com/2026/13/01/x"), None)
-check("day 32 rejected", url_date("https://example.com/2026/07/32/x"), None)
+check("month 13 rejected outright", url_date("https://example.com/2026/13/01/x"), None)
+check("month-precision needs a real month too",
+      url_date("https://example.com/2026/13/x"), None)
+# An impossible day is not a day; the year/month in the same path still are.
+check("day 32 falls back to the month", url_date("https://example.com/2026/07/32/x"),
+      (2026, 7, None))
 check("day 00 rejected", url_date("https://example.com/2026/00/07/x"), None)
 check("a date in the QUERY is a filter, not a byline",
       url_date("https://example.com/list?d=2026/07/13"), None)

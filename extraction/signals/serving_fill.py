@@ -36,6 +36,9 @@ from aliases import (  # noqa: E402  (shared identity layer)
     canonical as canon_name, client_led, fold as fold_name, is_client, is_force, is_one_org,
 )
 from llmapi import client as llm_client  # noqa: E402  (every model call goes through the API)
+import corpus  # noqa: E402  (the article's stored markup, one fetch per card)
+from article_date import pick_date as pick_html_date  # noqa: E402
+from article_image import resolve_image  # noqa: E402
 
 DSN = os.environ.get("KSSL_DSN", "host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl")
 # NOT used by this module any more -- every model call here goes through the LLM API.
@@ -346,17 +349,31 @@ def _ml_month(tok):
 # a slug like "top-10-of-2026" or an id "20260713" cannot match.
 _URL_DATE = re.compile(r"/(20\d{2})[/-](0[1-9]|1[0-2])[/-](0[1-9]|[12]\d|3[01])(?=[/-]|$)")
 
+# WordPress's default permalink is /YYYY/MM/slug -- no day. Missing this shape
+# left 35 cards showing "Jul 2026" for analisidifesa.it stories published as far
+# back as September 2017: the day pattern did not match, so the fetch-stamped
+# published_at was used instead. Month precision is enough -- the card renders
+# "Sep 2017" and the recency gate compares year and month anyway.
+_URL_YM = re.compile(r"/(20\d{2})[/-](0[1-9]|1[0-2])(?=/|$)")
+
 
 def url_date(url):
-    """-> (y, m, d) from the article's own URL path, or None."""
+    """-> (y, m, d) or (y, m, None) from the article's own URL path, or None.
+
+    Day precision is tried first: it is the more specific shape, and a
+    /2026/07/13/ path would otherwise match the month pattern and lose the day.
+    """
     if not url:
         return None
     # Query and fragment are not the path; ?date=... is a filter, not a byline.
     path = url.split("#", 1)[0].split("?", 1)[0]
     m = _URL_DATE.search(path)
-    if not m:
-        return None
-    return int(m.group(1)), int(m.group(2)), int(m.group(3))
+    if m:
+        return int(m.group(1)), int(m.group(2)), int(m.group(3))
+    m = _URL_YM.search(path)
+    if m:
+        return int(m.group(1)), int(m.group(2)), None
+    return None
 
 
 def is_fetch_fallback(published_at, fetched_at):
@@ -383,14 +400,39 @@ def is_fetch_fallback(published_at, fetched_at):
     return published_at[11:19] in ("00:00:00", "")
 
 
+def card_image(did, page_url):
+    """The article's lead image, or None. Never raises.
+
+    Reads the same stored markup article_date() reads -- corpus.fetch_html holds
+    one connection, so asking for both costs one round-trip per card, not two.
+    A card without a picture is not broken; the UI has an empty state. So a
+    corpus outage costs the picture, never the card.
+    """
+    try:
+        url, html = corpus.fetch_html(did)
+        if not html:
+            return None
+        return resolve_image(html, url or page_url or "", timeout=10)
+    except Exception as e:                                    # noqa: BLE001
+        print("  image lookup failed for %s: %s" % (did, e), flush=True)
+        return None
+
+
 def article_date(cur, did, today_ym=None):
     """-> (y, m|None, d|None): when the article was published, or None.
 
     Sources in order of how much they can be trusted:
-      1. the date in the article's own URL path -- publisher-generated
-      2. `published_at`, unless it is only the fetch time in disguise
-      3. Date spans in the body, earliest first (the publication date leads
-         the page)
+      1. what the ARTICLE'S OWN MARKUP declares -- article:published_time,
+         JSON-LD datePublished, Dublin Core. The publisher's machine-readable
+         statement about the page, and it needs no site-specific rule.
+      2. the date in the article's own URL path -- also publisher-generated,
+         and the fallback for CMSs that declare nothing (measured: it covers
+         the analisidifesa.it archive, which states no metadata at all)
+      3. `published_at` from the crawler, unless it is the fetch stamp in
+         disguise. It is NOT proven: on asdnews the crawler scraped
+         `<time id="current-date">`, the navbar clock, so it equalled the day
+         we crawled.
+      4. Date spans in the body, earliest first
 
     A date in the FUTURE cannot be a publication date -- '2027 delivery' and
     '2040 vision' spans are forecasts -- so those are skipped and the scan
@@ -410,16 +452,23 @@ def article_date(cur, did, today_ym=None):
     row = cur.fetchone()
     url, pub, fetched = (row[0], row[1], row[2]) if row else (None, None, None)
 
-    # 1. The URL path. Publisher-generated, and the only date here that nothing
-    #    had to parse out of prose or metadata.
-    ymd = url_date(url)
+    # 1. The publisher's own declaration, read out of the stored markup. Costs a
+    #    corpus round-trip, which is shared with the card's image lookup.
+    html_url, html = corpus.fetch_html(did)
+    if html:
+        ymd = pick_html_date(html, html_url or url)
+        if usable(ymd):
+            return ymd
+
+    # 2. The URL path.
+    ymd = url_date(url or html_url)
     if usable(ymd):
         return ymd
 
-    # 2. published_at, unless it is the fetch stamp wearing a publication date's
-    #    clothes. `fetched_at` is carried into meta by sync_documents.py; when it
-    #    is absent (documents synced before that) the check simply cannot fire
-    #    and behaviour is exactly as it was.
+    # 3. published_at, unless it is the fetch stamp wearing a publication date's
+    #    clothes. `fetched_at` is carried into meta by store_pg; when it is
+    #    absent (documents extracted before that) the check cannot fire and
+    #    behaviour is exactly as it was.
     if pub and not is_fetch_fallback(pub, fetched):
         # ISO timestamps arrive as 2026-08-25T14:03:11Z; the T has to go or the
         # parser reads the year and month and drops the day.
@@ -516,13 +565,41 @@ def is_listing(url):
     # pass each before being refused here.
     for seg in ("/tag/", "/category/", "/label/", "/author/", "/authors/",
                 "/topic/", "/topics/", "/section/", "/archive/", "/archives/",
-                "/search/", "/page/"):
+                "/search/", "/page/",
+                # A per-organisation index is a tag page wearing a company name.
+                # asdnews.com/company/104104/hanwha-aerospace-europe put THREE
+                # cards on the dashboard, each citing a source that opens a list
+                # of headlines rather than a story -- and one merged two separate
+                # articles ("Arion-SMET UGV", "K9PL howitzers") into a single
+                # claim, which is exactly what a listing page makes a summariser
+                # do, and what this gate exists to prevent.
+                "/company/", "/companies/", "/organisation/", "/organisations/",
+                "/organization/", "/organizations/", "/supplier/", "/suppliers/",
+                "/vendor/", "/vendors/", "/profile/", "/profiles/"):
         if seg in low + "/":
             return True
     if "page=" in (u.query or "").lower():
         return True
     last = low.rsplit("/", 1)[-1]
-    return last in ("news", "media", "press", "press-releases") or last.endswith("-in-media")
+    return last in ("news", "media", "press", "press-releases", "newsroom",
+                    "press-room", "media-centre", "media-center") \
+        or last.endswith("-in-media")
+
+
+# The publisher naming its own page an index. Independent of the URL, so it
+# catches a listing at a path no pattern anticipated -- the failure mode a
+# URL-only rule always eventually has.
+_INDEX_TITLE = re.compile(
+    r"news\s*(?:&(?:amp;)?|and)\s*press\s*releases"
+    r"|press\s*releases?\s*(?:&(?:amp;)?|and)\s*news"
+    r"|\bnews\s+archive\b|\ball\s+news\b|\blatest\s+news\b"
+    r"|\bnews\s*(?:&(?:amp;)?|and)\s*events\b"
+    r"|\bnewsroom\b|\bpress\s*room\b|\bmedia\s*cent(?:er|re)\b", re.I)
+
+
+def is_index_title(title):
+    """True when the page's own <title> says it is a list, not a story."""
+    return bool(title and _INDEX_TITLE.search(title))
 
 
 def suppressed_ids():
@@ -903,7 +980,7 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         ords[lane] = cur.fetchone()[0] + 1
     stats = {"cards": 0, "none": 0, "thin": 0, "bad": 0, "stale": 0, "cstale": 0,
              "offtopic": 0, "undated": 0, "dup": 0, "client_news": 0, "listing": 0,
-             "suppressed": 0}
+             "suppressed": 0, "images": 0}
     patterns, comp_patterns = load_terms()
     cutoff, cur_year = recent_cutoff()
     LANE = {"competitive": "competitive", "market": "market", "technology": "tech"}
@@ -939,7 +1016,12 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         if not props:
             stats["thin"] += 1
             continue
-        if is_listing(url):
+        # A listing is caught by its URL shape OR by the publisher naming its own
+        # page an index ("... News & Press Releases"). The title check exists
+        # because a URL-only rule always eventually meets a listing at a path
+        # nobody anticipated -- which is how three /company/<id> pages became
+        # cards, one of them merging two unrelated articles into a single claim.
+        if is_listing(url) or is_index_title(title):
             stats["listing"] += 1
             continue
         ymd = article_date(cur, did)
@@ -1007,22 +1089,29 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         sec = [{"lens": "EVIDENCE",
                 "read": esc("%s %s %s -- \"%s\"" % (s, p, o, clip(q, 200)))}
                for s, p, o, _m, q in props[:3]]
+        img = card_image(did, url)
+        if img:
+            stats["images"] += 1
         cur.execute("""INSERT INTO serving.signal_card
                          (id, lane, ord, dir, rank, title, meta, company, lens, sowhat, sec,
-                          url, ago, tags, origin)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                          url, ago, tags, image, origin)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                                'pipeline')
                        ON CONFLICT (id) DO UPDATE SET
                          lane=EXCLUDED.lane, dir=EXCLUDED.dir, title=EXCLUDED.title,
                          meta=EXCLUDED.meta, company=EXCLUDED.company,
                          sowhat=EXCLUDED.sowhat, sec=EXCLUDED.sec, url=EXCLUDED.url,
-                         ago=EXCLUDED.ago, tags=EXCLUDED.tags, updated_at=now()""",
+                         ago=EXCLUDED.ago, tags=EXCLUDED.tags,
+                         -- a run that cannot reach the corpus must not wipe a
+                         -- picture an earlier run already proved good
+                         image=coalesce(EXCLUDED.image, serving.signal_card.image),
+                         updated_at=now()""",
                     (cid, lane, ord_next, card["dir"], str(ord_next).zfill(2),
                      esc(card["title"]),
                      esc("%s · %s · from %s" % (card["category"], company_chip, source)),
                      esc(card["company"]), card["pillar"].capitalize(),
                      esc(card["sowhat"]), json.dumps(sec), url,
-                     ago_of(ymd[:2]), card["category"]))
+                     ago_of(ymd[:2]), card["category"], img))
         facts = [["Company", esc(card["company"])], ["Category", card["category"]],
                  ["Date", date_label(ymd)],
                  ["Primary lens", card["pillar"].capitalize()]]
