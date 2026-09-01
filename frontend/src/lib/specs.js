@@ -25,8 +25,8 @@ function specRow(s, compName) {
     return (
       `<div class="specbar"><div class="sb-label">${s.l}${s.u ? ` <span class="sb-unit">(${s.u})</span>` : ""}</div>` +
       '<div class="sb-pair">' +
-      `<div class="sb-side comp"><span class="sb-who">${compName || "Competitor"}</span><span class="sb-num">${s.cv}${dot(cpv)}</span></div>` +
       `<div class="sb-side bf"><span class="sb-who">KSSL</span><span class="sb-num">${s.kv}${dot(kpv)}</span></div>` +
+      `<div class="sb-side comp"><span class="sb-who">${compName || "Competitor"}</span><span class="sb-num">${s.cv}${dot(cpv)}</span></div>` +
       "</div></div>"
     );
   }
@@ -63,15 +63,15 @@ function specRow(s, compName) {
   return (
     '<div class="specbar">' +
     `<div class="sb-label">${s.l}${s.u ? ` <span class="sb-unit">(${s.u})</span>` : ""}${parityTag}${dirNote}</div>` +
-    `<div class="sb-cmprow${compWin ? " win" : ""}">` +
-    `<span class="sb-who comp">${compName || "Competitor"}</span>` +
-    `<div class="sb-track"><div class="sb-fill comp${compWin ? ` win ${tier}` : ""}" style="width:${cw}%"></div></div>` +
-    `<span class="sb-val${compWin ? " win" : ""}">${s.cv}${dot(cpv)}${badge(compWin)}</span>` +
-    "</div>" +
     `<div class="sb-cmprow${bfWin ? " win" : ""}">` +
     '<span class="sb-who bf">KSSL</span>' +
     `<div class="sb-track"><div class="sb-fill bf${bfWin ? ` win ${tier}` : ""}" style="width:${kw}%"></div></div>` +
     `<span class="sb-val${bfWin ? " win" : ""}">${s.kv}${dot(kpv)}${badge(bfWin)}</span>` +
+    "</div>" +
+    `<div class="sb-cmprow${compWin ? " win" : ""}">` +
+    `<span class="sb-who comp">${compName || "Competitor"}</span>` +
+    `<div class="sb-track"><div class="sb-fill comp${compWin ? ` win ${tier}` : ""}" style="width:${cw}%"></div></div>` +
+    `<span class="sb-val${compWin ? " win" : ""}">${s.cv}${dot(cpv)}${badge(compWin)}</span>` +
     "</div>" +
     "</div>"
   );
@@ -171,7 +171,8 @@ export function specPanelHtml(m) {
           ? "KSSL values are shown where known, but no directly comparable measured dimension exists between these two products, so no edge index is computed."
           : "KSSL has not publicly disclosed specs for its counterpart, so each KSSL value is marked undisclosed and no spec-level edge is computed."
       }</div></div>`;
-    h += `<div class="sb-sect">Competitor specifications <span class="sb-sect-note">— sourced</span></div>`;
+    h += `<div class="sb-legend"><span class="sb-key"><i class="k-comp"></i> ${compName.split(" ")[0]}</span><span class="sb-key"><i class="k-bf"></i> KSSL</span></div>`;
+    h += `<div class="sb-sect">Competitor specifications <span class="sb-sect-note">— sourced; ${anyKnown ? "not like-for-like with KSSL" : "KSSL undisclosed"}</span></div>`;
     h += specs
       .map((s) => {
         /* This branch renders most matchups (no computable edge), so the source
@@ -184,7 +185,7 @@ export function specPanelHtml(m) {
           : '<div class="sb-chip comp undisc">not sourced</div>';
         const kChip = kvKnown(s)
           ? `<div class="sb-chip bf">${s.kv}${dot}</div>`
-          : '<div class="sb-chip bf undisc">not published</div>';
+          : '<div class="sb-chip bf undisc">KSSL — not sourced</div>';
         return (
           `<div class="specbar"><div class="sb-label">${s.l}</div><div class="sb-text">` +
           `<div class="sb-cell">${cChip}${cKnown ? srcLine(s.srcC, s.whyC, s.tierC) : ""}</div>` +

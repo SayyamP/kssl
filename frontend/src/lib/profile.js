@@ -130,16 +130,7 @@ export function buildProfile(d, cid) {
     });
   const sources = Object.values(srcMap);
 
-  /* Leadership arrives in two shapes: the pipeline's {value,detail,url,line} and the
-     agent-harvested {name,role,src}. Normalize both to the {value,detail,url} the
-     profile view reads, so every competitor's officers render with their source. */
-  const leadership = (Array.isArray(c.leadership) ? c.leadership : [])
-    .map((r) =>
-      r && (r.name || r.value)
-        ? { value: r.value || r.name, detail: r.detail || r.role || "", url: r.url || r.src || "" }
-        : null,
-    )
-    .filter(Boolean);
+  const leadership = sourcedRows(c, "leadership");
   const facilitiesRows = sourcedRows(c, "facilities");
   const salesRows = sourcedRows(c, "sales");
 

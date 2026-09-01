@@ -1,5 +1,7 @@
   /* ===== POSITIONING VIEW — MATCHUP DOSSIER ===== */
-  .pos-view{grid-column:2 / span 2;display:grid;grid-template-columns:340px 1fr;overflow:hidden;min-height:0;transition:grid-template-columns .26s cubic-bezier(.22,.61,.36,1)}
+  .pos-view{grid-column:2 / span 2;display:grid;grid-template-columns:420px 1fr;overflow:hidden;min-height:0;transition:grid-template-columns .26s cubic-bezier(.22,.61,.36,1)}
+  .pos-view.no-sel{grid-template-columns:1fr 0px}
+  .pos-view.no-sel .mu-dossier{display:none}
   .pos-view.has-sel .mu-dossier{animation:panelSlideWide .42s cubic-bezier(.22,.61,.36,1)}
 
   /* left: competitor product list, grouped by category (dark, like nav) */
@@ -11,7 +13,7 @@
   .mu-search input{flex:1;background:transparent;border:none;outline:none;color:var(--d-txt);font-family:var(--mono);font-size:11px;padding:8px 10px}
   .mu-search input::placeholder{color:var(--d-txt-4)}
   .mu-search .si{padding:0 10px;color:var(--d-txt-4);font-size:12px}
-  .mu-filters{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:9px}
+  .mu-filters{display:flex;gap:7px;margin-top:9px}
   .mu-fsel{flex:1;min-width:0;background:var(--d-bg-1);border:1px solid var(--d-line-2);color:var(--d-txt-2);font-family:var(--mono);font-size:10px;letter-spacing:.04em;padding:7px 8px;outline:none;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'><path d='M1 2l3 3 3-3' stroke='%2390908c' fill='none' stroke-width='1.2'/></svg>");background-repeat:no-repeat;background-position:right 8px center;padding-right:22px}
   .mu-fsel:hover{border-color:var(--d-txt-4);color:var(--d-txt)}
   .mu-cat{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--d-txt-3);padding:11px 18px 11px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;border-bottom:1px solid var(--d-line);transition:color .12s,background .12s;user-select:none}
@@ -26,7 +28,7 @@
   .mu-group.collapsed{display:none}
 
   /* dossier tabs */
-  .mu-tabs{position:sticky;top:0;display:flex;border-bottom:1px solid var(--l-line);background:var(--l-bg-1);padding:0 22px;gap:0;flex-shrink:0;width:100%;box-sizing:border-box;z-index:2}
+  .mu-tabs{position:relative;display:flex;border-bottom:1px solid var(--l-line);background:var(--l-bg-1);padding:0 22px;gap:0;flex-shrink:0;width:100%;box-sizing:border-box;z-index:2}
   .mu-tab{font-family:var(--mono);font-size:12.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--l-txt-3);padding:12px 16px;cursor:pointer;border-bottom:2px solid transparent;transition:.12s;margin-bottom:-1px}
   .mu-tab:hover{color:var(--l-txt)}
   .mu-tab.on{color:var(--l-txt);border-bottom-color:var(--l-txt)}
@@ -56,9 +58,9 @@
   .sb-cmprow{display:grid;grid-template-columns:64px 1fr auto;align-items:center;gap:9px;margin:4px 0;padding:2px 4px;border-radius:4px}
   .sb-cmprow.win{background:transparent}
   .sb-who{font-size:9.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--d-txt-3);font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .sb-who.bf{color:#1f6e45}.sb-who.comp{color:#b5341f}
-  .sb-lead{display:inline-block;margin-left:7px;font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;font-weight:700;color:#3b8d5c;background:rgba(59,141,92,0.16);padding:1px 6px;border-radius:4px;vertical-align:1px}
-  .sb-cmprow.win .sb-who.comp ~ .sb-val .sb-lead{color:#c08a2b;background:rgba(192,138,43,0.16)}
+  .sb-who.bf{color:#3b8d5c}.sb-who.comp{color:#c08a2b}
+  .sb-lead{display:inline-block;margin-left:7px;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;font-weight:700;color:#3b8d5c;background:rgba(59,141,92,0.16);padding:1px 6px;border-radius:4px;vertical-align:1px}
+  .sb-cmprow.win .sb-who.comp ~ .sb-val .sb-lead,.sb-val.win .sb-lead{color:#c08a2b;background:rgba(192,138,43,0.16)}
   .sb-parity{display:inline-block;margin-left:8px;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;font-weight:600;color:#ffffff;background:#64748b;padding:1px 6px;border-radius:4px}
   .sb-dir{display:inline-block;margin-left:8px;font-size:8.5px;letter-spacing:.02em;color:var(--d-txt-4);font-style:italic}
   .sb-pair{display:flex;gap:10px;margin-top:5px}
@@ -68,12 +70,12 @@
   .sb-fill{height:100%;transition:width .5s cubic-bezier(.22,.61,.36,1)}
   .sb-fill.comp{background:#d99a8e}.sb-fill.comp.win{background:#b5341f}
   .sb-fill.bf{background:#8fc4a8}.sb-fill.bf.win{background:#1f6e45}
-  .sb-val{font-family:var(--mono);font-size:11px;color:var(--l-txt-2);min-width:96px;max-width:170px;text-align:right}
+  .sb-val{font-family:var(--mono);font-size:11px;color:var(--l-txt-2);min-width:96px;max-width:96px;text-align:left}
   .sb-val.win{color:var(--l-txt);font-weight:700}
   .sb-text{display:flex;gap:8px}
   .sb-chip{flex:1;font-size:11px;padding:6px 9px;background:var(--l-bg-2);color:var(--l-txt-2);line-height:1.4}
   .sb-chip.comp{border-left:2px solid #b5341f}.sb-chip.bf{border-left:2px solid #1f6e45}
-  .sb-chip.undisc{color:var(--l-txt-3);font-style:italic;background:repeating-linear-gradient(45deg,var(--l-bg-2),var(--l-bg-2) 6px,transparent 6px,transparent 12px)}
+  .sb-chip.bf.undisc{color:var(--l-txt-3);font-style:italic;background:repeating-linear-gradient(45deg,var(--l-bg-2),var(--l-bg-2) 6px,transparent 6px,transparent 12px)}
   /* Provenance under each value. Every number about a real weapon names the
      publisher that stated it, and each publisher is a link the reader can open. */
   .sb-cell{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
@@ -147,7 +149,7 @@
 
   /* advantages two-column */
   .adv-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--l-line);position:relative;width:100%;box-sizing:border-box}
-  .adv-col{background:var(--l-bg);padding:15px 22px}
+  .adv-col{background:var(--l-bg);padding:15px 16px}
   .adv-col .ah{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px;display:flex;align-items:center;gap:7px}
   .adv-col.comp .ah{color:var(--threat)}
   .adv-col.bf .ah{color:var(--fav)}

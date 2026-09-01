@@ -2,7 +2,7 @@
    Positioning and Partnerships views so the three read as one product; only the right
    pane is new. */
 
-.v-profile{grid-template-columns:340px 1fr}
+.v-profile{grid-template-columns:300px 1fr}
 .cp-body{grid-column:2;overflow-y:auto;background:var(--d-bg);padding-bottom:40px}
 
 .cp-head{padding:20px 24px 18px;border-bottom:1px solid var(--d-line);background:var(--d-bg-1)}
@@ -539,4 +539,3 @@
 .cp-meta-tk{font-family:var(--mono);font-size:12px;color:var(--d-txt-3);font-weight:600;
   text-transform:uppercase;letter-spacing:.06em;white-space:nowrap}
 .cp-meta-tv{color:var(--d-txt);font-weight:600}
-

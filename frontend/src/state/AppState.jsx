@@ -123,10 +123,6 @@ export function AppStateProvider({ children }) {
     [pending],
   );
 
-  /* Collapse the whole left rail — set when a company/product is opened so the
-     detail panel gets full width; a toggle in the rail brings it back. */
-  const [railCollapsed, setRailCollapsed] = useState(false);
-
   const value = useMemo(
     () => ({
       pillar,
@@ -141,10 +137,8 @@ export function AppStateProvider({ children }) {
       jumpTo,
       pending,
       takePending,
-      railCollapsed,
-      setRailCollapsed,
     }),
-    [pillar, view, setPillar, chatCtx, scoped, setScope, jumpTo, pending, takePending, railCollapsed],
+    [pillar, view, setPillar, chatCtx, scoped, setScope, jumpTo, pending, takePending],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
