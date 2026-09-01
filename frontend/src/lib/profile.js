@@ -153,6 +153,14 @@ export function buildProfile(d, cid) {
     sector: txt(c.sector),
     hq: txt(c.hq),
     site: c.site || "",
+    /* The 2026-09-01 columns. They have to be listed here or they stop at this
+       function: the Profile panel reads the profile object, not the raw competitor
+       row, so a column can pass the view AND the backend allowlist and still never
+       reach the screen. That is exactly the gap the hand-typed dossiers filled. */
+    starting_year: c.starting_year || null,
+    company_size: txt(c.company_size) || null,
+    strategic_positioning: txt(c.strategic_positioning) || null,
+    global_locations: c.global_locations || [],
     threat: c.threat || "",
     threatNote: txt(c.threatNote),
     /* assess and updates are HTML by design and are injected, not printed */
@@ -188,6 +196,15 @@ export function profileSelfCheck(d) {
   roster.forEach((r) => {
     const p = buildProfile(d, r.cid);
     if (!p.name) throw new Error(`profile: ${r.cid} built with no name`);
+    /* A column can clear the serving_live view AND the backend allowlist and still
+       stop here, because the panel reads this object rather than the raw row --
+       which is how the Profile page ended up with hand-typed company facts. If the
+       dataset carries a value and the profile does not, say so loudly. */
+    ["starting_year", "company_size", "strategic_positioning"].forEach((k) => {
+      const src = (d.competitors || {})[r.cid] || {};
+      if (src[k] != null && src[k] !== "" && p[k] == null)
+        throw new Error(`profile: ${r.cid}.${k} is in the dataset but dropped by buildProfile`);
+    });
     if (typeof p.updates !== "string")
       throw new Error(`profile: ${r.cid} updates is ${typeof p.updates}, not a string`);
     ["products", "matchups", "development", "cards", "partners", "presence", "patents", "sources"]
