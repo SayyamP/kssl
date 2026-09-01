@@ -217,7 +217,7 @@ services:
     container_name: kssl-tunnel-vpsa
     environment:
       REMOTE_NAME: vps-a
-      REMOTE_HOST: ${VPSA_SSH_HOST:?set VPSA_SSH_HOST in .env}
+      REMOTE_HOST: ${VPSA_SSH_HOST:-}   # inert unless the "hub" is configured
       REMOTE_USER: ${VPSA_SSH_USER:-root}
       REMOTE_PORT: ${VPSA_SSH_PORT:-22}
       TARGET: ${VPSA_TARGET:-127.0.0.1:11434}   # as seen FROM vps-a: its own loopback
@@ -226,7 +226,7 @@ services:
       TARGET2: ${VPSA_GLINER_TARGET:-127.0.0.1:8620}
       LOCAL_PORT2: ${VPSA_GLINER_TUNNEL_PORT:-11512}
     volumes:
-      - ${VPSA_SSH_KEY:?set VPSA_SSH_KEY in .env}:/keys/id_tunnel:ro
+      - ${VPSA_SSH_KEY:-/dev/null}:/keys/id_tunnel:ro
     restart: unless-stopped
     mem_limit: 64m
 
@@ -236,7 +236,7 @@ services:
     container_name: kssl-tunnel-dc
     environment:
       REMOTE_NAME: dc
-      REMOTE_HOST: ${DC_SSH_HOST:?set DC_SSH_HOST in .env}
+      REMOTE_HOST: ${DC_SSH_HOST:-}   # inert unless the "hub" is configured
       REMOTE_USER: ${DC_SSH_USER:-sysadmin}
       REMOTE_PORT: ${DC_SSH_PORT:-45632}
       # NOT the DC's loopback. kssl-extract-ollama publishes no port to its own host, so
@@ -247,7 +247,7 @@ services:
       TARGET2: ${DC_GLINER_TARGET:-127.0.0.1:8620}
       LOCAL_PORT2: ${DC_GLINER_TUNNEL_PORT:-11513}
     volumes:
-      - ${DC_SSH_KEY:?set DC_SSH_KEY in .env}:/keys/id_tunnel:ro
+      - ${DC_SSH_KEY:-/dev/null}:/keys/id_tunnel:ro
     restart: unless-stopped
     mem_limit: 64m
 
@@ -331,3 +331,4 @@ services:
 
 volumes:
   kssl_pgdata:
+  hf_models:   # GLiNER model cache; gliner is brought up out-of-band, deploy never recreates it
