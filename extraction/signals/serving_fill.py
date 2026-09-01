@@ -455,15 +455,19 @@ def article_date(cur, did, today_ym=None):
     # 1. The publisher's own declaration, read out of the stored markup. Costs a
     #    corpus round-trip, which is shared with the card's image lookup.
     html_url, html = corpus.fetch_html(did)
+    from_url = url_date(url or html_url)
     if html:
-        ymd = pick_html_date(html, html_url or url)
+        # The URL goes in as a cross-check, not a fallback: markup regenerated
+        # by a site migration can be confidently wrong (boeing.com dated a June
+        # 2024 mission update 2025-10-16), and the permalink is the one thing a
+        # CMS cannot rewrite without breaking its own links.
+        ymd = pick_html_date(html, html_url or url, url_ymd=from_url)
         if usable(ymd):
             return ymd
 
     # 2. The URL path.
-    ymd = url_date(url or html_url)
-    if usable(ymd):
-        return ymd
+    if usable(from_url):
+        return from_url
 
     # 3. published_at, unless it is the fetch stamp wearing a publication date's
     #    clothes. `fetched_at` is carried into meta by store_pg; when it is
@@ -489,11 +493,21 @@ def article_date(cur, did, today_ym=None):
 
 
 def date_label(ymd):
-    """(2026, 5, 28) -> '28 May 2026'; month/day degrade honestly."""
+    """(2026, 5, 28) -> '28 May 2026'; month/day degrade honestly.
+
+    Every date parser here validates the day as 1-31 without knowing the month,
+    so a page carrying `content="2026-02-30"` yields (2026, 2, 30) and this used
+    to raise ValueError -- inside the card loop, outside every try, killing the
+    whole serving run on one junk attribute. An impossible day is dropped to
+    month precision rather than trusted or thrown.
+    """
     y, m, d = ymd
     if m and d:
         import datetime
-        return datetime.date(y, m, d).strftime("%d %b %Y").lstrip("0")
+        try:
+            return datetime.date(y, m, d).strftime("%d %b %Y").lstrip("0")
+        except ValueError:
+            pass                       # 31 February and friends -> month only
     return ago_of((y, m))
 
 
@@ -564,7 +578,7 @@ def is_listing(url):
     # of other people's headlines. They reached extraction and cost a full model
     # pass each before being refused here.
     for seg in ("/tag/", "/category/", "/label/", "/author/", "/authors/",
-                "/topic/", "/topics/", "/section/", "/archive/", "/archives/",
+                "/topic/", "/topics/", "/section/",
                 "/search/", "/page/",
                 # A per-organisation index is a tag page wearing a company name.
                 # asdnews.com/company/104104/hanwha-aerospace-europe put THREE
@@ -578,28 +592,69 @@ def is_listing(url):
                 "/vendor/", "/vendors/", "/profile/", "/profiles/"):
         if seg in low + "/":
             return True
-    if "page=" in (u.query or "").lower():
-        return True
+    # `page=` as a WHOLE query parameter. Matching it as a substring rejected a
+    # real pixxel.space article whose tracking param merely ended "..._page=11".
+    for kv in (u.query or "").lower().split("&"):
+        if kv.split("=", 1)[0] in ("page", "paged", "p") and "=" in kv:
+            return True
     last = low.rsplit("/", 1)[-1]
+    # An archive INDEX ends at /archive; an archived ARTICLE lives beneath one.
+    # armyrecognition.com/archives/archives-land-defense/.../syria-... is a real
+    # story, and treating any /archive/ segment as a listing deleted the lot.
     return last in ("news", "media", "press", "press-releases", "newsroom",
-                    "press-room", "media-centre", "media-center") \
+                    "press-room", "media-centre", "media-center",
+                    "archive", "archives", "news.html", "news.aspx", "news.php",
+                    # non-English news indexes seen in the corpus: tr / fr / de / es
+                    "haberler", "urunler", "actualites", "nachrichten",
+                    "noticias", "actualidad") \
         or last.endswith("-in-media")
 
 
 # The publisher naming its own page an index. Independent of the URL, so it
 # catches a listing at a path no pattern anticipated -- the failure mode a
 # URL-only rule always eventually has.
-_INDEX_TITLE = re.compile(
+_INDEX_PHRASE = re.compile(
+    r"^(?:"
     r"news\s*(?:&(?:amp;)?|and)\s*press\s*releases"
     r"|press\s*releases?\s*(?:&(?:amp;)?|and)\s*news"
-    r"|\bnews\s+archive\b|\ball\s+news\b|\blatest\s+news\b"
-    r"|\bnews\s*(?:&(?:amp;)?|and)\s*events\b"
-    r"|\bnewsroom\b|\bpress\s*room\b|\bmedia\s*cent(?:er|re)\b", re.I)
+    r"|news\s+archive|all\s+news|latest\s+news"
+    r"|news\s*(?:&(?:amp;)?|and)\s*events"
+    r"|newsroom|press\s*room|media\s*cent(?:er|re)|media\s*hub|news"
+    r")$", re.I)
+# The phrase must END the title's first segment, not merely appear in it.
+# "Hanwha Aerospace Europe News & Press Releases | ASDNews" is an index whose
+# first segment carries the company name; "HII is Awarded Contracts ... | HII
+# Newsroom" is an ARTICLE whose first segment ends in "Submarines".
+_INDEX_TAIL = re.compile(
+    r"(?:^|[\s:\-])(?:"
+    r"news\s*(?:&(?:amp;)?|and)\s*press\s*releases"
+    r"|press\s*releases?\s*(?:&(?:amp;)?|and)\s*news"
+    r"|news\s+archive|all\s+news|latest\s+news"
+    r"|news\s*(?:&(?:amp;)?|and)\s*events"
+    r"|newsroom|press\s*room|media\s*cent(?:er|re)|media\s*hub"
+    r")$", re.I)
+
+# A publisher's <title> is nearly always "<the story> | <the site>". Only the
+# FIRST segment names the page; the rest is site furniture.
+_TITLE_SPLIT = re.compile(r"\s*[|–—·]\s*|\s+-\s+")
 
 
 def is_index_title(title):
-    """True when the page's own <title> says it is a list, not a story."""
-    return bool(title and _INDEX_TITLE.search(title))
+    """True when the page's own <title> says it IS a list, not a story.
+
+    The phrase has to BE the title (or its leading segment), not merely appear
+    somewhere in it. Searching anywhere was a silent catastrophe: HII titles
+    every press release "... | HII Newsroom", so `\\bnewsroom\\b` matched every
+    one of them and the whole source vanished before the model ever saw it --
+    528 article-shaped pages across HII, Airbus, MBDA and SSTL, counted only in
+    stats["listing"] with no per-document trace. A false positive here is worse
+    than a false negative: a listing that slips through produces one bad card,
+    but a rejected publisher produces silence.
+    """
+    if not title:
+        return False
+    head = _TITLE_SPLIT.split(title.strip(), 1)[0].strip()
+    return bool(_INDEX_TAIL.search(head))
 
 
 def suppressed_ids():

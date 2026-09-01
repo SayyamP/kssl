@@ -58,7 +58,14 @@ MIN_CHARS = 250
 # they carry the specification tables this comparison needs and they cite their own
 # sources -- so they are worth FETCHING. What they are worth as EVIDENCE is still
 # decided by source_tiers, which rates them news-tier and demands corroboration.
-EXTRA_OK = {"en.wikipedia.org", "military-today.com", "armyrecognition.com",
+# WIKIPEDIA IS NOT ON THIS LIST, deliberately. A client-facing competitive
+# dossier cannot cite an anyone-can-edit encyclopaedia as the provenance for a
+# specification, however convenient its tables are. It was here, and it reached
+# serving: 43 of the 126 matchups the UI showed cited it, 29 of them cited
+# nothing else. See extraction/signals/source_policy.py, which is the single
+# place that decides, and which also covers the mirrors (wikiwand, dbpedia)
+# that a bare "wikipedia.org" rule would let straight through.
+EXTRA_OK = {"military-today.com", "armyrecognition.com",
             "army-technology.com", "militaryfactory.com", "deagel.com",
             "weaponsystems.net", "globalsecurity.org", "tanks-encyclopedia.com"}
 _TAB = {"id": None}
@@ -349,7 +356,8 @@ def run(limit=None, per_product=3, verbose=True):
 
 def _demo():
     # what we will FETCH is broader than what we will BELIEVE
-    assert credible("https://en.wikipedia.org/wiki/ATAGS_(howitzer)")
+    # wikipedia is not citable at all now -- see extraction/signals/source_policy.py
+    assert not credible("https://en.wikipedia.org/wiki/ATAGS_(howitzer)")
     assert credible("https://www.armyrecognition.com/x")
     assert credible("https://knds.com/products/caesar")
     assert not credible("https://randomblog.example/post")

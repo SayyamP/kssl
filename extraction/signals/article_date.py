@@ -36,6 +36,28 @@ __all__ = ["pick_date", "date_candidates", "parse_iso_date"]
 _MIN_YEAR = 1990
 
 
+_MONTH_WORDS = {}
+for _i, _names in enumerate((
+        ("jan", "january", "januari", "januar", "janvier", "enero", "gennaio"),
+        ("feb", "february", "februari", "februar", "fevrier", "febrero", "febbraio"),
+        ("mar", "march", "maart", "marz", "mars", "marzo"),
+        ("apr", "april", "avril", "abril", "aprile"),
+        ("may", "mai", "mei", "mayo", "maggio"),
+        ("jun", "june", "juni", "juin", "junio", "giugno"),
+        ("jul", "july", "juli", "juillet", "julio", "luglio"),
+        ("aug", "august", "augustus", "aout", "agosto"),
+        ("sep", "sept", "september", "septembre", "septiembre", "settembre"),
+        ("oct", "october", "oktober", "octobre", "octubre", "ottobre"),
+        ("nov", "november", "novembre", "noviembre"),
+        ("dec", "december", "dezember", "decembre", "diciembre", "dicembre")), 1):
+    for _n in _names:
+        _MONTH_WORDS[_n] = _i
+
+
+def _month_word(w):
+    return _MONTH_WORDS.get((w or "").strip(".,").lower())
+
+
 def parse_iso_date(s):
     """'2023-01-26T09:14:02+01:00' -> (2023, 1, 26). Also 2023-01, 2023.
 
@@ -45,15 +67,33 @@ def parse_iso_date(s):
     if not s:
         return None
     s = html_mod.unescape(str(s).strip())
-    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})", s)
+    m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?!\d)", s)
     if m:
         y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
         if y >= _MIN_YEAR and 1 <= mo <= 12 and 1 <= d <= 31:
             return y, mo, d
         return None
-    # Some CMSs emit d/m/Y or m/d/Y in a meta tag. Ambiguous by nature: take the
-    # month only when the two readings agree, rather than guessing a day.
-    m = re.match(r"^(\d{1,2})[/.](\d{1,2})[/.](\d{4})$", s)
+    # "09 June 2026" / "1 december 2025" -- Janes and Saab put a human-readable
+    # date in the datetime attribute and in itemprop content. Twenty-one Janes
+    # documents and every Saab press release resolved to nothing without this.
+    m = re.match(r"^(\d{1,2})\s+([A-Za-zÀ-ɏ]{3,12})\.?,?\s+(\d{4})$", s)
+    if m:
+        mo = _month_word(m.group(2))
+        y, d = int(m.group(3)), int(m.group(1))
+        if mo and y >= _MIN_YEAR and 1 <= d <= 31:
+            return y, mo, d
+        return None
+    m = re.match(r"^([A-Za-z]{3,12})\.?\s+(\d{1,2}),?\s+(\d{4})$", s)   # June 9, 2026
+    if m:
+        mo = _month_word(m.group(1))
+        y, d = int(m.group(3)), int(m.group(2))
+        if mo and y >= _MIN_YEAR and 1 <= d <= 31:
+            return y, mo, d
+        return None
+    # Some CMSs emit d/m/Y or m/d/Y in a meta tag, often with a clock after it
+    # (Kongsberg: "7/8/2026 1:30:04 PM"). Ambiguous by nature: take the month
+    # only when the two readings agree, rather than guessing a day.
+    m = re.match(r"^(\d{1,2})[/.](\d{1,2})[/.](\d{4})(?:\s|$)", s)
     if m:
         a, b, y = int(m.group(1)), int(m.group(2)), int(m.group(3))
         if y >= _MIN_YEAR:
@@ -105,13 +145,27 @@ _MODIFIED_KEYS = ("article:modified_time", "dateModified", "og:updated_time",
 # JSON-LD. datePublished is the schema.org field; matched directly rather than
 # by parsing the block, because news pages ship several JSON-LD islands and some
 # of them are invalid JSON.
-_LD_PUBLISHED = re.compile(
-    r'"(?:datePublished|dateCreated)"\s*:\s*"([^"]{4,40})"', re.I)
+_LD_PUBLISHED = re.compile(r'"datePublished"\s*:\s*"([^"]{4,40})"', re.I)
+
+# `dateCreated` is the CMS node's creation, not the article's publication, and
+# the two diverge: pilatus-aircraft.com carries dateCreated 2024-12-18 beside
+# datePublished 2024-05-22 for a story published in May. Kept as a LAST resort
+# rather than an equal alternative, so it can never outrank datePublished by
+# happening to appear earlier in the byte stream.
+_LD_CREATED = re.compile(r'"dateCreated"\s*:\s*"([^"]{4,40})"', re.I)
 
 # HTML5 <time datetime="..."> -- preferred when it carries a pubdate marker or
 # a publication-ish class, since a bare <time> may be any date in the page.
 _TIME_PUBDATE = re.compile(
     r"""<time[^>]*?\bdatetime\s*=\s*["']([^"']+)["'][^>]*?>""", re.I)
+
+# `itemprop="datePublished"` on any element, with the machine value in a
+# `content` or `datetime` attribute (either attribute order).
+_ITEMPROP_PUB = re.compile(
+    r"""<[a-z]+[^>]*?\bitemprop\s*=\s*["']datePublished["'][^>]*?"""
+    r"""\b(?:content|datetime)\s*=\s*["']([^"']+)["']"""
+    r"""|<[a-z]+[^>]*?\b(?:content|datetime)\s*=\s*["']([^"']+)["'][^>]*?"""
+    r"""\bitemprop\s*=\s*["']datePublished["']""", re.I)
 _TIME_IS_PUB = re.compile(
     r"pubdate|published|entry-date|post-date|article[-_]?date", re.I)
 
@@ -120,6 +174,12 @@ _TIME_IS_PUB = re.compile(
 # so often equals the fetch date exactly.
 _TIME_IS_CLOCK = re.compile(
     r"current[-_]?date|today|now[-_]?date|clock|navbar", re.I)
+
+# An "updated" stamp can wear a publication-ish class, so the modified marker
+# has to be checked explicitly rather than assumed absent.
+_TIME_IS_MODIFIED = re.compile(
+    r"dateModified|modified[-_]?(?:date|time)|date[-_]?modified"
+    r"|updated[-_]?(?:date|time|on)|last[-_]?updated|revised", re.I)
 
 
 def date_candidates(html, url="", debug=False):
@@ -168,6 +228,14 @@ def date_candidates(html, url="", debug=False):
     for m in _LD_PUBLISHED.finditer(head):
         add(m.group(1), "json-ld:datePublished")
 
+    # Microdata on an ordinary element, not a <meta>. Saab puts the date on a
+    # <span class="date" content="2025-12-01T09:00" itemprop="datePublished">
+    # and Kongsberg on a <p itemprop="datePublished" content="7/8/2026 ...">.
+    # Both are unambiguous statements about the page, so they belong in tier 1 --
+    # every Saab press release resolved to nothing without this.
+    for m in _ITEMPROP_PUB.finditer(head):
+        add(m.group(1) or m.group(2), "itemprop:datePublished")
+
     if out:
         return out
 
@@ -181,30 +249,76 @@ def date_candidates(html, url="", debug=False):
         # fetch date. Never a publication date.
         if _TIME_IS_CLOCK.search(tag):
             continue
+        # A "last updated" stamp often wears a publication-ish class
+        # (`class="entry-date"` with `itemprop="dateModified"`), so the class
+        # alone is not enough: an explicit modified marker disqualifies the tag
+        # however it is dressed.
+        if _TIME_IS_MODIFIED.search(tag):
+            continue
         if not _TIME_IS_PUB.search(tag):
             continue
         ymd = parse_iso_date(m.group(1))
         if ymd:
             times.append(ymd)
 
-    distinct = {t for t in times}
+    # Partial tuples stay partial. Re-serialising (y, m, None) as "y-m-01" and
+    # re-parsing it invented a day: `datetime="2026-07"` rendered as "1 Jul
+    # 2026", and `datetime="2026"` became 1 January -- which then failed the
+    # 92-day window and silently dropped a possibly-current article, defeating
+    # is_recent_ym's deliberate year-only concession.
+    distinct = set(times)
     if len(distinct) == 1:
-        add(times[0] if isinstance(times[0], str) else "%04d-%02d-%02d"
-            % (times[0][0], times[0][1] or 1, times[0][2] or 1), "time[pubdate]")
+        ymd = times[0]
+        if ymd not in seen:
+            seen.add(ymd)
+            out.append((ymd, "time[pubdate]") if debug else ymd)
+        return out
+
+    # --- tier 3: a single bare <time> on the whole page --------------------
+    # Thales and Janes mark the date with a plain `<time datetime=...>` and no
+    # publication class. One such tag on the page is as unambiguous as a marked
+    # one; several are a listing, and are refused for the same reason as tier 2.
+    bare = []
+    for m in _TIME_PUBDATE.finditer(head):
+        tag = m.group(0)
+        if _TIME_IS_CLOCK.search(tag) or _TIME_IS_MODIFIED.search(tag):
+            continue
+        ymd = parse_iso_date(m.group(1))
+        if ymd:
+            bare.append(ymd)
+    if len(set(bare)) == 1 and bare[0] not in seen:
+        seen.add(bare[0])
+        out.append((bare[0], "time[single]") if debug else bare[0])
+        return out
+
+    # --- last resort ------------------------------------------------------
+    for m in _LD_CREATED.finditer(head):
+        add(m.group(1), "json-ld:dateCreated")
     return out
 
 
-def pick_date(html, url="", today=None):
+def pick_date(html, url="", today=None, url_ymd=None):
     """The article's publication date as (y, m|None, d|None), or None.
 
     A date in the future is skipped, not returned: '2027 delivery' in a metadata
     field is a forecast or a broken clock, never a publication date.
+
+    `url_ymd`, when given, is the date the URL states, and it is used as a
+    CROSS-CHECK rather than a fallback. Markup is not automatically right:
+    boeing.com's JSON-LD says datePublished 2025-10-16 for a story whose
+    permalink is /mission-updates/2024/06/ and whose subject is a June 2024
+    mission -- a site migration regenerated the metadata sixteen months late.
+    When the two disagree on year-and-month, the permalink wins: it is the one
+    a CMS cannot silently rewrite without breaking its own links.
     """
     if today is None:
         import datetime
         t = datetime.date.today()
         today = (t.year, t.month, t.day)
     for ymd in date_candidates(html, url):
-        if (ymd[0], ymd[1] or 1, ymd[2] or 1) <= today:
-            return ymd
+        if (ymd[0], ymd[1] or 1, ymd[2] or 1) > today:
+            continue
+        if url_ymd and (ymd[0], ymd[1]) != (url_ymd[0], url_ymd[1]):
+            return url_ymd
+        return ymd
     return None

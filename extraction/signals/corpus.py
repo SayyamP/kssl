@@ -24,8 +24,21 @@ __all__ = ["fetch_html", "state", "reset"]
 DSN = os.environ.get("KSSL_CORPUS_SRC_DSN", "")
 ENABLED = os.environ.get("KSSL_CORPUS_HTML", "1") not in ("0", "false", "no")
 BACKOFF_S = float(os.environ.get("KSSL_CORPUS_BACKOFF_S", "60"))
+STATEMENT_TIMEOUT_MS = int(os.environ.get("KSSL_CORPUS_STATEMENT_TIMEOUT_MS", "15000"))
+# Persistent query-level failures (a poisoned row, a server-side timeout, lost
+# permissions) used to cost every card two failed queries and two reconnects,
+# for ever, with `state()` reporting nothing wrong: the breaker only counted
+# CONNECT failures. This many consecutive query failures now trips it too.
+QFAIL_TRIP = int(os.environ.get("KSSL_CORPUS_QFAIL_TRIP", "5"))
 
-_S = {"con": None, "retry_at": 0.0, "fails": 0, "why": "", "hits": 0, "misses": 0}
+_S = {"con": None, "retry_at": 0.0, "fails": 0, "why": "", "hits": 0, "misses": 0,
+      "qfails": 0}
+
+# A card asks for the same document twice -- once for its date, once for its
+# picture. Without this the 219 GB `documents` row is detoasted twice per card.
+# One entry deep: the caller works through documents one at a time, so a bigger
+# cache would only hold rows nothing will ask for again.
+_LAST = {"did": None, "url": None, "html": None}
 
 
 def state():
@@ -54,9 +67,15 @@ def _connect():
         import psycopg2
         # Without keepalives an idle connection through the tunnel is reaped
         # silently and only fails on the next query, mid-card.
+        # connect_timeout only guards the handshake. A server that accepts the
+        # connection and then never answers -- the wedged-sshd / middlebox case
+        # this tunnel actually meets -- would block the card loop forever, and a
+        # hang is worse than an error because the breaker never sees it. The
+        # statement timeout is what makes "never stops a card" true.
         _S["con"] = psycopg2.connect(
             DSN, connect_timeout=10, keepalives=1, keepalives_idle=30,
-            keepalives_interval=10, keepalives_count=3)
+            keepalives_interval=10, keepalives_count=3,
+            options="-c statement_timeout=%d" % int(STATEMENT_TIMEOUT_MS))
         if _S["fails"]:
             print("  corpus: back after %d failure(s)" % _S["fails"], flush=True)
             _S["fails"] = 0
@@ -77,6 +96,8 @@ def fetch_html(document_id):
     dropped while we were doing something else, and it costs a reconnect rather
     than the card's date and picture.
     """
+    if _LAST["did"] == document_id:
+        return _LAST["url"], _LAST["html"]
     for attempt in (1, 2):
         con = _connect()
         if con is None:
@@ -90,15 +111,28 @@ def fetch_html(document_id):
                         (document_id,))
             row = cur.fetchone()
             con.commit()
-            if not row or not row[1]:
+            _S["qfails"] = 0
+            url, html = (row[0], row[1]) if row else (None, None)
+            if html:
+                _S["hits"] += 1
+            else:
                 _S["misses"] += 1
-                return (row[0] if row else None), None
-            _S["hits"] += 1
-            return row[0], row[1]
+            _LAST.update(did=document_id, url=url, html=html)
+            return url, html
         except Exception as e:                                       # noqa: BLE001
             reset()
             if attempt == 1:
                 continue                                             # reconnect, retry once
-            print("  corpus read failed for %s: %s" % (document_id, e), flush=True)
+            _S["qfails"] += 1
+            _S["why"] = "query: %s: %s" % (type(e).__name__, e)
+            if _S["qfails"] >= QFAIL_TRIP:
+                # Queries keep failing on a connection that keeps succeeding.
+                # Back off rather than paying two failures per card for ever.
+                _S["retry_at"] = time.time() + BACKOFF_S
+                _S["qfails"] = 0
+                print("  corpus queries failing, pausing %ds: %s"
+                      % (int(BACKOFF_S), _S["why"]), flush=True)
+            else:
+                print("  corpus read failed for %s: %s" % (document_id, e), flush=True)
             return None, None
     return None, None
