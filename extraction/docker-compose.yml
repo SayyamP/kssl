@@ -60,7 +60,8 @@ services:
       # llmapi prints a loud [ALERT] on failover/recovery. KSSL_MODEL only labels the timer.
       FALLBACK_URL: "http://127.0.0.1:11500"
       FALLBACK_MODEL: "qwen2.5:7b-instruct"
-      KSSL_MODEL: "text-model"
+      C_MODEL: "serving-model"      # dedicated 2-node farm pool (HEPC-05 + J9F0LTF), off the extraction pool
+      KSSL_MODEL: "serving-model"
 
   # Enrichment: fill the REMAINING serving tables (competitors, matchup, geo, innovation,
   # patent, partner, tender, sources) from extracted.* via the same farm-primary LLM client
@@ -75,7 +76,8 @@ services:
     environment:
       FALLBACK_URL: "http://127.0.0.1:11500"
       FALLBACK_MODEL: "qwen2.5:7b-instruct"
-      KSSL_MODEL: "text-model"
+      C_MODEL: "serving-model"      # dedicated 2-node farm pool (HEPC-05 + J9F0LTF), off the extraction pool
+      KSSL_MODEL: "serving-model"
       ENRICH_EVERY_S: "7200"
 
   # Layer B: canonical entities from the extracted spans, on a slow timer. Same-script merges;
