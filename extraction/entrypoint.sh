@@ -89,8 +89,11 @@ case "${1:-worker}" in
   cards)
     log "cards starting: build every ${CARDS_EVERY_S}s"
     cd "$ENGINE"
+    # serving.card must exist before --build joins it; --init is idempotent
+    # (CREATE TABLE IF NOT EXISTS), so run it every cycle rather than assume a
+    # separate migrate step created it.
     while true; do
-      python3 card_writer.py --build || log "card build failed (continuing)"
+      python3 card_writer.py --init --build || log "card build failed (continuing)"
       sleep "$CARDS_EVERY_S"
     done
     ;;
