@@ -55,9 +55,12 @@ services:
     command: ["signals"]
     restart: unless-stopped
     environment:
-      OLLAMA_URL: "http://127.0.0.1:11500"
-      OLLAMA_API_KEY: ""
-      KSSL_MODEL: "qwen2.5:7b-instruct"
+      # Farm is PRIMARY: OLLAMA_URL / OLLAMA_API_KEY / C_MODEL come from .env (same as the
+      # workers). VPS-A Ollama is the FALLBACK, used only when the farm is unreachable --
+      # llmapi prints a loud [ALERT] on failover/recovery. KSSL_MODEL only labels the timer.
+      FALLBACK_URL: "http://127.0.0.1:11500"
+      FALLBACK_MODEL: "qwen2.5:7b-instruct"
+      KSSL_MODEL: "text-model"
 
   # Layer B: canonical entities from the extracted spans, on a slow timer. Same-script merges;
   # cross-script (embedding) blocking is a documented extension. Enable when Layer A has a backlog.
