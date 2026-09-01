@@ -162,11 +162,18 @@ def _doc_meta(rec):
     """The JSONB written to extracted.document.meta. Coverage stats stay at the top level (existing
     readers expect them there); published_at is added when the crawler proved one, because the
     serving date-gate reads meta->>'published_at'. Merged (not replaced) on conflict by DOC_SQL, so
-    a harvest-loaded date is never clobbered by a worker that lacks one."""
+    a harvest-loaded date is never clobbered by a worker that lacks one.
+
+    fetched_at is stored alongside it because published_at alone cannot be trusted: the crawler
+    stamps the fetch date when the page declares none, and the gate needs both values to tell a
+    real publication date from that fallback."""
     meta = dict(rec.get("coverage") or {})
     pub = rec.get("published_at")
     if pub:
         meta["published_at"] = str(pub)
+    fetched = rec.get("fetched_at")
+    if fetched:
+        meta["fetched_at"] = str(fetched)
     return meta
 
 

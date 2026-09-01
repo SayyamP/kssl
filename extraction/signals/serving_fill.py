@@ -340,37 +340,102 @@ def _ml_month(tok):
     return None
 
 
+# A news CMS puts the publication date in the path: /news/defense/2026/07/13/slug
+# or /2026-07-13/slug. The publisher generated it, it cannot drift, and it is the
+# one date on the page that no parser had to guess. Anchored to a path segment so
+# a slug like "top-10-of-2026" or an id "20260713" cannot match.
+_URL_DATE = re.compile(r"/(20\d{2})[/-](0[1-9]|1[0-2])[/-](0[1-9]|[12]\d|3[01])(?=[/-]|$)")
+
+
+def url_date(url):
+    """-> (y, m, d) from the article's own URL path, or None."""
+    if not url:
+        return None
+    # Query and fragment are not the path; ?date=... is a filter, not a byline.
+    path = url.split("#", 1)[0].split("?", 1)[0]
+    m = _URL_DATE.search(path)
+    if not m:
+        return None
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
+
+
+def is_fetch_fallback(published_at, fetched_at):
+    """True when `published_at` is really just the moment we fetched the page.
+
+    The crawler stamps the fetch date when it cannot find a publication date.
+    Measured on the 290 documents behind the cards: 72 look like this, and where
+    the URL also carries a date, 63 of 63 disagree with it -- 62 claiming the
+    story is NEWER than it is, by a median of 77 days and as much as 3.8 years.
+    A stale story dated today also walks straight through the recency gate, so
+    this is not merely cosmetic.
+
+    BOTH conditions are required. A midnight timestamp on its own proves nothing
+    -- all 30 documents whose published_at agrees with their URL date are ALSO
+    stamped midnight, because date-only metadata is normal. Rejecting on
+    midnight alone would have thrown away every one of those correct dates. It
+    is the match with the FETCH date that separates them: 62 of 63 wrong, 0 of
+    30 right.
+    """
+    if not published_at or not fetched_at:
+        return False
+    if published_at[:10] != fetched_at[:10]:
+        return False
+    return published_at[11:19] in ("00:00:00", "")
+
+
 def article_date(cur, did, today_ym=None):
-    """-> (y, m|None, d|None) from the document's own Date spans, earliest
-    position first (the publication date leads the page). A date in the FUTURE
-    cannot be a publication date -- '2027 delivery' and '2040 vision' spans are
-    forecasts, so they are skipped and the scan continues."""
+    """-> (y, m|None, d|None): when the article was published, or None.
+
+    Sources in order of how much they can be trusted:
+      1. the date in the article's own URL path -- publisher-generated
+      2. `published_at`, unless it is only the fetch time in disguise
+      3. Date spans in the body, earliest first (the publication date leads
+         the page)
+
+    A date in the FUTURE cannot be a publication date -- '2027 delivery' and
+    '2040 vision' spans are forecasts -- so those are skipped and the scan
+    continues. Returning None is a real answer: the card is then counted
+    `undated` and left out, which is better than dating it wrongly.
+    """
     if today_ym is None:
         import datetime
         t0 = datetime.date.today()
         today_ym = (t0.year, t0.month)
-    # The crawler's own publication date first, when there is one. It comes from
-    # the page's metadata, so it IS proven -- and it is the only date on the page
-    # that is about the article rather than about its subject. Body Date spans
-    # are the fallback, and they are what made a 2026 story about a 2022 contract
-    # read as four years old.
-    cur.execute("SELECT meta->>'published_at' FROM extracted.document "
-                "WHERE document_id=%s", (did,))
+
+    def usable(ymd):
+        return ymd and (ymd[0], ymd[1] or 1) <= today_ym
+
+    cur.execute("SELECT url, meta->>'published_at', meta->>'fetched_at' "
+                "FROM extracted.document WHERE document_id=%s", (did,))
     row = cur.fetchone()
-    if row and row[0]:
-        # ISO timestamps arrive as 2026-08-25T14:03:11Z; the T has to go or
-        # the parser reads the year and month and drops the day.
-        ymd = parse_date(row[0].replace("T", " ")[:24])
-        if ymd and (ymd[0], ymd[1] or 1) <= today_ym:
+    url, pub, fetched = (row[0], row[1], row[2]) if row else (None, None, None)
+
+    # 1. The URL path. Publisher-generated, and the only date here that nothing
+    #    had to parse out of prose or metadata.
+    ymd = url_date(url)
+    if usable(ymd):
+        return ymd
+
+    # 2. published_at, unless it is the fetch stamp wearing a publication date's
+    #    clothes. `fetched_at` is carried into meta by sync_documents.py; when it
+    #    is absent (documents synced before that) the check simply cannot fire
+    #    and behaviour is exactly as it was.
+    if pub and not is_fetch_fallback(pub, fetched):
+        # ISO timestamps arrive as 2026-08-25T14:03:11Z; the T has to go or the
+        # parser reads the year and month and drops the day.
+        ymd = parse_date(pub.replace("T", " ")[:24])
+        if usable(ymd):
             return ymd
 
+    # 3. Date spans in the body, earliest position first.
     cur.execute("""SELECT text, gloss FROM extracted.span
                     WHERE document_id=%s AND type='Date'
                     ORDER BY start_c LIMIT 15""", (did,))
     for t, g in cur.fetchall():
         ymd = parse_date("%s %s" % (t or "", g or ""))
-        if ymd and (ymd[0], ymd[1] or 1) <= today_ym:
+        if usable(ymd):
             return ymd
+
     return None
 
 

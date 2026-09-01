@@ -503,7 +503,12 @@ def text_hash(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
 
 
-DOC_COLS = "document_id, url, source_id, language, title, main_text, published_at"
+# fetched_at rides along with published_at because the two are only meaningful
+# together: when the crawler cannot find a publication date it stamps the fetch
+# date, and the serving date-gate can only tell that apart by comparing them.
+# On its own, published_at looks like a proven date even when it is not.
+DOC_COLS = ("document_id, url, source_id, language, title, main_text, "
+            "published_at, fetched_at")
 
 
 def fetch_doc(q, doc_id):
@@ -721,14 +726,16 @@ def enqueue(q, since, now_iso, limit=20000, cohort_min=30):
         # the LIMIT on every run, so on a burst day the oldest documents in the window fall off the
         # end and -- once `since` advances past them -- are never selected again (silent permanent
         # loss). Excluding them also stops re-scoring/re-loading main_text for rows we already have.
-        c.execute("SELECT %s, fetched_at, text_len, language FROM documents "
+        # fetched_at is part of DOC_COLS now; selecting it again here would put the
+        # same name twice into `cols` below and quietly misalign the zip.
+        c.execute("SELECT %s, text_len, language FROM documents "
                   "WHERE fetched_at >= %%s AND text_len > 0 "
                   "  AND NOT EXISTS (SELECT 1 FROM extract_queue eq "
                   "                  WHERE eq.document_id = documents.document_id) "
                   "ORDER BY fetched_at DESC LIMIT %%s"
                   % DOC_COLS, (since, limit))
         rows = c.fetchall()
-    cols = DOC_COLS.replace(" ", "").split(",") + ["fetched_at", "text_len", "language"]
+    cols = DOC_COLS.replace(" ", "").split(",") + ["text_len", "language"]
     docs = [dict(zip(cols, r)) for r in rows]
 
     # Score everything first: a percentile needs the cohort, so this cannot stream.

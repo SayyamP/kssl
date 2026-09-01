@@ -1260,10 +1260,13 @@ def comprehend(doc, do_residual=True, verbose=True):
         "source_id": doc.get("source_id", ""), "language": lang,
         "language_declared": doc.get("language", ""),
         "title": doc.get("title", ""), "text": text,
-        # Carry the crawler's proven publication date straight through. store_pg lands it in
+        # Carry the crawler's publication date straight through. store_pg lands it in
         # extracted.document.meta, where the serving date-gate needs it: without it the gate falls
         # back to misleading in-body dates and rejects recent docs as "too old"/"no provable date".
+        # fetched_at goes with it: published_at is NOT always proven -- the crawler stamps the fetch
+        # date when it cannot find one, and comparing the two is the only way to see that.
         "published_at": doc.get("published_at"),
+        "fetched_at": doc.get("fetched_at"),
         "n_sentences": len(sents), "sentences": sents,
         "spans": spans, "propositions": props, "coverage": cov, "audit": audit,
         "elapsed_s": round(time.time() - t0, 1),
