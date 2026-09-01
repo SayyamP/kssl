@@ -97,7 +97,7 @@
   .alert .body .meta{font-family:var(--mono);font-size:12.5px;color:var(--d-read);display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin-bottom:7px}
   .alert .body .meta .sep{color:var(--d-txt-3)}
   .alert .body .meta .val{color:var(--d-txt)}
-  .alert .body .sowhat{font-size:14.5px;color:var(--d-read);line-height:1.6;max-width:none}
+  .alert .body .sowhat{font-size:14.5px;color:var(--d-read);line-height:1.6;max-width:none;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden}
   .alert .body .sowhat b{color:#ffffff;font-weight:600}
   /* full-spectrum read — prose UI matching 'why it matters' */
   .cd-lens-p{margin:0 0 11px 0}
@@ -336,3 +336,9 @@
 .cd-frow.sourced .cd-fq{font-family:var(--mono);font-size:11px;color:var(--d-txt-4);
   opacity:.55;flex-shrink:0;cursor:help;transition:opacity .12s,color .12s}
 .cd-frow.sourced:hover .cd-fq{opacity:1;color:var(--fav-badge)}
+
+/* Pinned feed title doubles as a back-to-top control */
+.ov-top-link{cursor:pointer;transition:color .12s}
+.ov-top-link:hover{color:var(--fav)}
+.ov-top-link:hover .sub{color:var(--fav)}
+.ov-top-link:focus-visible{outline:2px solid var(--fav);outline-offset:3px;border-radius:3px}

@@ -96,7 +96,7 @@ const getCompanyFilterMeta = (co, id) => {
 
 export default function Products() {
   const { data } = useData();
-  const { setScope, setRailCollapsed } = useAppState();
+  const { setScope, setRailCollapsed, takePending } = useAppState();
 
   const clientCid = (data.client && data.client.id) || "KSSL";
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
@@ -149,6 +149,18 @@ export default function Products() {
       setSelectedCid(firstCompCid);
     }
   }, [selectedCid, firstCompCid]);
+
+  // Deep-link from a competitor profile's product chip: open that company and
+  // pre-filter the product list to the clicked product.
+  useEffect(() => {
+    const pend = takePending("products");
+    if (pend && pend.cid) {
+      setSelectedCid(pend.cid);
+      if (pend.productName) setProductSearch(pend.productName);
+      setSelectedProduct(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takePending]);
 
   // Reset product news state when product changes
   useEffect(() => {
@@ -343,7 +355,7 @@ export default function Products() {
   }, [setScope, selectedCompany]);
 
   return (
-    <div className="pos-view v-products" style={{ gridTemplateColumns: "300px 1fr" }}>
+    <div className="pos-view v-products" style={{ gridTemplateColumns: "340px 1fr" }}>
       {/* 1. LEFT SIDEBAR: COMPANY SELECTOR */}
       <div className="mu-list">
         <div className="mu-list-h">

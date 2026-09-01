@@ -88,9 +88,27 @@ export default function Overview({
 
   return (
     <div className="ov-wrap">
-      {/* FIXED TOP HEADER LINE: Fixed header bar with controls */}
+      {/* FIXED TOP HEADER LINE: Fixed header bar with controls. The title is a
+          button that scrolls the feed back to the top — a returning anchor for a
+          long, deep-scrolled list. */}
       <div className="feed-grp-h ov-fixed-header">
-        <span className="eyebrow">
+        <span
+          className="eyebrow ov-top-link"
+          role="button"
+          tabIndex={0}
+          title="Back to top of feed"
+          onClick={() => {
+            const el = document.getElementById("feed");
+            if (el) el.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              const el = document.getElementById("feed");
+              if (el) el.scrollTo({ top: 0, behavior: "smooth" });
+            }
+          }}
+        >
           {topGroup.h} <span className="sub">{topGroup.s}</span>
         </span>
         <FeedFilters

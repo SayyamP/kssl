@@ -550,20 +550,37 @@ const getCompanyNewsArticles = (companyName, data) => {
     if (typeof c.tags === "string" && c.tags.trim()) return c.tags.split(",")[0].trim();
     return c.lens || "Defence";
   };
+  const normReads = (sec) => {
+    let arr = sec;
+    if (typeof arr === "string") {
+      try {
+        arr = JSON.parse(arr);
+      } catch (e) {
+        arr = [];
+      }
+    }
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((s) => ({ lens: s.lens || s.read || "", read: s.read || s.text || "" }))
+      .filter((s) => s.read);
+  };
   return mine.map((c, i) => {
-    const summary = c.sowhat || c.meta || "";
+    const body = c.sowhat || "";
+    const reads = normReads(c.sec);
+    // Card blurb: the body if present, else the first strategic read, else the meta line.
+    const excerpt = body || (reads[0] ? reads[0].read : "") || c.meta || "";
     return {
       id: c.id,
       category: catOf(c),
       ago: c.ago || "",
       title: c.title,
-      excerpt: summary,
-      fullText: summary,
+      excerpt,
+      fullText: body,
+      reads,
       source: pubFromUrl(c.url) || c.meta || "Source",
       url: c.url || "",
       image: c.image || "",
       isTopStory: i === 0,
-      impact: c.sowhat || "",
     };
   });
 };
@@ -847,7 +864,7 @@ function Sec({ title, note, children }) {
 
 export default function Profile() {
   const { data } = useData();
-  const { setScope, setRailCollapsed } = useAppState();
+  const { setScope, setRailCollapsed, jumpTo } = useAppState();
   const [query, setQuery] = useState("");
   const roster = useMemo(() => rosterOf(data), [data]);
   const [cid, setCid] = useState(() => (roster[0] ? roster[0].cid : ""));
@@ -1133,24 +1150,46 @@ export default function Profile() {
             {/* Banner Image */}
             {activeArticle.image && (
               <div style={{ width: "100%", maxHeight: "340px", overflow: "hidden", borderRadius: "6px", background: "#f0efea" }}>
-                <img src={activeArticle.image} alt={activeArticle.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <img src={activeArticle.image} alt={activeArticle.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={(e) => { e.currentTarget.parentElement.style.display = "none"; }} />
               </div>
             )}
 
             {/* Article Text */}
-            <div style={{ fontSize: "14px", color: "#3d3d39", lineHeight: "1.75", whiteSpace: "pre-line" }}>
-              {activeArticle.fullText}
-            </div>
+            {activeArticle.fullText ? (
+              <div style={{ fontSize: "14px", color: "#3d3d39", lineHeight: "1.75", whiteSpace: "pre-line" }}>
+                {activeArticle.fullText}
+              </div>
+            ) : (
+              <div style={{ fontSize: "13px", color: "#6b6a63", fontStyle: "italic" }}>
+                Full summary not yet extracted for this item. Read the original report at the source below.
+              </div>
+            )}
 
-            {/* Strategic Impact Analysis */}
-            {activeArticle.impact && (
-              <div style={{ marginTop: "12px", padding: "16px 20px", background: "#f7f6f3", border: "1px solid #e2e0d8", borderRadius: "6px" }}>
-                <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#6b6a63", display: "block", marginBottom: "4px", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: "700" }}>
-                  STRATEGIC MARKET IMPACT
+            {/* Strategic reads vs KSSL (one card per lens) */}
+            {Array.isArray(activeArticle.reads) && activeArticle.reads.length > 0 && (
+              <div style={{ marginTop: "8px", display: "flex", flexDirection: "column", gap: "10px" }}>
+                <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#6b6a63", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: "700" }}>
+                  Strategic read · vs KSSL
                 </span>
-                <div style={{ fontSize: "13px", color: "#161614", lineHeight: "1.55", fontWeight: "500" }}>
-                  {activeArticle.impact}
-                </div>
+                {activeArticle.reads.map((r, ri) => (
+                  <div key={ri} style={{ padding: "14px 18px", background: "#f7f6f3", border: "1px solid #e2e0d8", borderRadius: "6px" }}>
+                    <span style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "#b5341f", display: "block", marginBottom: "4px", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: "700" }}>
+                      {r.lens}
+                    </span>
+                    <div style={{ fontSize: "13px", color: "#161614", lineHeight: "1.55", fontWeight: "500" }}>
+                      {r.read}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Outbound source link */}
+            {activeArticle.url && (
+              <div style={{ marginTop: "8px", paddingTop: "16px", borderTop: "1px solid #e2e0d8" }}>
+                <a href={activeArticle.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: "13px", color: "#b5341f", fontWeight: "700", textDecoration: "none" }}>
+                  Read the original report at {activeArticle.source} →
+                </a>
               </div>
             )}
           </div>
@@ -1245,11 +1284,20 @@ export default function Profile() {
                     Manufactured Products & Portfolio ({p.products.length})
                   </span>
                   <div className="cp-chips">
-                    {p.products.map((n, i) => (
-                      <span className="cp-chip" key={`${n}-${i}`}>
-                        {typeof n === "string" ? n : n.name || n.n || ""}
-                      </span>
-                    ))}
+                    {p.products.map((n, i) => {
+                      const pname = typeof n === "string" ? n : n.name || n.n || "";
+                      return (
+                        <button
+                          type="button"
+                          className="cp-chip cp-chip-btn"
+                          key={`${pname}-${i}`}
+                          title={`Compare ${pname} against KSSL in Products`}
+                          onClick={() => jumpTo("competitive", "products", { cid, productName: pname })}
+                        >
+                          {pname} <span aria-hidden="true" style={{ opacity: 0.5 }}>→</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1265,6 +1313,11 @@ export default function Profile() {
                       <div className="cp-lead-info">
                         <span className="cp-lead-name">{leader.name}</span>
                         <span className="cp-lead-role">{leader.role}</span>
+                        {leader.source ? (
+                          <a className="cp-lead-src" href={leader.source} target="_blank" rel="noopener noreferrer" title={leader.source}>
+                            source ↗
+                          </a>
+                        ) : null}
                       </div>
                     </div>
                   ))}
