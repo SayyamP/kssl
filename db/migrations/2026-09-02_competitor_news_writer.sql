@@ -26,9 +26,15 @@ ALTER TABLE serving.competitor_news
 
 -- Views fix their column list at creation, so a new column is invisible until the
 -- view is replaced -- and the filter has to be added here too.
+--
+-- `image` goes LAST, after updated_at. CREATE OR REPLACE VIEW may only APPEND
+-- columns: putting image in its natural place before updated_at is read as
+-- renaming updated_at, and Postgres refuses with "cannot change name of view
+-- column updated_at to image". Column order in a view is not cosmetic once the
+-- view exists.
 CREATE OR REPLACE VIEW serving_live.competitor_news AS
   SELECT id, comp_id, title, description, source, published_date, category,
-         is_trending, url, image, updated_at
+         is_trending, url, updated_at, image
     FROM serving.competitor_news
    WHERE origin = 'pipeline';
 

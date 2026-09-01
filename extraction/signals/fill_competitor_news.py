@@ -39,7 +39,11 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 
-DSN = os.environ.get("KSSL_SERVING_DSN") or os.environ.get("DSN") or ""
+# KSSL_DSN is what the extraction containers actually export; the other two are
+# the source-tree names. Getting this wrong fails as "no such socket", which
+# reads like the database is down rather than like an unset variable.
+DSN = (os.environ.get("KSSL_DSN") or os.environ.get("KSSL_SERVING_DSN")
+       or os.environ.get("DSN") or "")
 
 # Only the publisher's own host is a source name. A card whose meta lost its
 # "from <host>" tail still has the url, and the url host is the publisher.
