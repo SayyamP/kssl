@@ -511,7 +511,7 @@ def is_dup(seen, company, title):
 # 262k asks ollama for a 95 GB KV cache and the request dies as an opaque HTTP 500.
 
 
-def ask(prompt, timeout=None, doc_id=None, npredict=300):
+def ask(prompt, timeout=None, doc_id=None, npredict=420):  # 14B writes longer; avoid mid-JSON truncation
     """One card-step generation, through the LLM API.
 
     The API owns node selection, the Bearer key, the num_thread/num_gpu options and the
