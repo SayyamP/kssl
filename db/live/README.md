@@ -13,6 +13,18 @@ because the dump carries index/constraint noise and a fresh deploy should not in
 | `schema_live.sql` | `pg_dump --schema-only` of `extracted` + `serving`, exactly as it exists in production | 76 KB |
 | `extracted_data.sql.gz` | all 8 `extracted.*` tables | 66 MB |
 | `serving_data.sql.gz` | 14 `serving.*` tables | 474 KB |
+| `schema_live_views.sql` | the `serving_live` VIEWS + the `metrics` schema | 11 KB |
+
+## Read this before restoring: the app does NOT read `serving`
+
+The backend's `SCHEMA` is **`serving_live`**, and `_q()` rewrites every `serving.` in its SQL to
+that value. `serving_live` is 13 **views** over `serving`, each filtered `WHERE origin = 'pipeline'`
+- so the reference/seed rows that also live in `serving` are invisible to the running app by
+design. A restore of `schema_live.sql` + the data alone produces a database the API cannot query at
+all, because the schema it actually names would not exist. `schema_live_views.sql` is that missing
+piece and must be applied after the data.
+
+Concretely, of 228 `serving.signal_card` rows only 184 are `origin='pipeline'` and reach the UI.
 
 ## Row counts at export
 
@@ -70,6 +82,9 @@ psql -d kssl -c 'ALTER TABLE extracted.entity DROP CONSTRAINT entity_redirects_t
 
 gunzip -c extracted_data.sql.gz | psql -d kssl --single-transaction
 gunzip -c serving_data.sql.gz  | psql -d kssl --single-transaction
+
+# The schema the backend actually reads. Without this the API queries serving_live.* and fails.
+psql -d kssl -f schema_live_views.sql
 
 psql -d kssl -c 'ALTER TABLE extracted.entity
   ADD CONSTRAINT entity_redirects_to_fkey FOREIGN KEY (redirects_to)
