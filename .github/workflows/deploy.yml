@@ -10,7 +10,7 @@ name: Deploy to VPS-B
 # with a `sha` input re-deploys any past build — that is also the rollback path.
 on:
   push:
-    branches: [kssl-deploy]
+    branches: [main]
     paths:
       - "frontend/**"
       - "backend/**"

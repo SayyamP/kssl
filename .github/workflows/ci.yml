@@ -5,7 +5,7 @@ name: CI
 # hermetic pipeline self-tests pass. No deploy, no registry push — that is deploy.yml's job.
 on:
   pull_request:
-    branches: [kssl-deploy]
+    branches: [main]
 
 permissions:
   contents: read
