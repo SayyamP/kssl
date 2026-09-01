@@ -62,6 +62,22 @@ services:
       FALLBACK_MODEL: "qwen2.5:7b-instruct"
       KSSL_MODEL: "text-model"
 
+  # Enrichment: fill the REMAINING serving tables (competitors, matchup, geo, innovation,
+  # patent, partner, tender, sources) from extracted.* via the same farm-primary LLM client
+  # as signals. Full idempotent rebuild on a slow timer; touches only origin='pipeline'.
+  enrich:
+    build: .
+    image: kssl-extraction:latest
+    env_file: .env
+    network_mode: host
+    command: ["enrich"]
+    restart: unless-stopped
+    environment:
+      FALLBACK_URL: "http://127.0.0.1:11500"
+      FALLBACK_MODEL: "qwen2.5:7b-instruct"
+      KSSL_MODEL: "text-model"
+      ENRICH_EVERY_S: "7200"
+
   # Layer B: canonical entities from the extracted spans, on a slow timer. Same-script merges;
   # cross-script (embedding) blocking is a documented extension. Enable when Layer A has a backlog.
   layerb:

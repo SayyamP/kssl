@@ -108,6 +108,19 @@ case "${1:-worker}" in
       sleep "${SIGNALS_EVERY_S:-600}"
     done
     ;;
+  enrich)
+    # Fill the REMAINING serving tables (competitors, matchup, geo, innovation, patent,
+    # partner, tender, sources) from extracted.* via the enrichment LLM -- same farm-primary
+    # client as signals. Full idempotent rebuild each pass: deletes only origin='pipeline'
+    # (never 'reference'/demo) then re-inserts from the current corpus, so the tables sharpen
+    # as extraction grows. Heavier than signals, so a slow timer.
+    log "enrich starting: rebuild serving tables every ${ENRICH_EVERY_S:-7200}s via ${OLLAMA_URL:-farm}"
+    cd "$HERE/signals"
+    while true; do
+      python3 enrich_serving.py || log "enrich pass failed (continuing)"
+      sleep "${ENRICH_EVERY_S:-7200}"
+    done
+    ;;
   once)
     feed_once
     log "one-shot drain (limited): run_node --node $NODE --limit ${KSSL_ONCE_LIMIT:-20}"
