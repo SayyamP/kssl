@@ -97,6 +97,17 @@ case "${1:-worker}" in
       sleep "$CARDS_EVERY_S"
     done
     ;;
+  signals)
+    # Turn extracted docs into UI feed cards (serving.signal_card/detail) via the
+    # signal-generation LLM. The model runs on VPS-A (OLLAMA_URL points at the reverse
+    # tunnel 127.0.0.1:11500); this loop reads the local extracted.* and writes serving.*.
+    log "signals starting: fill serving cards every ${SIGNALS_EVERY_S:-600}s via ${OLLAMA_URL:-VPS-A}"
+    cd "$HERE/signals"
+    while true; do
+      python3 serving_fill.py --limit "${KSSL_SIGNALS_LIMIT:-300}" || log "signal fill failed (continuing)"
+      sleep "${SIGNALS_EVERY_S:-600}"
+    done
+    ;;
   once)
     feed_once
     log "one-shot drain (limited): run_node --node $NODE --limit ${KSSL_ONCE_LIMIT:-20}"

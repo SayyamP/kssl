@@ -44,6 +44,21 @@ services:
     command: ["cards"]
     restart: unless-stopped
 
+  # Signals: extracted docs -> UI feed cards (serving.signal_card/detail) via the
+  # signal-generation LLM running on VPS-A. Workers keep hitting the farm (env_file
+  # OLLAMA_URL); only THIS role is overridden to VPS-A's model over the reverse tunnel.
+  signals:
+    build: .
+    image: kssl-extraction:latest
+    env_file: .env
+    network_mode: host
+    command: ["signals"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_URL: "http://127.0.0.1:11500"
+      OLLAMA_API_KEY: ""
+      KSSL_MODEL: "qwen2.5:7b-instruct"
+
   # Layer B: canonical entities from the extracted spans, on a slow timer. Same-script merges;
   # cross-script (embedding) blocking is a documented extension. Enable when Layer A has a backlog.
   layerb:
