@@ -621,6 +621,10 @@ def strip_kssl_tail(sowhat):
     out = []
     for sent in re.split(r"(?<=[.!?])\s+", (sowhat or "").strip()):
         if not _KSSL_SENT.search(sent):
+            if _FILLER_RX.search(sent):
+                continue                 # a filler sentence ('This showcases advances...') ->
+                                         # drop it, keep the substantive sentences (a richer
+                                         # 14B often writes fact-then-filler)
             out.append(sent)
             continue
         core = _TIE_PLAIN.sub("", _TAIL_RX.sub("", sent))
