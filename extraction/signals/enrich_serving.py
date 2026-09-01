@@ -1560,10 +1560,30 @@ STEPS = [("companies", step_companies), ("partnerships", step_partnerships),
          ("matchups", step_matchups)]
 
 
-def run(only=None, limit=None, dsn=DSN):
+def _open(dsn):
+    """A fresh connection + cursor. Keepalives because this pass runs for hours and
+    an idle socket through a tunnel is reaped silently."""
     import psycopg2
-    con = psycopg2.connect(dsn)
-    cur = con.cursor()
+    con = psycopg2.connect(dsn, connect_timeout=10, keepalives=1,
+                           keepalives_idle=30, keepalives_interval=10,
+                           keepalives_count=3)
+    return con, con.cursor()
+
+
+def _live(con):
+    """True if the connection can still answer. Cheap, and never raises."""
+    try:
+        c = con.cursor()
+        c.execute("SELECT 1")
+        c.fetchone()
+        con.commit()
+        return True
+    except Exception:                                                # noqa: BLE001
+        return False
+
+
+def run(only=None, limit=None, dsn=DSN):
+    con, cur = _open(dsn)
     docs = load_docs(cur)
     props_by_doc = load_props(cur)
     banned = suppressed_ids()
@@ -1573,14 +1593,62 @@ def run(only=None, limit=None, dsn=DSN):
         props_by_doc.pop(d, None)
     print("corpus: %d document(s), %d with propositions, %d suppressed by audit"
           % (len(docs), len(props_by_doc), n_sup), flush=True)
-    results = {}
+
+    # A pass is seven steps and several hours. It used to share ONE connection with no
+    # handler, so anything that closed that socket -- a pg_terminate_backend during
+    # unrelated maintenance, a Postgres restart, the tunnel dropping -- killed the pass
+    # at whichever step it was on, and every LATER step's work went with it. In
+    # production that meant step 1 of 7 died and six tables were never written at all.
+    #
+    # Each step now stands alone: a checked connection, one reconnect-retry, and its
+    # failure recorded rather than raised. That is safe because every step does its own
+    # DELETE ... origin='pipeline' and a single commit at the end -- a step that dies
+    # before its commit rolls back its own delete, so the table keeps the rows from the
+    # last good pass instead of being emptied.
+    results, failed = {}, []
     for name, fn in STEPS:
         if only and name != only:
             continue
         print("== step: %s ==" % name, flush=True)
-        results[name] = fn(cur, con, docs, props_by_doc, limit=limit)
-    con.close()
+        for attempt in (1, 2):
+            if not _live(con):
+                try:
+                    con.close()
+                except Exception:                                    # noqa: BLE001
+                    pass
+                try:
+                    con, cur = _open(dsn)
+                    print("  reconnected before %s" % name, flush=True)
+                except Exception as e:                               # noqa: BLE001
+                    print("  reconnect failed: %s: %s" % (type(e).__name__, e),
+                          flush=True)
+                    results[name] = {"error": "reconnect: %s" % e}
+                    failed.append(name)
+                    break
+            try:
+                results[name] = fn(cur, con, docs, props_by_doc, limit=limit)
+                break
+            except Exception as e:                                   # noqa: BLE001
+                print("  step %s failed (attempt %d/2): %s: %s"
+                      % (name, attempt, type(e).__name__, e), flush=True)
+                try:
+                    con.rollback()
+                except Exception:                                    # noqa: BLE001
+                    pass
+                if attempt == 2:
+                    results[name] = {"error": "%s: %s" % (type(e).__name__, e)}
+                    failed.append(name)
+    try:
+        con.close()
+    except Exception:                                                # noqa: BLE001
+        pass
     print("done:", json.dumps(results), flush=True)
+    if failed:
+        # Loud, so the entrypoint's "(continuing)" is not the only trace of a skip.
+        print("PASS INCOMPLETE: %d of %d step(s) failed: %s"
+              % (len(failed), len(results), ", ".join(failed)), flush=True)
+    else:
+        print("PASS COMPLETE: all %d step(s) ran" % len(results), flush=True)
     return results
 
 

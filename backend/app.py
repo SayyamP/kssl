@@ -50,7 +50,18 @@ COMP_FIELDS = ["name", "dir", "sector", "hq", "threat", "assess", "updates",
                "center", "partners", "site", "srcs", "products", "threatNote",
                # harvested from each maker's own site, each value carrying the URL and
                # the verbatim line it was read from - see pipeline/harvest/promote.py
-               "leadership", "facilities", "sales"]
+               "leadership", "facilities", "sales",
+               # 2026-09-01 schema addition. These sat in the table AND in the
+               # serving_live view but not here, so they could never reach the
+               # browser however well the pipeline filled them -- and the Profile
+               # page invented founded / headcount / revenue in their place.
+               "starting_year", "global_locations", "company_size",
+               "strategic_positioning"]
+COMP_OPT = frozenset(["starting_year", "global_locations", "company_size",
+                      "strategic_positioning"])
+NEWS_FIELDS = ["id", "comp_id", "title", "description", "source",
+               "published_date", "category", "is_trending", "url", "image"]
+NEWS_OPT = frozenset(["description", "category", "is_trending"])
 CARD_FIELDS = ["id", "dir", "rank", "title", "meta", "company", "lens",
                "sowhat", "sec", "url", "ago", "tags", "image"]
 CARD_OPT = frozenset(["company", "lens", "sec", "url", "image"])
@@ -59,8 +70,10 @@ DETAIL_FIELDS = ["rank", "dir", "title", "facts", "what", "why", "lens",
 DETAIL_OPT = frozenset(["lens", "url", "kind", "match", "pursue"])
 MATCHUP_FIELDS = ["cat", "anchor", "global", "dir", "country", "comp", "compBy",
                   "bf", "bfBy", "ks_thin", "reason", "edge", "specs", "advComp",
-                  "advBf", "det", "verdictH", "verdict", "catKey", "srcs", "gen"]
-MATCHUP_OPT = frozenset(["srcs", "gen"])  # edge stays, null is honest
+                  "advBf", "det", "verdictH", "verdict", "catKey", "srcs", "gen",
+                  "revenue_filter", "news_image", "product_news"]
+MATCHUP_OPT = frozenset(["srcs", "gen",  # edge stays, null is honest
+                         "revenue_filter", "news_image"])
 TENDER_FIELDS = ["id", "title", "issuer", "country", "cat", "value", "qty",
                  "deadline", "dl", "reqNote", "req", "matches", "lean",
                  "leanTxt", "status", "url", "urlKind", "srcs", "stage"]
@@ -68,13 +81,16 @@ TENDER_OPT = frozenset(["stage"])
 PATENT_FIELDS = ["no", "title", "assignee", "status", "filed", "granted",
                  "country", "ipc", "abstract", "area", "threat", "relev",
                  "url", "p"]  # granted stays, null is honest
-GEO_FIELDS = ["name", "c", "val", "since", "qty", "stage", "note", "src", "srcnote"]
+GEO_FIELDS = ["name", "c", "val", "since", "qty", "stage", "note", "src", "srcnote",
+              "geo_news"]
 GEOCOMP_FIELDS = ["id", "name", "dir", "hq", "isBf"]
 INNOV_FIELDS = ["t", "mat", "gap", "driver", "horizon", "body", "impact",
                 "whatsNew", "compNote", "action", "sources", "url"]
 INNOV_OPT = frozenset(["url"])
 PARTNER_FIELDS = ["id", "label", "kind", "rel", "sig", "ptype", "note", "date",
-                  "country", "deal", "insight", "mean", "src", "srcnote", "cid"]
+                  "country", "deal", "insight", "mean", "src", "srcnote", "cid",
+                  "image"]
+PARTNER_OPT = frozenset(["image"])
 SRCREG_FIELDS = ["company", "label", "url", "kind"]
 
 
@@ -86,6 +102,7 @@ ARRAY_FIELDS = frozenset([
     "partners", "products", "srcs", "updates", "advComp", "advBf", "specs",
     "ipc", "sec", "facts", "lens", "actions", "suggest", "matches", "req",
     "leadership", "facilities", "sales",
+    "global_locations", "product_news", "geo_news",
 ])
 
 
@@ -170,8 +187,26 @@ def _dataset(_st=None):
         _q(cur, "SELECT comp_id, %s FROM serving.competitors ORDER BY ord"
                     % _cols(COMP_FIELDS))
         comps = cur.fetchall()
-        out["competitors"] = {r["comp_id"]: _emit(r, COMP_FIELDS) for r in comps}
+        out["competitors"] = {r["comp_id"]: _emit(r, COMP_FIELDS, COMP_OPT)
+                              for r in comps}
         out["compOrder"] = [r["comp_id"] for r in comps]
+
+        # competitorNews (dict comp_id -> list, newest first). The table and its
+        # serving_live view existed with no reader at all; until this query the
+        # Profile / Products / Geo news panels had nowhere real to read from and
+        # rendered a hard-coded template with the company name substituted in.
+        _q(cur, "SELECT %s FROM serving.competitor_news "
+                "ORDER BY comp_id, published_date DESC NULLS LAST, id"
+                    % _cols(NEWS_FIELDS))
+        news = {}
+        for r in cur.fetchall():
+            item = _emit(r, NEWS_FIELDS, NEWS_OPT)
+            d = item.pop("published_date", None)
+            # ISO date only: the UI formats it, and a timestamp implies a precision
+            # the publisher's markup rarely states.
+            item["date"] = d.date().isoformat() if d is not None else None
+            news.setdefault(item.pop("comp_id"), []).append(item)
+        out["competitorNews"] = news
 
         # signal cards, three lanes.
         for lane, gname in (("competitive", "competitiveCards"),
@@ -247,7 +282,8 @@ def _dataset(_st=None):
 
         # KSSL_PARTNERS (list).
         _q(cur, "SELECT %s FROM serving.partner ORDER BY ord" % _cols(PARTNER_FIELDS))
-        out["KSSL_PARTNERS"] = [_emit(r, PARTNER_FIELDS) for r in cur.fetchall()]
+        out["KSSL_PARTNERS"] = [_emit(r, PARTNER_FIELDS, PARTNER_OPT)
+                                for r in cur.fetchall()]
 
         # sourceRegistry (list).
         _q(cur, "SELECT %s FROM serving.source_registry ORDER BY ord"

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { marketNews } from "../../lib/news";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import ScopeChat from "../../components/scopeChat/ScopeChat";
 import GeoMap, { servedGeoCountries } from "../../components/geoMap/GeoMap";
@@ -38,46 +39,19 @@ export default function Geo() {
   const [activeGeoNewsArticle, setActiveGeoNewsArticle] = useState(null);
   const rootRef = useRef(null);
 
+  /* Three invented market stories used to be returned here for every
+     company-country pair -- "$120M Export Contract for 18 Platform Units", a
+     "CAIRO / NEW DELHI" dateline, attributed to a "Ministry of Defence / Official
+     Export Filings", a "Defence Procurement Directorate" and a "Bilateral Trade &
+     Export Credit Bureau", none of which issued anything. They are replaced by the
+     company's real pipeline news filtered to the articles that name this country;
+     when none do, the panel shows nothing rather than something untrue. */
   const geoNewsArticles = useMemo(() => {
-    const coName = comp ? (data.geoComps.find((x) => x.id === comp)?.name || comp) : (pair ? pair.cid : "Defense OEM");
-    const ctName = country || (pair ? pair.country : "Target Market");
-    return [
-      {
-        id: 1,
-        title: `${coName} Finalizes $120M Export Contract for 18 Platform Units in ${ctName}`,
-        category: "Contract & Sales",
-        ago: "2 days ago",
-        source: "Ministry of Defence / Official Export Filings",
-        image: "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?auto=format&fit=crop&w=1200&q=80",
-        excerpt: `Official procurement agreement signed with ${ctName} defense ministry for 18 units including logistics support, spare tooling, and flight training.`,
-        fullText: `CAIRO / NEW DELHI — ${coName} has formally secured a high-value defense export contract for the supply of light platforms and specialized tactical hardware to ${ctName}.\n\nThe contract, valued at an estimated $120 Million, encompasses initial batch deliveries of 18 units along with comprehensive maintenance, repair, and overhaul (MRO) tooling and pilot training simulators.\n\nAccording to official filings with the Department of Defence Production, initial unit dispatches are slated to commence within the upcoming fiscal quarters under direct government-to-government bilateral defense cooperation frameworks.`,
-        impact: `Significantly enhances ${coName}'s international footprint in ${ctName} and validates indigenous platform export capabilities against competing OEMs.`
-      },
-      {
-        id: 2,
-        title: `${ctName} Armed Forces Conduct Pre-Induction Flight & Environmental Evaluation Trials`,
-        category: "Testing & Trials",
-        ago: "5 days ago",
-        source: "Defence Procurement Directorate",
-        image: "https://images.unsplash.com/photo-1508614589041-895b88991e3e?auto=format&fit=crop&w=1200&q=80",
-        excerpt: "High-level delegation completes flight evaluation trials and environmental testing across high-altitude and desert operational corridors.",
-        fullText: `A senior technical delegation from ${ctName} completed extensive flight evaluations and operational assessment trials of the proposed platforms.\n\nEvaluations focused on engine hot-and-high performance, avionics integration, and weapons payload delivery systems. Officials reported clean test benchmarks exceeding base RFP operational requirements.`,
-        impact: "Paves the way for follow-on options for an additional 12 units upon successful completion of initial operational deployment trials."
-      },
-      {
-        id: 3,
-        title: "Bilateral Defense Credit Line & Regional MRO Support Framework Established",
-        category: "Bilateral Strategy",
-        ago: "1 week ago",
-        source: "Bilateral Trade & Export Credit Bureau",
-        image: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=1200&q=80",
-        excerpt: "Specialized export credit facility established to facilitate long-term spare support and local maintenance facility setup.",
-        fullText: `To support ongoing defense platform inductions in ${ctName}, a dedicated Line of Credit (LoC) framework has been activated along with a localized MRO technical support node.\n\nThis structure ensures long-term operational availability and fast-turnaround spare parts provisioning for regional military buyers.`,
-        impact: "Reduces lifecycle maintenance friction and establishes KSSL as a reliable defense partner in regional operational theaters."
-      }
-    ];
-  }, [comp, country, pair, data.geoComps]);
-
+    const cid = comp || (pair ? pair.cid : null);
+    const ctName = country || (pair ? pair.country : null);
+    if (!cid || !ctName) return [];
+    return marketNews(data, cid, ctName);
+  }, [comp, country, pair, data]);
   useEffect(() => {
     try {
       localStorage.setItem(

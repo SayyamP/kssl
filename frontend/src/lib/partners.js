@@ -709,62 +709,84 @@ export function createPartners(d) {
       (x) => (x.cid || x.id) === (p.cid || p.id) && x.id !== p.id,
     );
 
-    const sourceUrl = p.src && p.src.startsWith("http") ? p.src : "https://www.mod.gov.in";
+    /* These relationship cards used to pad three real fields out to three cards of
+       invented analysis: a "Defense Intelligence Unit" and an "MoD Official Gazette"
+       as issuing bodies, an "Intelligence analysis ... reveals a high degree of
+       technical dependency" finding nobody made, Unsplash stock photos, and a
+       sourceUrl that fell back to https://www.mod.gov.in for rows with no citation
+       at all. Every field below is now either a value the row states or absent, and
+       a card whose substance is missing is not emitted. The render is unchanged:
+       fewer cards, and each one true. */
+    const NL = String.fromCharCode(10);
+    const real = (v) => {
+      const t = typeof v === "string" ? v.trim() : v;
+      return t && t !== "n/d" && t !== "null" ? t : null;
+    };
+    const sourceUrl = real(p.src) && p.src.startsWith("http") ? p.src : undefined;
+    const relLabel = (REL_LABEL[p.rel] || real(p.ptype) || "Partnership").toUpperCase();
+    const cat = real(p.country) ? `${relLabel} · ${p.country.toUpperCase()}` : relLabel;
 
-    // Construct 3+ relationship cards matching the news dashboard middle column card style
+    const lines = [];
+    if (real(p.ptype)) lines.push(`Type: ${p.ptype}`);
+    if (real(p.note)) lines.push(`Scope: ${p.note}`);
+    if (real(p.deal)) lines.push(`Deal: ${p.deal}`);
+    if (real(p.date)) lines.push(`Recorded: ${p.date}`);
+    if (real(p.srcnote)) lines.push(`Source note: ${p.srcnote}`);
+
     const cards = [
       {
         id: 0,
-        category: `${(REL_LABEL[p.rel] || p.ptype || "Technology ToT").toUpperCase()} · ${p.country || "INDIA"}`,
-        ago: `${p.date && p.date !== "n/d" ? p.date : "Active Contract"}`,
-        title: `${c.name} ↔ ${p.label} · Program & Technical Scope`,
-        excerpt: `${p.note && p.note !== "n/d" ? p.note : "Strategic defense manufacturing, platform supply and joint development partnership."}`,
-        source: `${p.deal && p.deal !== "n/d" ? p.deal : "Ministry of Defence / Official Filings"}`,
+        category: cat,
+        ago: real(p.date) || "",
+        title: `${c.name} ↔ ${p.label}`,
+        excerpt: real(p.note) || "",
+        source: real(p.src) || undefined,
         sourceUrl: sourceUrl,
-        image: "https://images.unsplash.com/photo-1541888946425-d0fbb186a5b7?auto=format&fit=crop&w=1200&q=80",
-        fullBodyText: `The strategic partnership between ${c.name} and ${p.label} represents a core defense manufacturing and technological capability agreement. Under this alliance, ${c.name} leverages ${p.label}'s specialized defense infrastructure (${p.ptype || "ToT / Technology Transfer"}) to manufacture, integrate, and deploy advanced platform components.\n\nProgram Details & Scope:\n${p.note || "No specific program note recorded in source filings."}\n\nScale & Financial Terms:\n${p.deal && p.deal !== "n/d" ? p.deal : "Standard public sector defense procurement terms apply."}`,
-        impact: `${c.name} secures long-term indigenous manufacturing capabilities and direct technical supply alignment with ${p.label}.`,
-      },
-      {
-        id: 1,
-        category: `STRATEGIC READ · INDUSTRY EXPOSURE`,
-        ago: `Verified Analysis`,
-        title: `${c.name} ↔ ${p.label} · Strategic Ecosystem Alignment`,
-        excerpt: `${insightClean || "Defense manufacturing ecosystem tie and structural technology transfer alignment."}`,
-        source: `Defense Intelligence Unit`,
-        sourceUrl: sourceUrl,
-        image: "https://images.unsplash.com/photo-1504384308090-c894fdcc538d?auto=format&fit=crop&w=1200&q=80",
-        fullBodyText: `Intelligence analysis of ${c.name}'s partnership network reveals a high degree of technical dependency and strategic integration with ${p.label}.\n\nEcosystem Read:\n${insightClean || "This relationship positions the competitor within key defense supply chains and joint R&D channels."}\n\nCompetitive Exposure:\n${meanClean || "Aligns component specifications with primary defense procurement standards."}`,
-        impact: `Protects ${c.name}'s market position by embedding its operational platforms directly within ${p.label}'s defense supply ecosystem.`,
-      },
-      {
-        id: 2,
-        category: `VERIFIED FILINGS · DOCUMENTATION`,
-        ago: `${p.date || "Active Filing"}`,
-        title: `${c.name} ↔ ${p.label} · Published Evidence & Contract Records`,
-        excerpt: `${p.srcnote || "Verified defense procurement documentation and published corporate filings."}`,
-        source: `${p.src || "MoD Official Gazette"}`,
-        sourceUrl: sourceUrl,
-        image: "https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=1200&q=80",
-        fullBodyText: `Contract Record & Documentation:\n${p.srcnote || "Official government and corporate defense filings verified by platform pipeline."}\n\nFiling Details:\nThis relationship is recorded under published Ministry of Defence gazettes and corporate annual filings (${p.date || "Active"}).`,
-        impact: `Provides audited, verifiable proof of contractual alliance and operational joint venture terms between ${c.name} and ${p.label}.`,
+        image: real(p.image) || undefined,
+        fullBodyText: lines.join(NL),
+        /* `mean` is the pipeline's own read of the tie, not a sentence written here. */
+        impact: real(p.mean) || undefined,
       },
     ];
 
-    // Add sibling relationship cards if available
-    sib.forEach((x, idx) => {
-      const note = pgThinNote(x, c.name);
+    /* Only when the row actually carries an insight. It was previously emitted for
+       every partner with a generic sentence standing in. */
+    if (insightClean) {
       cards.push({
-        id: 3 + idx,
-        category: `${(REL_LABEL[x.rel] || x.ptype || "Co-Deal").toUpperCase()} · ${x.country || "INDIA"}`,
-        ago: `${x.date || "Active Row"}`,
-        title: `${c.name} ↔ ${p.label} · ${x.ptype || "Additional Project Contract"}`,
-        excerpt: `${note || "Additional project row recorded in defense filings."}`,
-        source: `${x.deal && x.deal !== "n/d" ? x.deal : "MoD Gazette"}`,
-        sourceUrl: x.src && x.src.startsWith("http") ? x.src : sourceUrl,
-        image: "https://images.unsplash.com/photo-1541888946425-d0fbb186a5b7?auto=format&fit=crop&w=1200&q=80",
-        fullBodyText: `Contract Details:\nType: ${x.ptype || REL_LABEL[x.rel]}\nScope: ${note || "No detail on file"}\nDeal Scale: ${x.deal || "n/d"}\nTimeline: ${x.date || "Recorded in roster"}`,
-        impact: `Expands the multi-project footprint between ${c.name} and ${p.label}.`,
+        id: cards.length,
+        category: "STRATEGIC READ",
+        ago: real(p.date) || "",
+        title: `${c.name} ↔ ${p.label} · Strategic read`,
+        excerpt: insightClean,
+        source: real(p.src) || undefined,
+        sourceUrl: sourceUrl,
+        image: undefined,
+        fullBodyText: [insightClean, meanClean].filter(Boolean).join(NL + NL),
+        impact: real(p.mean) || undefined,
+      });
+    }
+
+    // Sibling rows on the same tie: real values only, and no card without one.
+    sib.forEach((x) => {
+      const note = pgThinNote(x, c.name);
+      if (!real(note) && !real(x.deal) && !real(x.ptype)) return;
+      const xl = (REL_LABEL[x.rel] || real(x.ptype) || "Partnership").toUpperCase();
+      cards.push({
+        id: cards.length,
+        category: real(x.country) ? `${xl} · ${x.country.toUpperCase()}` : xl,
+        ago: real(x.date) || "",
+        title: `${c.name} ↔ ${p.label}${real(x.ptype) ? ` · ${x.ptype}` : ""}`,
+        excerpt: real(note) || "",
+        source: real(x.src) || undefined,
+        sourceUrl: real(x.src) && x.src.startsWith("http") ? x.src : sourceUrl,
+        image: undefined,
+        fullBodyText: [
+          real(x.ptype) ? `Type: ${x.ptype}` : null,
+          real(note) ? `Scope: ${note}` : null,
+          real(x.deal) ? `Deal: ${x.deal}` : null,
+          real(x.date) ? `Recorded: ${x.date}` : null,
+        ].filter(Boolean).join(NL),
+        impact: undefined,
       });
     });
 

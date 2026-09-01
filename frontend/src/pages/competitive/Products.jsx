@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
+import { productNews } from "../../lib/news";
 
 // Clean company display name helper
 const cleanCompanyName = (rawName) => {
@@ -14,94 +15,38 @@ function nameKey(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-// Generate Product-Specific Interactive News Articles (Sales, Technology, Testing)
-const getProductNewsData = (productName, companyName) => {
-  const pName = productName || "Nagastra-1";
-  const cName = companyName || "Solar Industries";
-
-  const articles = [
-    {
-      id: `${pName}-news-1`,
-      category: "Testing",
-      ago: "2 days ago",
-      title: `${pName} Successfully Completes High-Altitude Firing Trials in Ladakh at 14,000 ft`,
-      excerpt: `${pName} developed by ${cName} demonstrated 100% target accuracy during high-altitude user validation trials conducted by the Indian Army in extreme environmental conditions.`,
-      fullText: `The Indian Army has completed high-altitude precision firing trials for ${pName} loitering munitions at 14,000 ft altitude in Ladakh.\n\nThe system demonstrated autonomous GPS-denied navigation, real-time target recognition, and surgical strike accuracy with zero collateral damage. Military observers commended the abort-and-recover capability via parachute mechanism.`,
-      source: "ET The Economic Times",
-      image: "https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&w=800&q=80",
-      isTopStory: true,
-      impact: "Validates high-altitude combat readiness for Himalayan border deployment.",
-    },
-    {
-      id: `${pName}-news-2`,
-      category: "Sales",
-      ago: "1 day ago",
-      title: `Indian Army Issues ₹45 Cr Procurement Order for 480 ${pName} Units`,
-      excerpt: `Ministry of Defence awards emergency procurement contract to ${cName} for 480 ${pName} precision loitering systems.`,
-      fullText: `Under emergency procurement powers, the Ministry of Defence has awarded a ₹45 Crore contract to ${cName} for the induction of 480 ${pName} precision loitering munitions into infantry combat formations.\n\nDeliveries are scheduled over the next 12 months with 75%+ domestic content localization.`,
-      source: "Business Standard",
-      image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=300&q=80",
-      impact: "Major commercial contract win solidifying market leadership in loitering ammunition.",
-    },
-    {
-      id: `${pName}-news-3`,
-      category: "Technology",
-      ago: "3 days ago",
-      title: `${pName} Upgraded with Day-Night EO/IR Payload & AI Autonomous Target Recognition`,
-      excerpt: `${cName} integrates advanced dual electro-optical & infrared sensor payloads into ${pName} for all-weather night strike capabilities.`,
-      fullText: `Engineers at ${cName} have completed technological upgrades on ${pName}, integrating high-definition dual EO/IR gimbal camera payloads and onboard AI target classification chips.\n\nThe system now enables operators to lock onto armored vehicles and tactical positions during nighttime missions with pin-point accuracy.`,
-      source: "Financial Express",
-      image: "https://images.unsplash.com/photo-1508614589041-895b88991e3e?auto=format&fit=crop&w=300&q=80",
-      impact: "Extends operational capabilities to 24/7 all-weather battlefield environments.",
-    },
-    {
-      id: `${pName}-news-4`,
-      category: "Testing",
-      ago: "1 week ago",
-      title: `Precision Warhead Detonation & Parachute Abort Mechanism Validated at Pokhran Ranges`,
-      excerpt: `Field trials at Pokhran test range confirm 2kg blast-fragmentation warhead lethality and successful parachute recovery upon mission abort.`,
-      fullText: `During rigorous field testing at Pokhran desert firing ranges, ${pName} successfully demonstrated mission abort capability, returning safely via parachute deployment without damaging the warhead payload.\n\nSubsequent live detonation tests confirmed high-fragmentation blast coverage against armored targets.`,
-      source: "NDTV Profit",
-      image: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=300&q=80",
-      impact: "Verifies safety compliance and reusable recovery protocols for non-engaged missions.",
-    },
-  ];
-
-  return articles;
+/* Product news, and the sidebar's country / category / revenue facets.
+ *
+ * getProductNewsData() used to return four invented articles per product —
+ * "Indian Army Issues ₹45 Cr Procurement Order for 480 {product} Units",
+ * "100% target accuracy" at Ladakh — attributed to ET, Business Standard,
+ * Financial Express and NDTV Profit. It is replaced by productNews(), which
+ * filters the company's REAL pipeline news down to the articles that name this
+ * product, and returns [] when none do.
+ *
+ * getCompanyFilterMeta() guessed the same three facets from substrings of the HQ
+ * string and the company id — defaulting country to "India", so with hq filled on
+ * 24.4% of rows three quarters of the roster was silently filed as Indian, and the
+ * filter chips presented that guess as a fact. Each facet now comes from the value
+ * the pipeline actually holds, or is null and simply does not participate in the
+ * filter.
+ */
+const countryOf = (hq) => {
+  /* The pipeline writes hq as "City, Country" — the tail is the country, and a
+     string with no comma states a place, not a country. Nothing is inferred from
+     the company id. */
+  const parts = String(hq || "").split(",").map((s) => s.trim()).filter(Boolean);
+  return parts.length > 1 ? parts[parts.length - 1] : null;
 };
 
-const getCompanyFilterMeta = (co, id) => {
-  const name = (co.name || "").toLowerCase();
-  const cid = (id || "").toLowerCase();
-  const hq = (co.hq || "").toLowerCase();
-  const sector = (co.sector || "").toLowerCase();
-
-  let country = "India";
-  if (hq.includes("korea") || cid.includes("hanwha")) country = "South Korea";
-  else if (hq.includes("israel") || cid.includes("elbit")) country = "Israel";
-  else if (hq.includes("germany") || cid.includes("rheinmetall")) country = "Germany";
-  else if (hq.includes("sweden") || cid.includes("saab")) country = "Sweden";
-  else if (hq.includes("usa") || hq.includes("united states")) country = "USA";
-
-  let category = "Defense Systems";
-  if (sector.includes("missile") || sector.includes("air defence")) category = "Missiles & Air Defence";
-  else if (sector.includes("ammunition") || sector.includes("explosive")) category = "Ammunition & Explosives";
-  else if (sector.includes("artillery") || sector.includes("rocket") || sector.includes("howitzer")) category = "Artillery & Rocket Systems";
-  else if (sector.includes("armoured") || sector.includes("mobility") || sector.includes("tank")) category = "Armoured Vehicles & Mobility";
-  else if (sector.includes("unmanned") || sector.includes("uav") || sector.includes("drone")) category = "Unmanned Systems";
-  else if (sector.includes("simulator") || sector.includes("electronics") || sector.includes("radar")) category = "Electronics & Sensors";
-
-  let revenueTier = "mid";
-  if (cid.includes("hanwha") || cid.includes("elbit") || cid.includes("lt") || cid.includes("solar") || cid.includes("tasl") || cid.includes("mil") || name.includes("larsen")) {
-    revenueTier = "high";
-  } else if (cid.includes("pel") || cid.includes("zen")) {
-    revenueTier = "emerging";
-  } else {
-    revenueTier = "mid";
-  }
-
-  return { country, category, revenueTier };
-};
+const getCompanyFilterMeta = (co) => ({
+  country: countryOf(co.hq),
+  /* The maker's own sector, not a bucket mapped onto it. */
+  category: (co.sector && String(co.sector).trim()) || null,
+  /* serving.matchup.revenue_filter is the column for this and is not yet written;
+     until it is, a company has no revenue tier rather than a guessed one. */
+  revenueTier: co.revenue_filter || null,
+});
 
 export default function Products() {
   const { data } = useData();
@@ -127,7 +72,7 @@ export default function Products() {
       if (id === clientCid) return;
       const co = data.competitors[id];
       if (co) {
-        const meta = getCompanyFilterMeta(co, id);
+        const meta = getCompanyFilterMeta(co);
         list.push({
           cid: id,
           name: cleanCompanyName(co.name || id),
@@ -321,8 +266,19 @@ export default function Products() {
   // Generate Product News Dataset when a product is selected
   const productNewsArticles = useMemo(() => {
     if (!selectedProduct) return [];
-    return getProductNewsData(selectedProduct.name, selectedCompany.name);
-  }, [selectedProduct, selectedCompany.name]);
+    return productNews(data, selectedCompany.cid, selectedProduct.name);
+  }, [data, selectedProduct, selectedCompany]);
+
+  /* "480 Units / ₹45 Cr" and "Active Delivery Pipeline" were printed here as
+     literals for every product. No column states an induction order, so the tile
+     shows what the pipeline can prove -- the number of sourced articles naming
+     this product -- and a dash when that is nothing. */
+  const productScale = productNewsArticles.length
+    ? `${productNewsArticles.length} sourced ${productNewsArticles.length === 1 ? "story" : "stories"}`
+    : "—";
+  const productScaleNote = productNewsArticles.length
+    ? "From the crawled corpus"
+    : "Not stated in the corpus";
 
   // Filter product news articles by selected category pill (Sales, Technology, Testing)
   const filteredProdArticles = useMemo(() => {
@@ -839,10 +795,10 @@ export default function Products() {
                         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                           <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>Induction Orders</span>
                           <div style={{ fontSize: "18px", fontWeight: "700", color: "#ffffff", fontFamily: "var(--mono)" }}>
-                            480 Units / ₹45 Cr
+                            {productScale}
                           </div>
                           <span style={{ fontSize: "11px", color: "#22c55e", fontWeight: "600", fontFamily: "var(--mono)" }}>
-                            Active Delivery Pipeline
+                            {productScaleNote}
                           </span>
                         </div>
                         <svg width="60" height="30" viewBox="0 0 70 36" fill="none">

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf } from "../../lib/profile";
+import { companyNews } from "../../lib/news";
 
 // Helper function to extract clean company short name without full form or legal suffixes
 const cleanCompanyName = (rawName) => {
@@ -21,568 +22,58 @@ const getInitials = (name) => {
 };
 
 // Helper to derive exact metadata for BDL and all tracked competitors
+/* Company facts, from the pipeline's own columns.
+ *
+ * This function used to hold a hand-written dossier for about eleven named firms
+ * — founded date, headcount, revenue, site count, all typed in — and a fallback
+ * that INVENTED the rest: "₹1,000 Cr+ (Published Financials)", "1,000–5,000
+ * Employees". Every one of those values now has a column in serving.competitors
+ * (starting_year, company_size, sales, global_locations, hq, sector, assess), so
+ * the panel reads them instead. A fact the corpus does not state renders as a
+ * dash. The markup below is untouched; only where the values come from changed.
+ */
+const DASH = "—";
+
+const firstValue = (v) => {
+  if (!v) return null;
+  if (Array.isArray(v)) {
+    const hit = v.find((x) => x && (typeof x === "string" ? x.trim() : x.value));
+    if (!hit) return null;
+    return typeof hit === "string" ? hit : hit.value || null;
+  }
+  return typeof v === "string" ? v.trim() || null : null;
+};
+
+const joinList = (v) => {
+  if (!Array.isArray(v) || !v.length) return null;
+  const names = v
+    .map((x) => (typeof x === "string" ? x : x && (x.value || x.name)))
+    .filter(Boolean);
+  return names.length ? names.join(" · ") : null;
+};
+
 const getCompanyDetailsMeta = (p) => {
   if (!p) return null;
-  const name = (p.name || "").toLowerCase();
-  const cid = (p.cid || "").toUpperCase();
-
-  // BDL Specific Metadata
-  if (name.includes("bharat dynamics") || cid.includes("BDL")) {
-    return {
-      founded: "1970 (Founded July 16, 1970)",
-      hq: "Gachibowli, Hyderabad, Telangana, India",
-      globalLocs: "3 Production Units + 1 Liaison Office",
-      size: "2,556 Employees (A Government of India Miniratna Category-I PSU)",
-      sector: "Missiles/AD · Artillery · Electronics/EW",
-      revenue: "₹2,485 Cr (FY24 Annual Revenue)",
-      assess: "Primary defense manufacturing base for guided missile systems and allied equipment for the Indian Armed Forces. Publicly listed stock ticker symbol: BDL (NSE/BSE). Highly distinguished manufacturing scale driven by Atmanirbhar Bharat localization metrics.",
-    };
-  }
-
-  // Tata Advanced Systems (TASL)
-  if (name.includes("tata") || name.includes("tasl") || cid.includes("TASL")) {
-    return {
-      founded: "2007 (Founded 2007)",
-      hq: "Hyderabad, Telangana, India",
-      globalLocs: "4 Manufacturing Hubs (Hyderabad, Bengaluru, Pune, Delhi NCR)",
-      size: "7,500+ Employees (Tata Group Aerospace & Defense)",
-      sector: "Aerospace & Defense Systems · Unmanned Platforms",
-      revenue: "₹4,200 Cr+ (Est. Defense Division Sales)",
-      assess: "Core aerospace and defense manufacturing entity of the Tata Group, specializing in aerostructures, C-295 aircraft assembly, tactical radars, UAVs, and heavy land combat systems for Indian and global defense OEM partners.",
-    };
-  }
-
-  // Adani Defence
-  if (name.includes("adani") || cid.includes("ADANI")) {
-    return {
-      founded: "2015 (Founded 2015)",
-      hq: "Ahmedabad, Gujarat, India",
-      globalLocs: "3 Production Facilities (Kanpur Ammunition Complex, Hyderabad, Ahmedabad)",
-      size: "2,500+ Employees (Adani Group Defense Sector)",
-      sector: "Unmanned Systems · Ammunition · Aerospace & Avionics",
-      revenue: "₹1,500 Cr+ (Expanding Defense Order Book)",
-      assess: "Flagship defense arm of the Adani Group, pioneering South Asia's largest integrated ammunition and small arms manufacturing complex in Kanpur alongside Hermes-900 MALE UAV co-production and defense electronics.",
-    };
-  }
-
-  // Larsen & Toubro (L&T)
-  if (name.includes("larsen") || name.includes("l&t") || cid.includes("LT")) {
-    return {
-      founded: "1938 (Founded February 7, 1938)",
-      hq: "Mumbai, Maharashtra, India",
-      globalLocs: "4 Heavy Engineering Complexes (Hazira, Coimbatore, Talegaon, Kattupalli)",
-      size: "50,000+ Employees (Larsen & Toubro Defense Business)",
-      sector: "Artillery · Naval Shipbuilding · Submarines & Radar",
-      revenue: "₹5,600 Cr (L&T Defence Segment FY24)",
-      assess: "India's premier private-sector defense prime, engineering K9 Vajra-T 155mm self-propelled howitzers, naval warships, submarine structures, and air defense missile launch systems for the Indian Armed Forces.",
-    };
-  }
-
-  // BEML Limited
-  if (name.includes("beml") || cid.includes("BEML")) {
-    return {
-      founded: "1964 (Founded May 11, 1964)",
-      hq: "Bengaluru, Karnataka, India",
-      globalLocs: "4 Manufacturing Units (KGF, Mysuru, Palakkad, Bengaluru)",
-      size: "6,000+ Employees (A Government of India Schedule 'A' Miniratna PSU)",
-      sector: "Heavy Earthmovers · Armoured Recovery Vehicles · Heavy Mobility",
-      revenue: "₹3,840 Cr (FY24 Annual Revenue)",
-      assess: "Public sector heavy defense manufacturer producing High Mobility Vehicles (HMVs), Sarvatra bridging systems, Armoured Recovery Vehicles (ARVs), and heavy engineering chassis under the Ministry of Defence.",
-    };
-  }
-
-  // AWEIL
-  if (name.includes("aweil") || cid.includes("AWEIL")) {
-    return {
-      founded: "2021 (Founded October 1, 2021)",
-      hq: "Kanpur, Uttar Pradesh, India",
-      globalLocs: "8 Ordnance Factories (Kanpur, Jabalpur, Cossipore, Ishapore)",
-      size: "12,000+ Employees (A Government of India Enterprise)",
-      sector: "Artillery Guns · Ammunition · Small Arms",
-      revenue: "₹2,100 Cr (OFB Corporatised Defense Revenue)",
-      assess: "State-owned defense PSU formed from OFB corporatisation, manufacturing Dhanush 155mm towed artillery, JVPC carbines, tank gun barrels, and heavy infantry weapon systems for frontline armed forces.",
-    };
-  }
-
-  // AVNL
-  if (name.includes("avnl") || cid.includes("AVNL")) {
-    return {
-      founded: "2021 (Founded October 1, 2021)",
-      hq: "Chennai, Tamil Nadu, India",
-      globalLocs: "5 Heavy Vehicles Plants (Avadi, Medak, Yeddumailaram)",
-      size: "15,000+ Employees (A Government of India Enterprise)",
-      sector: "Armoured Fighting Vehicles · Main Battle Tanks · Heavy Mobility",
-      revenue: "₹3,200 Cr (Armoured Vehicles Defense Division)",
-      assess: "India's primary armored fighting vehicle manufacturer, producing T-90 Bhishma MBTs, T-72 Ajeya MBTs, BMP-2 Sarath infantry combat vehicles, and specialized heavy combat mobility platforms.",
-    };
-  }
-
-  // Solar Industries
-  if (name.includes("solar") || cid.includes("SOLAR")) {
-    return {
-      founded: "1995 (Founded 1995)",
-      hq: "Nagpur, Maharashtra, India",
-      globalLocs: "5 Global Production Hubs (India, Turkey, Nigeria, SA, UAE)",
-      size: "4,500+ Employees (Publicly Listed Explosives & Munitions Leader)",
-      sector: "Industrial Explosives · Munitions · Loitering UAS (Nagastra-1)",
-      revenue: "₹6,026 Cr (FY24 Consolidated Revenue)",
-      assess: "Leading industrial explosives and defense munitions manufacturer, pioneering domestic loitering munitions (Nagastra-1), military propellants, warheads, and high-energy explosive formulations.",
-    };
-  }
-
-  // Munitions India (MIL)
-  if (name.includes("munition") || cid.includes("MIL")) {
-    return {
-      founded: "2021 (Founded October 1, 2021)",
-      hq: "Pune, Maharashtra, India",
-      globalLocs: "12 Ordnance Production Complexes (Pune, Bhandara, Chandrapur, Ordnance Facilities)",
-      size: "25,000+ Employees (A Government of India Enterprise)",
-      sector: "Artillery Ammunition · Rocket Warheads · Explosives",
-      revenue: "₹4,500 Cr (FY24 Ordnance Deliveries)",
-      assess: "India's largest manufacturer of 155mm artillery ammunition, Pinaka rocket warheads, mortar bombs, and military high explosives supplying the Indian Armed Forces and international export partners.",
-    };
-  }
-
-  // Premier Explosives (PEL)
-  if (name.includes("premier explosives") || cid.includes("PEL")) {
-    return {
-      founded: "1980 (Founded 1980)",
-      hq: "Secunderabad, Telangana, India",
-      globalLocs: "2 Production Plants (Peddakandukur, Katepally)",
-      size: "1,200+ Employees (Publicly Listed Defense Explosives Mfr)",
-      sector: "Solid Propellants · Rocket Motors · Missile Propulsion",
-      revenue: "₹320 Cr (FY24 Defense Revenue)",
-      assess: "Specialized defense manufacturer of solid propellants, rocket motors, pyrotechnics, and missile propulsion systems for ISRO, DRDO, and Indian Armed Forces missile programs.",
-    };
-  }
-
-  // Zen Technologies
-  if (name.includes("zen") || cid.includes("ZEN")) {
-    return {
-      founded: "1993 (Founded 1993)",
-      hq: "Hyderabad, Telangana, India",
-      globalLocs: "3 Operating Locations (Hyderabad, UAE, USA)",
-      size: "501–1,000 Employees (Publicly Listed Defense Training & C-UAS Leader)",
-      sector: "Simulators · C-UAS Anti-Drone · Tactical Training",
-      revenue: "₹440 Cr (FY24 Defense Simulators & C-UAS Revenue)",
-      assess: "Pioneer in defense training simulators, live firing range equipment, and counter-unmanned aerial systems (C-UAS), delivering AI-driven tactical combat training solutions.",
-    };
-  }
-
-  // Hanwha Aerospace
-  if (name.includes("hanwha") || cid.includes("HANWHA")) {
-    return {
-      founded: "1952 (Founded 1952)",
-      hq: "Seoul, South Korea",
-      globalLocs: "4 International Centers (South Korea, USA, Australia, Poland)",
-      size: "12,000+ Employees (Hanwha Group Defense Division)",
-      sector: "Self-Propelled Artillery · Rocket Systems · Armoured Vehicles",
-      revenue: "$6.8 Billion (₩9.3 Trillion KRW Global Defense)",
-      assess: "South Korea's leading defense prime manufacturing K9 Thunder 155mm self-propelled howitzers, Chunmoo rocket artillery systems, and K21 infantry fighting vehicles.",
-    };
-  }
-
-  // Elbit Systems
-  if (name.includes("elbit") || cid.includes("ELBIT")) {
-    return {
-      founded: "1966 (Founded 1966)",
-      hq: "Haifa, Israel",
-      globalLocs: "6 Global Centers (Israel, USA, UK, Germany, Brazil, India)",
-      size: "18,000+ Employees (Publicly Listed Global Defense Electronics Mfr)",
-      sector: "Avionics · C4I Systems · Mounted Artillery · EW",
-      revenue: "$6.0 Billion (FY23 Global Defense Sales)",
-      assess: "International defense electronics prime manufacturing ATMOS 155mm truck-mounted howitzers, Hermes reconnaissance UAVs, C4I tactical systems, and electro-optical avionics.",
-    };
-  }
-
-  // Default fallback for other companies
   return {
-    founded: p.founded || "Established Defense Mfr.",
-    hq: p.hq || "India",
-    globalLocs: "Primary Manufacturing Plants & Operating Centers",
-    size: "1,000–5,000 Employees",
-    sector: p.sector || "Defense & Aerospace Engineering",
-    revenue: p.revenue || p.sales || "₹1,000 Cr+ (Published Financials)",
-    assess: p.assess || `Established defense prime specializing in ${p.sector || "defense engineering"}, developing advanced military platforms, tactical systems, and specialized defense hardware.`,
+    founded: p.starting_year ? String(p.starting_year) : DASH,
+    hq: p.hq || DASH,
+    globalLocs: joinList(p.global_locations) || DASH,
+    size: p.company_size || DASH,
+    revenue: firstValue(p.sales) || DASH,
+    sector: p.sector || DASH,
+    /* assess is 100% filled and already grounded against the corpus. */
+    assess: p.assess || null,
   };
 };
 
-const getCorporateStructureMap = (p) => {
-  if (!p) return null;
-  const name = (p.name || "").toLowerCase();
-  const cid = (p.cid || "").toUpperCase();
-
-  if (name.includes("bharat dynamics") || cid.includes("BDL")) {
-    return {
-      mother: "Ministry of Defence, Government of India (Ultimate Owner)",
-      motherType: "State-Owned Defense Ministry / Public Sector Undertaking",
-      current: "Bharat Dynamics Limited (BDL)",
-      sisters: [
-        "Munitions India Limited (MIL)",
-        "Armoured Vehicles Nigam Limited (AVNL)",
-        "Advanced Weapons & Equipment India (AWEIL)",
-        "Bharat Electronics Limited (BEL)",
-        "Hindustan Aeronautics Limited (HAL)",
-      ],
-      subsidiaries: [
-        "BDL Kanchanbagh Guided Missile Complex",
-        "BDL Bhanur ATGMs & Astra BVR Production Hub",
-        "BDL Visakhapatnam Underwater Weapons Division",
-        "BDL Overseas Defense Export Cell",
-      ],
-    };
-  }
-
-  if (name.includes("tata") || name.includes("tasl") || cid.includes("TASL")) {
-    return {
-      mother: "Tata Sons Private Limited (Tata Group Holding)",
-      motherType: "Private Conglomerate Holding Entity",
-      current: "Tata Advanced Systems Limited (TASL)",
-      sisters: [
-        "Tata Motors Defence Solutions",
-        "Tata Elxsi Aerospace",
-        "Tata Steel Aerospace & Defence",
-        "TCS Defense Systems",
-      ],
-      subsidiaries: [
-        "Tata-Airbus C-295 Final Assembly Line JV (Vadodara)",
-        "Tata Lockheed Martin Aerostructures JV (TLMAL)",
-        "Tata Sikorsky Aerospace JV",
-        "Nova Integrated Systems",
-      ],
-    };
-  }
-
-  if (name.includes("adani") || cid.includes("ADANI")) {
-    return {
-      mother: "Adani Enterprises Limited (Adani Group)",
-      motherType: "Private Conglomerate Holding Entity",
-      current: "Adani Defence & Aerospace",
-      sisters: [
-        "Adani Ports & Special Economic Zone",
-        "Adani Power & Energy Systems",
-        "Adani Airport Holdings",
-        "Adani Green Energy",
-      ],
-      subsidiaries: [
-        "Adani Kanpur Ammunition & Small Arms Complex",
-        "Adani Elbit Unmanned Systems JV (Hermes 900 MALE UAV)",
-        "PLR Systems (Small Arms JV with IWI)",
-        "Alpha Design Technologies",
-      ],
-    };
-  }
-
-  if (name.includes("larsen") || name.includes("l&t") || cid.includes("LT")) {
-    return {
-      mother: "Larsen & Toubro Limited (L&T Group Holding)",
-      motherType: "Publicly Listed Engineering Prime",
-      current: "Larsen & Toubro Defence (L&T Defence)",
-      sisters: [
-        "L&T Technology Services (LTTS)",
-        "LTIMindtree",
-        "L&T Heavy Engineering",
-        "L&T Construction & Infrastructure",
-      ],
-      subsidiaries: [
-        "L&T MBDA Missile Systems JV",
-        "L&T Hazira Heavy Missile & Howitzer Complex",
-        "L&T Defence Shipbuilding (Kattupalli Yard)",
-        "L&T Precision Electronics Unit",
-      ],
-    };
-  }
-
-  if (name.includes("beml") || cid.includes("BEML")) {
-    return {
-      mother: "Ministry of Defence, Government of India (MoD Miniratna PSU)",
-      motherType: "State-Owned Defense Ministry / Public Sector Undertaking",
-      current: "BEML Limited (Defence Business)",
-      sisters: [
-        "Bharat Electronics Limited (BEL)",
-        "Bharat Heavy Electricals Limited (BHEL)",
-        "Armoured Vehicles Nigam Limited (AVNL)",
-        "BDL",
-      ],
-      subsidiaries: [
-        "BEML High Mobility Vehicle (HMV) Division (KGF)",
-        "BEML Mysuru Heavy Earthmoving Facility",
-        "BEML Palakkad Heavy Chassis Unit",
-        "BEML Engine & Transmissions Division",
-      ],
-    };
-  }
-
-  if (name.includes("aweil") || cid.includes("AWEIL")) {
-    return {
-      mother: "Ministry of Defence, Government of India (Corporatised OFB Board)",
-      motherType: "State-Owned Defense PSU Board",
-      current: "Advanced Weapons & Equipment India Limited (AWEIL)",
-      sisters: [
-        "Munitions India Limited (MIL)",
-        "Armoured Vehicles Nigam Limited (AVNL)",
-        "Yantra India Limited (YIL)",
-        "India Optel Limited (IOL)",
-      ],
-      subsidiaries: [
-        "Gun Carriage Factory (GCF Jabalpur)",
-        "Small Arms Factory (SAF Kanpur)",
-        "Ordnance Factory Kanpur (OFK Dhanush Gun Unit)",
-        "Rifle Factory Ishapore (RFI)",
-      ],
-    };
-  }
-
-  if (name.includes("avnl") || cid.includes("AVNL")) {
-    return {
-      mother: "Ministry of Defence, Government of India (Corporatised OFB Board)",
-      motherType: "State-Owned Defense PSU Board",
-      current: "Armoured Vehicles Nigam Limited (AVNL)",
-      sisters: [
-        "Munitions India Limited (MIL)",
-        "Advanced Weapons & Equipment India (AWEIL)",
-        "Yantra India Limited (YIL)",
-        "BDL",
-      ],
-      subsidiaries: [
-        "Heavy Vehicles Factory (HVF Avadi - T-90/T-72 Tank Unit)",
-        "Ordnance Factory Medak (OFM - BMP-2 Sarath ICV)",
-        "Engine Factory Avadi (EFA)",
-        "Machine Tool Prototype Factory (MTPF Ambernath)",
-      ],
-    };
-  }
-
-  if (name.includes("solar") || cid.includes("SOLAR")) {
-    return {
-      mother: "Solar Group Holdings (Solar Group)",
-      motherType: "Publicly Listed Defense & Industrial Explosives Group",
-      current: "Solar Industries India Limited",
-      sisters: [
-        "Solar Overseas Netherlands B.V.",
-        "Solar Mining Services South Africa",
-        "Solar Explosives Turkey & Nigeria",
-      ],
-      subsidiaries: [
-        "Economic Explosives Limited (EEL Nagpur - Defense Ammunition Arm)",
-        "Solar Loitering UAS Division (Nagastra-1)",
-        "Solar Warhead & High Explosive Formulation Plant",
-        "Solar Rocket Propellant Division",
-      ],
-    };
-  }
-
-  if (name.includes("munition") || cid.includes("MIL")) {
-    return {
-      mother: "Ministry of Defence, Government of India (Corporatised OFB Board)",
-      motherType: "State-Owned Defense PSU Board",
-      current: "Munitions India Limited (MIL)",
-      sisters: [
-        "Armoured Vehicles Nigam Limited (AVNL)",
-        "Advanced Weapons & Equipment India (AWEIL)",
-        "Yantra India Limited (YIL)",
-        "India Optel Limited (IOL)",
-      ],
-      subsidiaries: [
-        "High Explosive Factory (HEF Khadki)",
-        "Ordnance Factory Bhandara (OFB - Rocket Propellant Unit)",
-        "Ammunition Factory Khadki (AFK 155mm Shell Unit)",
-        "Ordnance Factory Varangaon (OFV)",
-      ],
-    };
-  }
-
-  if (name.includes("premier explosives") || cid.includes("PEL")) {
-    return {
-      mother: "Premier Group Holdings",
-      motherType: "Publicly Listed Explosives & Defense Holding Entity",
-      current: "Premier Explosives Limited (PEL)",
-      sisters: [
-        "Premier High Energy Materials",
-        "Premier Industrial Detonators Arm",
-      ],
-      subsidiaries: [
-        "PEL Katepally Solid Propellant Complex",
-        "PEL Peddakandukur Explosives Manufacturing Unit",
-        "PEL Rocket Motor & Pyrotechnic Production Hub",
-      ],
-    };
-  }
-
-  if (name.includes("zen") || cid.includes("ZEN")) {
-    return {
-      mother: "Zen Group Holdings",
-      motherType: "Publicly Listed Tactical Training & C-UAS Group",
-      current: "Zen Technologies Limited",
-      sisters: [
-        "Zen Simulators India",
-        "Zen Live Firing Range Equipment",
-      ],
-      subsidiaries: [
-        "Zen Technologies UAE FZE (Middle East Division)",
-        "Zen Technologies USA Inc. (North America Arm)",
-        "Zen Counter-Unmanned Aerial Systems (C-UAS) Division",
-      ],
-    };
-  }
-
-  if (name.includes("hanwha") || cid.includes("HANWHA")) {
-    return {
-      mother: "Hanwha Group (South Korea Top 10 Chaebol)",
-      motherType: "Global Defense & Industrial Conglomerate",
-      current: "Hanwha Aerospace",
-      sisters: [
-        "Hanwha Systems (Avionics & C4I Radar Division)",
-        "Hanwha Ocean (Submarines & Naval Shipbuilding)",
-        "Hanwha Solutions (Aerospace Materials)",
-        "Hanwha Life",
-      ],
-      subsidiaries: [
-        "Hanwha Defense Australia (Redback IFV & K9 Geelong Plant)",
-        "Hanwha Defense USA Inc.",
-        "Hanwha Land Systems (K9 Thunder Howitzer Division)",
-        "Hanwha Precision Machinery",
-      ],
-    };
-  }
-
-  if (name.includes("elbit") || cid.includes("ELBIT")) {
-    return {
-      mother: "Elbit Group (Federmann Enterprises Holding)",
-      motherType: "Global Defense Electronics Holding Group",
-      current: "Elbit Systems Limited",
-      sisters: [
-        "Cyberbit Cyber Security",
-        "Elbit Medical Imaging",
-      ],
-      subsidiaries: [
-        "Elbit Systems of America (ESA)",
-        "Elbit Systems UK Limited",
-        "Adani Elbit Unmanned Systems JV (India)",
-        "Universal Avionics Systems Corp",
-      ],
-    };
-  }
-
-  if (name.includes("rheinmetall")) {
-    return {
-      mother: "Rheinmetall Group AG (DAX 40 Listed Prime)",
-      motherType: "Global European Defense & Automotive Group",
-      current: "Rheinmetall AG (Weapon & Ammunition Division)",
-      sisters: [
-        "Rheinmetall Electronics",
-        "Rheinmetall Automotive",
-        "Rheinmetall Power Systems",
-      ],
-      subsidiaries: [
-        "Rheinmetall BAE Systems Land (RBSL UK)",
-        "Rheinmetall Italia SpA (Sardinia 155mm Ammunition Plant)",
-        "Rheinmetall Denel Munition (South Africa)",
-        "Rheinmetall Waffe Munition GmbH",
-      ],
-    };
-  }
-
-  if (name.includes("bae")) {
-    return {
-      mother: "BAE Systems Group plc (FTSE 100 Global Defense Prime)",
-      motherType: "Global Defense, Aerospace & Security Group",
-      current: "BAE Systems plc",
-      sisters: [
-        "BAE Systems Maritime (Naval Ships & Submarines)",
-        "BAE Systems Applied Intelligence",
-        "BAE Systems Australia",
-      ],
-      subsidiaries: [
-        "BAE Systems Inc. (USA Land & Armaments)",
-        "Eurofighter Jagdflugzeug GmbH JV (33% Stake)",
-        "MBDA Missile Systems JV (37.5% Stake)",
-        "BAE Glascoed Automated Munitions Facility",
-      ],
-    };
-  }
-
-  const cleanName = cleanCompanyName(p.name || p.cid);
-  return {
-    mother: `${cleanName} Group / Parent Holding Entity`,
-    motherType: "Corporate Holding Entity / Government Ministry",
-    current: cleanName,
-    sisters: [
-      `${cleanName} Aerospace & Defence`,
-      `${cleanName} Engineering Systems`,
-      `${cleanName} International Trading`,
-    ],
-    subsidiaries: [
-      `${cleanName} Heavy Manufacturing Complex`,
-      `${cleanName} Tactical Systems Unit`,
-      `${cleanName} Defense Export Subsidiary`,
-    ],
-  };
-};
+/* Corporate structure — parent, sister companies, subsidiaries — was typed by hand
+ * for the same eleven firms and drawn as a zoomable org chart. Nothing in the
+ * serving schema holds corporate structure, so there is no honest value to put
+ * here: returning null makes CorporateHierarchySvgMap render nothing (it already
+ * guards on it) until a column and a writer exist. */
+const getCorporateStructureMap = () => null;
 
 // Generate Company-Specific Interactive News Articles Dataset
-const getCompanyNewsArticles = (companyName) => {
-  const name = cleanCompanyName(companyName) || "Bharat Dynamics";
-
-  return [
-    {
-      id: `${name}-news-1`,
-      category: "Defence",
-      ago: "2 hours ago",
-      title: `Defence Ministry Restructures ${name} Missile Framework, Opens Projects for Private Partners`,
-      excerpt: `The Ministry of Defence has restructured the development framework for tactical missiles and defense platforms, allowing private defense companies to participate in upcoming projects earlier exclusive to ${name}.`,
-      fullText: `The Ministry of Defence has formally announced a major policy restructuring allowing domestic private defense manufacturers to co-develop tactical missiles, precision ammunition, and allied defense systems alongside ${name}.\n\nThis policy shift aims to accelerate defense production under the Atmanirbhar Bharat initiative and expand India's defense manufacturing capacity for both domestic armed forces requirements and international exports. Key defense primes including Tata, L&T, and Adani are expected to participate in upcoming defense tenders.`,
-      source: "ET The Economic Times",
-      image: "https://images.unsplash.com/photo-1579621970563-ebec7560ff3e?auto=format&fit=crop&w=800&q=80",
-      isTopStory: true,
-      impact: "High strategic impact on long-term missile procurement share and private sector partnership models.",
-    },
-    {
-      id: `${name}-news-2`,
-      category: "Financial",
-      ago: "4 hours ago",
-      title: `${name} Q1 Net Profit Jumps 547% YoY on Strong Operating Performance`,
-      excerpt: `${name} reported a 547% year-on-year surge in Q1 net profit driven by higher execution of defense supply orders and improved operational margins.`,
-      fullText: `${name} delivered strong Q1 financial results with net revenue surging significantly over the previous fiscal quarter. Operational margins expanded due to timely delivery of primary defense systems and cost optimization across manufacturing units.\n\nThe order book remains robust with multi-year visibility backed by Ministry of Defence procurement pipelines and international export agreements.`,
-      source: "Business Standard",
-      image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=300&q=80",
-      impact: "Positive financial indicator confirming strong execution and order pipeline stability.",
-    },
-    {
-      id: `${name}-news-3`,
-      category: "Government",
-      ago: "6 hours ago",
-      title: `General Export Licenses Impact: ${name} Shares Dip 4% in Early Trade`,
-      excerpt: `Regulatory updates regarding general export licenses for friendly foreign countries caused short-term volatility in ${name} stock prices during early trading sessions.`,
-      fullText: `Stock exchanges recorded short-term price adjustments for ${name} following new regulatory guidelines issued for defense export licensing workflows. Analysts note that long-term export fundamentals remain strong following recent international supply contracts for Akash missile systems.`,
-      source: "Moneycontrol",
-      image: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=300&q=80",
-      impact: "Temporary market volatility with neutral long-term operational impact.",
-    },
-    {
-      id: `${name}-news-4`,
-      category: "Workforce",
-      ago: "1 day ago",
-      title: `Shri Shailesh Vagerwal Takes Charge as New CMD of ${name}`,
-      excerpt: `Shri Shailesh Vagerwal has formally assumed charge as the Chairman & Managing Director of ${name}, bringing over three decades of defense engineering leadership.`,
-      fullText: `In an official announcement, ${name} confirmed that Shri Shailesh Vagerwal has assumed charge as Chairman & Managing Director. Under his leadership, the defense prime will focus on expanding manufacturing capacity, accelerating R&D for next-generation defense platforms, and strengthening export delivery pipelines.`,
-      source: "The Hindu BusinessLine",
-      image: "https://images.unsplash.com/photo-1560250097-0b93528c311a?auto=format&fit=crop&w=300&q=80",
-      impact: "Executive leadership transition aligning company roadmap with national defense export goals.",
-    },
-    {
-      id: `${name}-news-5`,
-      category: "Markets",
-      ago: "1 day ago",
-      title: `BSE and NSE Impose ₹13.03 Lakh Fine on ${name} for Compliance Lapse`,
-      excerpt: `Stock exchanges BSE and NSE imposed an administrative fine of ₹13.03 lakh on ${name} regarding delayed reporting of board committee disclosures.`,
-      fullText: `${name} has issued a clarification to stock exchanges regarding an administrative penalty imposed by BSE and NSE concerning procedural timing of board committee disclosures. The company stated that corrective internal compliance procedures have been instituted.`,
-      source: "NDTV Profit",
-      image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=300&q=80",
-      impact: "Minor administrative compliance note with zero impact on defense manufacturing operations.",
-    },
-  ];
-};
 
 // Interactive SVG Corporate Hierarchy Map & Node Graph Component
 function CorporateHierarchySvgMap({ structMap }) {
@@ -1021,7 +512,10 @@ export default function Profile() {
   const displayName = p ? cleanCompanyName(p.name) : "";
   const companyMeta = p ? getCompanyDetailsMeta(p) : null;
   const structMap = p ? getCorporateStructureMap(p) : null;
-  const companyArticles = useMemo(() => (p ? getCompanyNewsArticles(p.name) : []), [p]);
+  const companyArticles = useMemo(
+    () => (p && p.cid ? companyNews(data, p.cid) : []),
+    [data, p],
+  );
 
   // Filter articles based on selected Category Pill
   const filteredArticles = useMemo(() => {
