@@ -390,123 +390,51 @@ export default function Profile() {
     setNewsFilter("All");
   }, [cid]);
 
-  // Executive Leadership board members
+  /* Executive leadership.
+   *
+   * This block used to carry a hand-typed board for about six named firms --
+   * "Shri Shailesh Vagerwal, Chairman & Managing Director" at Bharat Dynamics,
+   * "Sukaran Singh" at TASL, "Gautam Adani" at Adani Defence -- returned before
+   * the real branch could run. Named people in named roles at real companies is
+   * the most damaging kind of invented content on this dashboard, and it was the
+   * one I missed on the first pass: the strings survived into the deployed
+   * bundle, which is where I found them.
+   *
+   * competitors.leadership is the column for this. It is 0% filled today, so the
+   * section renders empty until enrichment writes it -- which is the correct
+   * state, not a regression.
+   */
   const leadershipList = useMemo(() => {
-    if (!p) return [];
-    const name = (p.name || "").toLowerCase();
-    const companyCid = (p.cid || "").toUpperCase();
-
-    // Specific verified board members for BDL
-    if (name.includes("bharat dynamics") || companyCid.includes("BDL")) {
-      return [
-        { name: "Shri Shailesh Vagerwal", role: "Chairman & Managing Director (CMD)" },
-        { name: "Shri D V Srinivas Rao", role: "Director (Technical)" },
-        { name: "Commodore Sujay Kapoor (Retd)", role: "Director (Production)" },
-        { name: "Shri G. Gayatri Prasad", role: "Director (Finance)" },
-      ];
-    }
-
-    // Specific board members for TASL
-    if (name.includes("tata") || name.includes("tasl") || companyCid.includes("TASL")) {
-      return [
-        { name: "Sukaran Singh", role: "Managing Director & Chief Executive Officer" },
-        { name: "N. Chandrasekaran", role: "Chairman, Tata Sons & TASL" },
-        { name: "Banmali Agrawala", role: "Director & Senior Executive" },
-      ];
-    }
-
-    // Specific board members for Adani Defence
-    if (name.includes("adani") || companyCid.includes("ADANI")) {
-      return [
-        { name: "Ashish Rajvanshi", role: "Chief Executive Officer, Adani Defence" },
-        { name: "Gautam Adani", role: "Chairman, Adani Group" },
-      ];
-    }
-
-    // Specific board members for L&T
-    if (name.includes("larsen") || name.includes("l&t") || companyCid.includes("LT")) {
-      return [
-        { name: "S. N. Subrahmanyan", role: "Chairman & Managing Director, L&T" },
-        { name: "Arun Ramchandani", role: "Executive Vice President & Head of L&T Defence" },
-      ];
-    }
-
-    // Specific board members for BEML
-    if (name.includes("beml") || companyCid.includes("BEML")) {
-      return [
-        { name: "Shantanu Roy", role: "Chairman & Managing Director (CMD)" },
-        { name: "Shri Sanjay Som", role: "Director (Mining & Construction)" },
-        { name: "Shri Debasis Satapathy", role: "Director (Human Resources)" },
-      ];
-    }
-
-    // Generic fallback harvested leadership
-    const items = [];
-    if (p.leadership && p.leadership.length > 0) {
-      p.leadership.forEach((r) => {
-        items.push({
-          name: r.value,
-          role: r.detail || "Key Executive / Officer",
-          source: r.url,
-        });
-      });
-    }
-
-    return items;
+    if (!p || !p.leadership || !p.leadership.length) return [];
+    return p.leadership.map((r) => ({
+      name: r.value,
+      role: r.detail || "Key Executive / Officer",
+      source: r.url,
+    }));
   }, [p]);
 
-  // Facilities & Operating Units mapped ROW BY ROW
+  /* Facilities. Same fault: a hand-typed plant list for Bharat Dynamics
+     (Kanchanbagh, Bhanur, Visakhapatnam, and an "Armenia (Deployed) / Philippines
+     (Negotiation)" export pipeline) shadowed the harvested branch. Now: the
+     facilities column if it has rows, else the country presence rows, else
+     nothing. */
   const facilitiesList = useMemo(() => {
     if (!p) return [];
-    const name = (p.name || "").toLowerCase();
-    const companyCid = (p.cid || "").toUpperCase();
-
-    // BDL Specific Hardware Unit Mappings
-    if (name.includes("bharat dynamics") || companyCid.includes("BDL")) {
-      return [
-        {
-          name: "Kanchanbagh Unit (Hyderabad, Telangana)",
-          type: "Primary Manufacturing Facility for Akash Surface-to-Air Missile Systems",
-          status: "Active Production Hub",
-        },
-        {
-          name: "Bhanur Unit (Medak District, Telangana)",
-          type: "Dedicated Production Unit for Astra BVR & Anti-Tank Guided Missiles (ATGMs)",
-          status: "Active Production Hub",
-        },
-        {
-          name: "Visakhapatnam Unit (Andhra Pradesh)",
-          type: "Underwater Weapons & Torpedo Manufacturing Complex",
-          status: "Active Production Hub",
-        },
-        {
-          name: "Armenia (Deployed) / Philippines (Negotiation)",
-          type: "International Delivery Pipeline & Active Overseas Deployment Units",
-          status: "Export & Deployment Pipeline",
-        },
-      ];
-    }
-
-    // General harvested facilities or presence
-    const list = [];
     if (p.facilities && p.facilities.length > 0) {
-      p.facilities.forEach((f) => {
-        list.push({
-          name: f.value,
-          type: f.detail || "Manufacturing & Operating Facility",
-          url: f.url,
-        });
-      });
-    } else if (p.presence && p.presence.length > 0) {
-      p.presence.slice(0, 4).forEach((pr) => {
-        list.push({
-          name: pr.name || `${pr.country} Operations`,
-          type: `Operating Location (${pr.country})`,
-          stage: pr.stage,
-        });
-      });
+      return p.facilities.map((f) => ({
+        name: f.value,
+        type: f.detail || "Manufacturing & Operating Facility",
+        url: f.url,
+      }));
     }
-    return list;
+    if (p.presence && p.presence.length > 0) {
+      return p.presence.slice(0, 4).map((pr) => ({
+        name: pr.name || `${pr.country} Operations`,
+        type: `Operating Location (${pr.country})`,
+        stage: pr.stage,
+      }));
+    }
+    return [];
   }, [p]);
 
   const displayName = p ? cleanCompanyName(p.name) : "";
