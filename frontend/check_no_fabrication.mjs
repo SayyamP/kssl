@@ -48,6 +48,27 @@ const BANNED = [
   ["547%", "invented financial result"],
   // stock photography standing in for an article's own image
   ["images.unsplash.com", "stock photo presented as an article image"],
+  /* Found on 2026-09-03 by tracing the FINAL TESTS findings, still in the deployed
+     bundle. Each was a literal in Products.jsx dressed as a measurement: nothing in
+     this system counts mentions, none of it has a 24-hour window, and no product
+     spec was ever "logged" for the 412 products that carry no spec data at all. */
+  ["Mentions in last 24h", "invented engagement metric -- nothing counts mentions"],
+  ["vs yesterday", "invented trend -- the pipeline has no 24-hour window"],
+  ["Standard manufacturing specifications logged", "claims specs exist where none do"],
+  /* These three pills filtered article.category, which only ever holds a PRODUCT
+     category. They matched 0 of 492 articles, so each one emptied the feed. Banned
+     because their reappearance means the fixed list came back. */
+  ["Sales & Orders", "fixed news pill that matches no served article"],
+  /* A share price, a daily move and a mention count were printed for EVERY company,
+     including the unlisted ones and the state arsenals with no equity. There is no
+     market-data feed in this system. */
+  ["1,428.50", "invented share price shown for every company"],
+  ["-2.88%", "invented daily price move"],
+  ["Share Price", "no market-data feed exists -- a price can only be a literal here"],
+  ["Set News Alerts", "button with no handler"],
+  ["Set Product News Alerts", "button with no handler"],
+  ["Technology & Upgrades", "fixed news pill that matches no served article"],
+  ["Testing & Trials", "fixed news pill that matches no served article"],
 ];
 
 const files = readdirSync(DIST).filter((f) => f.endsWith(".js") || f.endsWith(".css"));

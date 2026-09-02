@@ -333,20 +333,30 @@ export default function Products() {
     ? "From the crawled corpus"
     : "Not stated in the corpus";
 
-  // Filter product news articles by selected category pill (Sales, Technology, Testing)
+  /* The pills used to be a fixed list -- Sales, Technology, Testing -- matched against
+     each article's `category`. But `category` is the pipeline's PRODUCT category
+     ("UAVs & Drones", "Missiles & Air Defence", "Artillery", ...), and not one of the
+     492 served articles carries any of those three words. Every pill emptied the feed,
+     always, for every product. So the pills are built from the categories the articles
+     actually have; a category that appears in the data is a category you can filter by. */
+  const prodNewsCats = useMemo(
+    () => ["All", ...Array.from(new Set(productNewsArticles.map((a) => a.category).filter(Boolean)))],
+    [productNewsArticles],
+  );
+
   const filteredProdArticles = useMemo(() => {
     if (!prodNewsFilter || prodNewsFilter === "All") {
       return productNewsArticles;
     }
-    const f = prodNewsFilter.toLowerCase();
-    return productNewsArticles.filter(
-      (a) => a.category.toLowerCase().includes(f) || f.includes(a.category.toLowerCase())
-    );
+    return productNewsArticles.filter((a) => a.category === prodNewsFilter);
   }, [productNewsArticles, prodNewsFilter]);
 
+  /* No `|| productNewsArticles[0]` tail: falling back to the unfiltered list meant a
+     filter that matched nothing still displayed an off-filter article as TOP STORY, so
+     the filter looked half-applied rather than empty. */
   const topProdStory = useMemo(() => {
-    return filteredProdArticles.find((a) => a.isTopStory) || filteredProdArticles[0] || productNewsArticles[0];
-  }, [filteredProdArticles, productNewsArticles]);
+    return filteredProdArticles.find((a) => a.isTopStory) || filteredProdArticles[0] || null;
+  }, [filteredProdArticles]);
 
   const feedProdArticles = useMemo(() => {
     return filteredProdArticles.filter((a) => a.id !== (topProdStory && topProdStory.id));
@@ -654,7 +664,10 @@ export default function Products() {
                       fontFamily: "var(--mono)",
                     }}
                   >
-                    Standard manufacturing specifications logged for {selectedProduct.name}.
+                    No specifications are held for {selectedProduct.name}. This corpus
+                    carries measured specs only for products paired in a KSSL matchup; this
+                    one is listed by name from the company’s own catalogue, with no
+                    sourced figures behind it.
                   </div>
                 )}
               </div>
@@ -686,9 +699,9 @@ export default function Products() {
                   </div>
                 </div>
 
-                {/* 3 Category Filter Pills: All, Sales, Technology, Testing */}
+                {/* Pills come from the served articles, not a fixed list -- see prodNewsCats */}
                 <div style={{ display: "flex", gap: "8px", marginBottom: "16px", flexWrap: "wrap" }}>
-                  {["All", "Sales", "Technology", "Testing"].map((cat) => (
+                  {prodNewsCats.map((cat) => (
                     <button
                       key={cat}
                       type="button"
@@ -705,7 +718,7 @@ export default function Products() {
                         transition: "all .12s",
                       }}
                     >
-                      {cat === "All" ? "All Product News" : cat === "Sales" ? "💰 Sales & Orders" : cat === "Technology" ? "⚙️ Technology & Upgrades" : "🎯 Testing & Trials"}
+                      {cat === "All" ? "All Product News" : cat}
                     </button>
                   ))}
                 </div>
@@ -796,23 +809,6 @@ export default function Products() {
                         </div>
                       </div>
                     ))}
-                    <button
-                      type="button"
-                      style={{
-                        width: "100%",
-                        padding: "9px",
-                        background: "var(--d-bg-2)",
-                        border: "1px solid var(--d-line)",
-                        borderRadius: "6px",
-                        color: "var(--d-txt)",
-                        fontSize: "12px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                        textAlign: "center",
-                      }}
-                    >
-                      View More News ↓
-                    </button>
                   </div>
 
                   {/* COLUMN 3: ANALYTICS & MARKET WIDGETS */}
@@ -854,46 +850,22 @@ export default function Products() {
                             {productScaleNote}
                           </span>
                         </div>
-                        <svg width="60" height="30" viewBox="0 0 70 36" fill="none">
-                          <path d="M2 30 L18 20 L35 24 L50 8 L68 12" stroke="#22c55e" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
+                        {/* A rising sparkline was drawn here from a hardcoded path, beside
+                            a real induction-order figure, which read as that figure's trend.
+                            There is no time series behind it. */}
                       </div>
                     </div>
 
-                    {/* Product Mentions */}
-                    <div style={{ background: "var(--d-bg-2)", border: "1px solid var(--d-line)", borderRadius: "8px", padding: "14px", display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                      <div>
-                        <div style={{ fontFamily: "var(--mono)", fontSize: "10.5px", fontWeight: "700", color: "var(--d-txt-3)", textTransform: "uppercase" }}>
-                          💬 {selectedProduct.name.toUpperCase()} MENTIONS
-                        </div>
-                        <div style={{ fontSize: "20px", fontWeight: "700", color: "#ffffff", fontFamily: "var(--mono)", marginTop: "2px" }}>
-                          842
-                        </div>
-                        <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>Mentions in last 24h</span>
-                      </div>
-                      <span style={{ fontSize: "11.5px", color: "#22c55e", fontWeight: "600", fontFamily: "var(--mono)" }}>
-                        ↑ 35% vs yesterday
-                      </span>
-                    </div>
+                    {/* A "product mentions in the last 24h", with a percentage change
+                        against yesterday, stood here. Both figures were literals in the
+                        JSX. Nothing in this system counts mentions and no part of the
+                        pipeline has a 24-hour window, so the tile could only ever have
+                        been decoration shaped like a measurement. Removed rather than
+                        zeroed: a counter reading zero still claims we are counting.
 
-                    {/* Set Alerts Button */}
-                    <button
-                      type="button"
-                      style={{
-                        width: "100%",
-                        padding: "9px",
-                        background: "var(--d-bg-2)",
-                        border: "1px solid var(--d-line)",
-                        borderRadius: "6px",
-                        color: "var(--d-txt)",
-                        fontSize: "12px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                        textAlign: "center",
-                      }}
-                    >
-                      🔔 Set Product News Alerts
-                    </button>
+                        A "Set Product News Alerts" button sat below it with no onClick,
+                        and a "View More News" button did the same at the foot of the feed.
+                        Both are gone; there is no alerting or paging behind either. */}
                   </div>
                 </div>
               </div>

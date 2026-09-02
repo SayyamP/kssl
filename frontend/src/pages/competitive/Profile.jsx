@@ -1051,70 +1051,25 @@ export default function Profile() {
                         </div>
                       </div>
 
-                      {/* Market Impact */}
-                      <div className="ln-widget">
-                        <div className="ln-widget-h">
-                          📉 MARKET IMPACT
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                            <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>{displayName} Share Price</span>
-                            <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
-                              <span style={{ fontSize: "20px", fontWeight: "700", color: "#fff", fontFamily: "var(--mono)" }}>
-                                1,428.50
-                              </span>
-                              <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>INR</span>
-                            </div>
-                            <span style={{ fontSize: "11.5px", color: "#f0593c", fontWeight: "600", fontFamily: "var(--mono)" }}>
-                              -42.35 (-2.88%) Today
-                            </span>
-                          </div>
-                          {/* Red Sparkline SVG */}
-                          <svg width="70" height="36" viewBox="0 0 70 36" fill="none">
-                            <path d="M2 10 L15 14 L28 8 L42 22 L55 18 L68 32" stroke="#f0593c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        </div>
-                      </div>
+                      {/* Three widgets stood here and all three were literals.
 
-                      {/* Mentions Count */}
-                      <div className="ln-widget">
-                        <div className="ln-widget-h">
-                          💬 {displayName.toUpperCase()} MENTIONS
-                        </div>
-                        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                          <div>
-                            <div style={{ fontSize: "22px", fontWeight: "700", color: "#fff", fontFamily: "var(--mono)" }}>
-                              1,247
-                            </div>
-                            <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>Mentions in last 24h</span>
-                          </div>
-                          <span style={{ fontSize: "12px", color: "var(--fav-badge)", fontWeight: "600", fontFamily: "var(--mono)" }}>
-                            ↑ 23% vs yesterday
-                          </span>
-                        </div>
-                      </div>
+                          MARKET IMPACT printed a share price of 1,428.50 INR and
+                          "-42.35 (-2.88%) Today" for EVERY company on the roster --
+                          including the private ones and the state arsenals that have no
+                          listed equity at all -- beside a sparkline drawn from a fixed
+                          path. This system has no market-data feed of any kind.
 
-                      {/* Set News Alerts Button */}
-                      <button
-                        type="button"
-                        style={{
-                          width: "100%",
-                          padding: "10px",
-                          background: "var(--d-bg-2)",
-                          border: "1px solid var(--d-line-2)",
-                          borderRadius: "6px",
-                          color: "var(--d-txt)",
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          cursor: "pointer",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          gap: "6px",
-                        }}
-                      >
-                        🔔 Set News Alerts
-                      </button>
+                          MENTIONS printed a 24-hour mention count and a percentage change
+                          against yesterday. Nothing counts mentions and no part of the
+                          pipeline has a 24-hour window.
+
+                          SET NEWS ALERTS was a button with no onClick.
+
+                          A fabricated share price on a competitive-intelligence dashboard
+                          is the worst of the three: it is precise, plausible, and a reader
+                          would act on it. Removed rather than zeroed -- see
+                          check_no_fabrication.mjs, which now fails the build on their
+                          marker strings. */}
                     </div>
                   </div>
                 </div>

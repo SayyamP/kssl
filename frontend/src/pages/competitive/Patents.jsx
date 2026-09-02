@@ -111,6 +111,44 @@ export default function Patents() {
       secl.textContent = `▸ ${shown} filing${shown !== 1 ? "s" : ""}${catFilter ? ` · ${catFilter}` : ""}`;
   };
 
+  /* Zero filings are indexed, so both lenses are scaffolding around nothing: the rival
+     rail lists 178 competitors each reading 0, and the field rail lists technology areas
+     that come from ui_config and match no row. A reader has to click a competitor to
+     discover the emptiness, which is why this page reads as broken rather than empty.
+     Say it once, at the top, before drawing either lens.
+
+     serving.patent does hold 26 rows, and they stay withheld on purpose: 22 of the 26
+     carry estimated numbers ("IN-2024-EST01 (est, grant verified)") rather than published
+     ones. They are origin='reference', which serving_live does not serve. Showing an
+     invented patent number is worse than showing none. */
+  const pat = data.PATENTS || {};
+  const noFilings =
+    !Object.keys(pat.byAssignee || {}).length && !Object.keys(pat.byArea || {}).length;
+
+  if (noFilings)
+    return (
+      <div className="pat-view v-patents-comp">
+        <div className="pat-state" style={{ padding: "48px 32px" }}>
+          <div className="ps-ic">⊟</div>
+          <div className="ps-t">No patent filings are indexed</div>
+          <div className="ps-s">
+            The patent harvest has not landed any filings for this client, so there is
+            nothing to compare. This is a pipeline step that has not run — not a
+            failure of this page.
+            <br />
+            <br />
+            26 records do exist from an earlier pass and are deliberately withheld: 22 of
+            them carry estimated rather than published patent numbers. Nothing is shown
+            here in preference to something unverified.
+            <br />
+            <br />
+            Once the harvest runs, rival portfolios and technology-field crowding appear
+            in this view.
+          </div>
+        </div>
+      </div>
+    );
+
   return (
     <div className="pat-view v-patents-comp">
       <div className="pat-lens">
