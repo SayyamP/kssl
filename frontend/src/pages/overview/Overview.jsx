@@ -130,6 +130,24 @@ export default function Overview({
     return out;
   };
 
+  /* How many cards each direction filter would show, before it is applied. Counted over
+     the tile/search-filtered set so the number matches what clicking it produces. */
+  const filterCounts = useMemo(() => {
+    const inScope = (cfg.cards || []).filter((c) => {
+      if (tilePred && !tilePred(c)) return false;
+      const q = (feedSearchQuery || searchQuery || "").trim().toLowerCase();
+      if (!q) return true;
+      return `${c.title || ""} ${c.company || ""} ${c.tags || ""} ${c.sowhat || ""}`
+        .toLowerCase()
+        .includes(q);
+    });
+    const out = {};
+    (filters || []).forEach((f) => {
+      out[f.f] = f.f === "all" ? inScope.length : inScope.filter((c) => c.dir === f.f).length;
+    });
+    return out;
+  }, [cfg, filters, tilePred, feedSearchQuery, searchQuery]);
+
   const isFiltered = dirFilter && dirFilter !== "all";
   const activeFilterObj = (filters || []).find((f) => f.f === dirFilter);
 
@@ -145,8 +163,14 @@ export default function Overview({
     const matchingGroup = groupsWithCards[0] || (cfg.groups || [])[0];
     topHeaderSub = matchingGroup?.s || "";
   } else if (groupsWithCards.length > 0) {
-    topHeaderTitle = groupsWithCards[0].h;
-    topHeaderSub = groupsWithCards[0].s;
+    /* The feed title, NOT the first group's name. This banner is sticky, so naming
+       group 0 pinned "Live Opportunities" to the top of the window and left it there
+       for all 138 cards below it -- of which three were in that group. The group split
+       is by INDEX (`cards.slice(idx, idx + g.n)`), not by content, so the label was
+       never a property of what the reader was looking at. Each group now carries its
+       own inline header instead; see the `gi > 0` guard removed below. */
+    topHeaderTitle = cfg.title || "Signals";
+    topHeaderSub = "";
   } else {
     const fallback = (cfg.groups || [])[0] || { h: cfg.title || "Signals", s: "" };
     topHeaderTitle = fallback.h;
@@ -168,6 +192,7 @@ export default function Overview({
           seqMode={seqMode}
           searchQuery={feedSearchQuery}
           onSearch={setFeedSearchQuery}
+          counts={filterCounts}
         />
       </div>
 
@@ -187,15 +212,16 @@ export default function Overview({
               ))}
             </div>
           ) : (
-            groupsWithCards.map((g, gi) => (
+            groupsWithCards.map((g) => (
               <div className="feed-grp" key={g.h}>
-                {gi > 0 ? (
-                  <div className="feed-grp-h">
-                    <span className="eyebrow">
-                      {g.h} <span className="sub">{g.s}</span>
-                    </span>
-                  </div>
-                ) : null}
+                {/* Every group carries its own header, the first included. It used to be
+                    suppressed on gi === 0 because the sticky banner was showing that
+                    group's name -- and kept showing it for the whole scroll. */}
+                <div className="feed-grp-h">
+                  <span className="eyebrow">
+                    {g.h} <span className="sub">{g.s}</span>
+                  </span>
+                </div>
                 {g.visibleCards.map((c) => (
                   <SignalCard
                     card={c}

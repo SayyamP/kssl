@@ -306,7 +306,8 @@ export default function MarketOverview() {
                   {titleCell(t)}
                   <td>{t.country || none("—")}</td>
                   <td>{t.cat || none("—")}</td>
-                  <td className="num">{t.deadline}</td>
+                  {/* the column is headed "Closes" -- it must hold a date, not a countdown */}
+                  <td className="num">{t.closingDate || "—"}</td>
                   {sourceCell(t)}
                 </tr>
               ))}

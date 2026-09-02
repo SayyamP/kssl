@@ -105,10 +105,19 @@ export default function Innovation() {
       (gapKnown && has(iv.compNote)
         ? `<div class="tech-d-sec lead"><span class="eyebrow accent">${GAP_HEAD[iv.gap]}</span><div class="body">${iv.compNote}</div></div>`
         : "") +
-      // LEAD: what's new (the dated development)
-      `<div class="tech-d-sec lead"><span class="eyebrow accent">What's new</span>${
-        has(iv.whatsNew) ? `<div class="body">${iv.whatsNew}</div>` : na
-      }</div>` +
+      /* LEAD: what's new (the dated development).
+         Rendered only when the row carries one. enrich_serving.py writes whatsNew as a
+         literal NULL -- it is not extracted at all -- so this heading appeared above
+         "not assessed" on all 1,101 served rows, which is what the report meant by
+         "data is missing from the What's New section". A heading that is empty every
+         single time is worse than no heading: it reads as a page that failed to load.
+
+         Deliberately NOT synthesised from `body` or `impact`. Those are the background
+         and the analyst read; neither is a dated development, and passing one off as
+         one would be inventing the field rather than filling it. */
+      (has(iv.whatsNew)
+        ? `<div class="tech-d-sec lead"><span class="eyebrow accent">What's new</span><div class="body">${iv.whatsNew}</div></div>`
+        : "") +
       // recommended action deliberately omitted (editorial policy: no decision-influencing moves)
       // SUPPORTING: what it is
       (has(iv.body)

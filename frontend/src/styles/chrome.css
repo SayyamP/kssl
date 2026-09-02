@@ -125,6 +125,12 @@
   .filters{display:flex;gap:6px;align-items:center;flex-wrap:nowrap !important;white-space:nowrap;flex-shrink:0}
   .dir-filters{display:inline-flex;gap:4px;align-items:center;flex-wrap:nowrap !important;white-space:nowrap;flex-shrink:0}
   .fbtn{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--d-txt-3);border:1px solid var(--d-line);padding:4px 7px;cursor:pointer;background:transparent;transition:.12s;white-space:nowrap !important;flex-shrink:0}
+  /* Each direction filter carries how many cards it would show. A facet selecting zero
+     is not clickable -- on the market and technology pillars every card is 'watch', so
+     two of the four filters could never have returned anything. */
+  .fbtn .fcount{opacity:.55;font-size:9.5px}
+  .fbtn.empty{opacity:.4;cursor:not-allowed}
+  .fbtn.empty:hover{background:transparent}
   .fbtn:hover{border-color:var(--d-line-2);color:var(--d-txt-2)}
   .fbtn.on{color:var(--d-txt);border-color:var(--d-txt-4);background:var(--d-bg-3)}
   .seq-sep{width:1px;height:18px;background:var(--d-line);margin:0 4px;flex-shrink:0}

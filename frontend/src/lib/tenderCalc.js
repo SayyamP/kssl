@@ -164,6 +164,11 @@ export function wireTendersWithRealDays(tenders, referenceDate = new Date()) {
     return {
       ...t,
       dl: calc.dl,
+      /* The served date, kept. `deadline` is overwritten below with a countdown, so
+         after wiring there was NO date left on the object -- and the columns headed
+         "Closes" and "Closing date" printed "19 days left" or "no deadline on record"
+         instead of a date. A countdown is a useful chip; it is not a closing date. */
+      closingDate: t.deadline || null,
       deadline: calc.deadline,
       /* The whole phrase, built once here. Every call site used to write
          `closes in ${deadline}`, which read "closes in Awarded" on the 15

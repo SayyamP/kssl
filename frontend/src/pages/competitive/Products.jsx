@@ -63,6 +63,47 @@ function nameKey(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+/* Words that appear in half the roster and identify nobody. Matching on these is how a
+   substring join pairs the wrong two companies; dropping them is what lets a token
+   comparison be strict. */
+const CO_NOISE = new Set(
+  ("limited ltd pvt private plc inc incorporated corp corporation company co gmbh ag sa " +
+   "nv bv spa srl as ab oyj group holdings holding the and of").split(" "),
+);
+/* Geography deliberately stays OUT of that list. It is not identity for a DOMAIN, but it
+   is identity for a company: dropping "india" reduced "India Aerospace Industries" to
+   {aerospace, industries}, a subset of "Israel Aerospace Industries", and the two merged.
+   A noise word must be one that identifies nobody -- a legal form does, a country does
+   not. */
+
+export function coTokens(name) {
+  return new Set(nameKey(name).split(" ").filter((t) => t.length > 1 && !CO_NOISE.has(t)));
+}
+
+/* Does a matchup's company label denote the same company as this roster entry?
+
+   The old test was `a.includes(b) || b.includes(a)` on the normalised display names.
+   That strands 40 of 160 matchups -- "Advanced Weapons and Equipment India Limited" is
+   neither a substring of nor a superstring of the roster's "Advanced Weapons & Equipment
+   India (AWEIL)", because "&" normalises away and "limited" faces "aweil". AWEIL alone
+   lost 20 matchups, and with them the only spec data the corpus holds for that company.
+
+   Comparing distinctive tokens instead: once the noise words are gone, one name's tokens
+   being a subset of the other's is a much stronger statement than a substring, and it
+   survives punctuation, ampersands, legal suffixes and a trailing acronym. */
+export function sameCompany(a, b) {
+  const A = coTokens(a);
+  const B = coTokens(b);
+  if (!A.size || !B.size) return false;
+  const [small, big] = A.size <= B.size ? [A, B] : [B, A];
+  let hit = 0;
+  small.forEach((t) => {
+    if (big.has(t)) hit += 1;
+  });
+  // every distinctive word of the shorter name appears in the longer one
+  return hit === small.size;
+}
+
 /* Product news, and the sidebar's country / category / revenue facets.
  *
  * getProductNewsData() used to return four invented articles per product —
@@ -241,11 +282,9 @@ export default function Products() {
       });
     } else {
       const co = (data.competitors || {})[selectedCid] || {};
-      const nk = nameKey(co.name || selectedCid);
 
       matchups.forEach((m) => {
-        const matchComp = nameKey(m.compBy || m.comp || "");
-        if (matchComp.includes(nk) || nk.includes(matchComp)) {
+        if (sameCompany(m.compBy || m.comp || "", co.name || selectedCid)) {
           let name = (m.comp || "").replace(/.*·\s*/, "").trim() || m.anchor || "System";
           if (name && !seen.has(name.toLowerCase())) {
             seen.add(name.toLowerCase());

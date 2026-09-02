@@ -577,9 +577,16 @@ def is_listing(url):
     # An author page and a topic index are the same thing as a tag page: a list
     # of other people's headlines. They reached extraction and cost a full model
     # pass each before being refused here.
-    for seg in ("/tag/", "/category/", "/label/", "/author/", "/authors/",
+    for seg in ("/tag/", "/tags/", "/category/", "/label/", "/author/", "/authors/",
                 "/topic/", "/topics/", "/section/",
                 "/search/", "/page/",
+                # Drupal publishes its tag indexes as /term/ and /taxonomy/term/,
+                # which this list did not cover -- so aviationweek.com/term/saab and
+                # aviationweek.com/taxonomy/term/157261 walked straight through the
+                # gate and became 37 dated cards. A tag index has no publication date
+                # at all, so whatever date they showed was manufactured from a page of
+                # mixed headlines. That is precisely what this gate exists to stop.
+                "/term/", "/taxonomy/",
                 # A per-organisation index is a tag page wearing a company name.
                 # asdnews.com/company/104104/hanwha-aerospace-europe put THREE
                 # cards on the dashboard, each citing a source that opens a list
@@ -828,6 +835,30 @@ def strip_kssl_tail(sowhat):
         # tidy a dangling connective the cut left behind ('...Middle East and')
         core = re.sub(r"[\s,;]+(?:and|but|which|that|as|so|to|for|with)?[\s,;.]*$", "",
                       core, flags=re.I).strip().rstrip(",;. ")
+        # _TAIL_RX's `pos\w+` is meant for the hedge "possibly". It also matches
+        # "position", so on "...strengthening its position in the naval market against
+        # KSSL offerings" the cut begins at "position" and eats the whole substantive
+        # clause, leaving "Saab secures a significant order, strengthening its." The
+        # tidy above does not strip a possessive, so a full stop was appended to a
+        # fragment. Walk back to the last clause boundary; if there is none, drop the
+        # sentence -- a dangling fragment reads worse than silence.
+        #
+        # Narrowing `pos\w+` to `possibl\w+` is the deeper fix and CANNOT land alone:
+        # with _TAIL_RX no longer firing, _TIE_PLAIN matches leftmost-greedy from the
+        # sentence start and removes the whole sentence instead, so every one of these
+        # cards disappears rather than being repaired.
+        # A cut that landed mid-clause leaves a stranded possessive or preposition
+        # ('...strengthening its'). Trying to repair the fragment word by word only
+        # moves the problem -- strip "its" and the verb it belonged to is stranded
+        # instead ('...strengthening'). Walk back to the last clause boundary, which is
+        # always grammatical, and if there is no comma to fall back to, drop the
+        # sentence: a dangling fragment reads worse than silence.
+        while re.search(r"(?:its|their|his|her|our|your|the|an?|of|in|on|at|by|from|"
+                        r"with|and|but|to|for)$", core, re.I):
+            head, sep, _ = core.rpartition(",")
+            core = head.strip().rstrip(",;. ") if sep else ""
+            if not core:
+                break
         if _KSSL_SENT.search(core):      # couldn't cleanly excise KSSL -> drop the sentence
             core = ""
         words = len(re.findall(r"\w+", core))
