@@ -1,3 +1,16 @@
+# =============================================================================
+# NOT THE FILE THAT RUNS. The signals role executes
+# extraction/signals/serving_fill.py; this copy has drifted from it by roughly
+# 775 lines and is missing rules the live one enforces -- among them the
+# restriction of dir='threat' to the competitive pillar, and the repair that
+# stops a "so what" line ending mid-clause.
+#
+# An audit on 2026-09-03 read THIS file, found no pillar restriction, and
+# reported a live defect that does not exist. A stale duplicate does not just
+# rot; it actively misinforms anyone checking the code, which is worse than
+# having no copy at all. Change extraction/signals/serving_fill.py.
+# =============================================================================
+
 """Turn extracted documents into serving rows -- the local LLM step.
 
     python serving_fill.py                  # process every unprocessed document

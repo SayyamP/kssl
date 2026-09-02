@@ -164,10 +164,18 @@ const countryOf = (hq) => {
    string split every time. */
 const countriesOf = (co) => {
   const gl = Array.isArray(co.global_locations) ? co.global_locations : [];
-  const named = gl.map((g) => (g && typeof g === "object" ? g.value : g)).filter(Boolean);
-  if (named.length) return [...new Set(named.map((v) => String(v).trim()))];
+  const named = gl
+    .map((g) => (g && typeof g === "object" ? g.value : g))
+    .filter(Boolean)
+    .map((v) => String(v).trim());
+  /* UNION, not either/or. Taking global_locations INSTEAD of the hq country dropped the
+     one country a reader is most likely to look under: global_locations holds countries
+     a company was mentioned in, which is not where it is. Live, that made RTX
+     ("Arlington, Virginia") reachable only under Ukraine, Sikorsky ("Jupiter, FL, USA")
+     only under the Czech Republic, and Exail ("Paris, France") only under the
+     Netherlands and Belgium. Four companies lost their home country to a news mention. */
   const one = countryOf(co.hq);
-  return one ? [one] : [];
+  return [...new Set([...(one ? [one] : []), ...named])];
 };
 
 const getCompanyFilterMeta = (co) => ({
@@ -251,7 +259,10 @@ export default function Products() {
   const sidebarCountries = useMemo(() => {
     /* Every country a company is present in, not just the first -- Airbus is in five,
        and offering only one of them made the other four unreachable by this filter. */
-    const set = new Set(companyRoster.flatMap((c) => c.countries || []).filter(Boolean));
+    // 47 options in roster order is a list to hunt through; 11 was not.
+    const set = new Set(
+      companyRoster.flatMap((c) => c.countries || []).filter(Boolean).sort((a, b) => a.localeCompare(b)),
+    );
     return ["all", ...Array.from(set)];
   }, [companyRoster]);
 
