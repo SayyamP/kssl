@@ -27,7 +27,14 @@
   .live{animation:pulse 2.4s infinite, breathe 2.4s ease-in-out infinite}
   @keyframes breathe{0%,100%{opacity:.65}50%{opacity:1}}
   /* ambient scan line sweeping the top bar subtly */
-  .topbar{position:relative;overflow:hidden}
+  /* `overflow:hidden` used to live here, to keep the ::after scan-line below from
+     spilling past the right edge as it travels. It also clipped the global search's
+     result popover, which hangs BELOW this 54px bar: the list rendered, carried
+     z-index 1000, and was invisible -- typing in the search box looked like a search
+     box that did nothing. #root is already `overflow:hidden` at 100vh, so the scan
+     line is still clipped at the viewport; only the bar stopped clipping its own
+     children. */
+  .topbar{position:relative}
   .topbar::after{content:"";position:absolute;top:0;left:0;height:100%;width:120px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.025),transparent);animation:scan 7s linear infinite;pointer-events:none}
   @keyframes scan{0%{transform:translateX(-140px)}100%{transform:translateX(calc(100vw + 140px))}}
   /* feed 'new signal' faint tick: a thin bar that breathes on the subhead live count */
@@ -198,7 +205,7 @@
     top: calc(100% + 8px);
     left: 0;
     right: 0;
-    min-width: 340px;
+    min-width: 420px;
     background: var(--d-bg-2);
     border: 1px solid var(--d-line-2);
     border-radius: 8px;
@@ -227,6 +234,15 @@
     text-transform: uppercase;
     color: var(--d-txt-3);
     padding: 6px 14px 4px;
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+  /* how many matched, against how many are listed -- the popover shows a few of each */
+  .topbar-search-more {
+    color: var(--d-txt-4);
+    letter-spacing: .06em;
+    text-transform: none;
   }
   .topbar-search-item {
     display: flex;
@@ -235,6 +251,7 @@
     padding: 8px 14px;
     cursor: pointer;
     transition: background .12s;
+    min-width: 0;
   }
   .topbar-search-item:hover {
     background: var(--d-bg-3);
@@ -257,12 +274,25 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    flex: 1;
+    /* min-width:0 is what makes the ellipsis work at all -- a flex item's default
+       min-width is auto, so it refuses to shrink below its text and the row's other
+       cell wins instead. Without it a competitor whose sector reads "Autonomous
+       Weapons, Ground Combat Vehicles, Counter-Drone Systems" pushed its own NAME out
+       of the row: the hit rendered as a two-line sector with nothing to click by. */
+    flex: 1 1 auto;
+    min-width: 0;
   }
+  /* the sector/issuer is context, never the label -- it yields to the name */
   .topbar-search-item-meta {
     font-family: var(--mono);
     font-size: 10px;
     color: var(--d-txt-4);
+    flex: 0 1 auto;
+    max-width: 42%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: right;
   }
 
 

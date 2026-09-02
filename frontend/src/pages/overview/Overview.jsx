@@ -5,7 +5,21 @@ import ErrorBoundary from "../../components/ErrorBoundary";
 import FeedFilters from "../../components/subHead/FeedFilters";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
-import { buildFeed, tilePredicate } from "../../lib/overview";
+import { buildFeed, paginateFeed, tilePredicate, FEED_PAGE_SIZE } from "../../lib/overview";
+
+/* Page numbers with an ellipsis: first, last, and a window around the current page.
+   Nine pages fit; a corpus that grows to eighty must not put eighty buttons on screen. */
+function pageNumbers(cur, count) {
+  if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1);
+  const out = [1];
+  const from = Math.max(2, cur - 1);
+  const to = Math.min(count - 1, cur + 1);
+  if (from > 2) out.push("…");
+  for (let n = from; n <= to; n += 1) out.push(n);
+  if (to < count - 1) out.push("…");
+  out.push(count);
+  return out;
+}
 
 /* The overview feed and its detail column. Shared by all three pillars — the pillar
    only decides which card set and which metric strip config is in play, which is
@@ -23,6 +37,7 @@ export default function Overview({
   const { data } = useData();
   const { setScope, takePending } = useAppState();
   const [selected, setSelected] = useState(null);
+  const [page, setPage] = useState(1);
 
   // the shell's third column collapses when nothing is selected, so Layout has to know
   useEffect(() => {
@@ -37,6 +52,12 @@ export default function Overview({
   useEffect(() => {
     setSelected(null);
   }, [pillarKey, seqMode]);
+
+  /* Any change to what the feed contains sends the reader back to page 1 -- staying on
+     page 7 of a filter that now has two pages would show an empty list. */
+  useEffect(() => {
+    setPage(1);
+  }, [pillarKey, seqMode, dirFilter, tile]);
 
   /* Memoised on the tile NAME, not rebuilt per render: an identity that changed every
      render made the auto-select effect below re-fire forever. */
@@ -65,6 +86,11 @@ export default function Overview({
   useEffect(() => {
     const pend = takePending("overview");
     if (pend && pend.cardId && data.details && data.details[pend.cardId]) {
+      /* A global-search hit is usually not on the page in view -- 429 signals is nine
+         pages -- so turn to the one holding it before selecting, or the reader gets a
+         detail panel beside a feed that does not list what it describes. */
+      const at = pageView.pageOf(pend.cardId);
+      if (at && at !== page) goPage(at);
       select(pend.cardId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -78,13 +104,30 @@ export default function Overview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tile]);
 
-  const shownCount = (cfg.cards || []).filter(visible).length;
-  const firstVisibleId = (cfg.cards || []).find(visible)?.id;
+  /* One page of the filtered feed. `feed.groups` now covers every served card, so the
+     page maths runs over the whole corpus and the reader walks it 50 at a time. */
+  const pageView = useMemo(
+    () => paginateFeed(feed.groups, visible, page),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [feed, dirFilter, tilePred, page],
+  );
+  const shownCount = pageView.shown;
+  const firstVisibleId = pageView.firstId;
+
+  /* The feed scrolls independently of the window, so a page turn has to rewind it --
+     otherwise page 2 opens halfway down. */
+  const goPage = (n) => {
+    setPage(n);
+    const el = document.getElementById("feed");
+    if (el) el.scrollTop = 0;
+  };
   /* An empty feed still has a header, and the hardcoded fallback below printed the COMPETITIVE
      heading over the technology pillar -- a wrong label on an empty panel reads as a wrong panel.
      The pillar's own group def carries the right words even when it has no cards to slice. */
   const topGroup =
-    feed.groups[0] || (cfg.groups || [])[0] || { h: cfg.title || "Signals", s: "" };
+    pageView.groups[0] ||
+    feed.groups[0] ||
+    (cfg.groups || [])[0] || { h: cfg.title || "Signals", s: "" };
 
   return (
     <div className="ov-wrap">
@@ -104,7 +147,7 @@ export default function Overview({
 
       <div className="ov-body">
         <div className="feed v-overview" id="feed">
-          {feed.groups.map((g, gi) => {
+          {pageView.groups.map((g, gi) => {
             const cards = g.cards.filter(visible);
             if (!cards.length && gi !== 0) return null;
             return (
@@ -138,7 +181,50 @@ export default function Overview({
                 : "— no signals served yet —"}
             </div>
           ) : (
-            <div className="empty-note">— end of active signals · {feed.total} total —</div>
+            <div className="pager">
+              <div className="pager-range">
+                showing {pageView.from}–{pageView.to} of {shownCount}
+                {shownCount !== feed.total ? ` filtered · ${feed.total} total` : " signals"}
+              </div>
+              {pageView.pageCount > 1 ? (
+                <div className="pager-ctl">
+                  <button
+                    className="pgbtn"
+                    disabled={pageView.page <= 1}
+                    onClick={() => goPage(pageView.page - 1)}
+                    type="button"
+                  >
+                    ‹ Prev
+                  </button>
+                  {pageNumbers(pageView.page, pageView.pageCount).map((n, i) =>
+                    n === "…" ? (
+                      <span className="pgap" key={`gap${i}`}>
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        className={`pgbtn num${n === pageView.page ? " on" : ""}`}
+                        key={n}
+                        onClick={() => goPage(n)}
+                        type="button"
+                      >
+                        {n}
+                      </button>
+                    ),
+                  )}
+                  <button
+                    className="pgbtn"
+                    disabled={pageView.page >= pageView.pageCount}
+                    onClick={() => goPage(pageView.page + 1)}
+                    type="button"
+                  >
+                    Next ›
+                  </button>
+                </div>
+              ) : (
+                <div className="pager-range">— end of active signals —</div>
+              )}
+            </div>
           )}
         </div>
 

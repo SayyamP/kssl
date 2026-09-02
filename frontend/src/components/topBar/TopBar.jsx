@@ -58,22 +58,36 @@ export default function TopBar() {
       });
     }
 
+    /* Each card is carried with the pillar whose feed actually lists it. Every hit used
+       to open the COMPETITIVE overview, so picking a technology or market signal landed
+       on a feed that does not contain it. */
     const signals = [];
-    const allCards = [
-      ...(data.competitiveCards || []),
-      ...(data.marketCards || []),
-      ...(data.techCards || []),
-    ];
-    allCards.forEach((card) => {
-      if (card.title?.toLowerCase().includes(q) || card.company?.toLowerCase().includes(q) || card.tags?.toLowerCase().includes(q)) {
-        signals.push({ id: card.id, title: card.title, company: card.company });
-      }
+    [
+      ["competitive", "overview", data.competitiveCards],
+      ["market", "m-overview", data.marketCards],
+      ["technology", "t-overview", data.techCards],
+    ].forEach(([pillarKey, viewKey, cards]) => {
+      (cards || []).forEach((card) => {
+        const hay = `${card.title || ""} ${card.company || ""} ${card.tags || ""}`.toLowerCase();
+        if (hay.includes(q)) {
+          signals.push({
+            id: card.id,
+            title: card.title,
+            company: card.company,
+            pillar: pillarKey,
+            view: viewKey,
+          });
+        }
+      });
     });
 
+    /* "drone" matches 264 signals. Showing four with no hint that there are 260 more
+       reads as a search that only knows about four things. */
     return {
-      comps: comps.slice(0, 4),
-      tenders: tenders.slice(0, 4),
-      signals: signals.slice(0, 4),
+      comps: comps.slice(0, 5),
+      tenders: tenders.slice(0, 5),
+      signals: signals.slice(0, 8),
+      counts: { comps: comps.length, tenders: tenders.length, signals: signals.length },
       total: comps.length + tenders.length + signals.length,
     };
   }, [searchQuery, data]);
@@ -86,7 +100,7 @@ export default function TopBar() {
     } else if (type === "tender") {
       jumpTo("market", "tender", { tenderTitle: item.title });
     } else if (type === "signal") {
-      jumpTo("competitive", "overview", { cardId: item.id });
+      jumpTo(item.pillar || "competitive", item.view || "overview", { cardId: item.id });
     }
   };
 
@@ -164,7 +178,7 @@ export default function TopBar() {
               <>
                 {results.comps.length > 0 && (
                   <div className="topbar-search-section">
-                    <div className="topbar-search-section-title">Competitors</div>
+                    <div className="topbar-search-section-title">Competitors<span className="topbar-search-more">{results.counts.comps > results.comps.length ? `showing ${results.comps.length} of ${results.counts.comps}` : results.counts.comps}</span></div>
                     {results.comps.map((c) => (
                       <div
                         key={c.cid}
@@ -181,7 +195,7 @@ export default function TopBar() {
 
                 {results.tenders.length > 0 && (
                   <div className="topbar-search-section">
-                    <div className="topbar-search-section-title">Tenders</div>
+                    <div className="topbar-search-section-title">Tenders<span className="topbar-search-more">{results.counts.tenders > results.tenders.length ? `showing ${results.tenders.length} of ${results.counts.tenders}` : results.counts.tenders}</span></div>
                     {results.tenders.map((t) => (
                       <div
                         key={t.id}
@@ -198,7 +212,7 @@ export default function TopBar() {
 
                 {results.signals.length > 0 && (
                   <div className="topbar-search-section">
-                    <div className="topbar-search-section-title">Signals & Intel</div>
+                    <div className="topbar-search-section-title">Signals & Intel<span className="topbar-search-more">{results.counts.signals > results.signals.length ? `showing ${results.signals.length} of ${results.counts.signals}` : results.counts.signals}</span></div>
                     {results.signals.map((s) => (
                       <div
                         key={s.id}

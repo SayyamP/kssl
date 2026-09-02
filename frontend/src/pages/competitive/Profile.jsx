@@ -356,10 +356,20 @@ function Sec({ title, note, children }) {
 
 export default function Profile() {
   const { data } = useData();
-  const { setScope } = useAppState();
+  const { setScope, takePending } = useAppState();
   const [query, setQuery] = useState("");
   const roster = useMemo(() => rosterOf(data), [data]);
   const [cid, setCid] = useState(() => (roster[0] ? roster[0].cid : ""));
+
+  /* Opened from global search targeting one company. Without this the page took the
+     jump but never read the payload, so picking "RENK" in the search box landed on
+     roster[0] -- the search looked broken because it navigated to the wrong rival. */
+  useEffect(() => {
+    const pend = takePending("profile");
+    if (pend && pend.cid && data.competitors && data.competitors[pend.cid]) {
+      setCid(pend.cid);
+    }
+  }, [takePending, data.competitors]);
 
   // News category filter pill & active open article state for White Detail Window
   const [newsFilter, setNewsFilter] = useState("All");

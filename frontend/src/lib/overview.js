@@ -67,13 +67,66 @@ export function buildFeed(cfg, seqMode) {
 
   const groups = [];
   let idx = 0;
-  groupDefs.forEach((g) => {
-    const slice = cards.slice(idx, idx + g.n);
+  groupDefs.forEach((g, i) => {
+    /* The LAST group takes everything still unassigned. The group defs carry fixed
+       sizes (competitive is 6 + 99) that were written against a demo dataset of about
+       forty cards; production serves 429, so a plain `slice(idx, idx + g.n)` dropped
+       324 of them on the floor while the footer still counted all 429 -- the feed said
+       "end of active signals, 429 total" under a list that stopped at 105. A group
+       total is a layout hint for the first bucket, never a limit on the corpus. */
+    const last = i === groupDefs.length - 1;
+    const slice = last ? cards.slice(idx) : cards.slice(idx, idx + g.n);
     if (!slice.length) return;
     idx += slice.length;
     groups.push({ h: g.h, s: g.s, cards: slice });
   });
   return { groups, total: (cfg.cards || []).length };
+}
+
+/* How many signals one page of the feed shows. */
+export const FEED_PAGE_SIZE = 50;
+
+/* Flatten the grouped feed to the cards a filter keeps, remembering which group each
+   came from, then hand back one page of them re-grouped for render. Pure, so the page
+   maths can be checked without a browser.
+
+   `page` is 1-based and clamped: a filter that shrinks the list under the current page
+   must not leave the reader staring at an empty feed. */
+export function paginateFeed(groups, keep, page, size = FEED_PAGE_SIZE) {
+  const flat = [];
+  (groups || []).forEach((g) => {
+    (g.cards || []).forEach((c) => {
+      if (!keep || keep(c)) flat.push({ g, c });
+    });
+  });
+  const pageCount = Math.max(1, Math.ceil(flat.length / size));
+  const cur = Math.min(Math.max(1, page || 1), pageCount);
+  const from = (cur - 1) * size;
+  const slice = flat.slice(from, from + size);
+
+  // re-group the slice: consecutive cards from the same group share one header
+  const pageGroups = [];
+  slice.forEach(({ g, c }) => {
+    const tail = pageGroups[pageGroups.length - 1];
+    if (tail && tail.h === g.h) tail.cards.push(c);
+    else pageGroups.push({ h: g.h, s: g.s, cards: [c] });
+  });
+
+  return {
+    groups: pageGroups,
+    page: cur,
+    pageCount,
+    shown: flat.length,
+    /* 1-based inclusive range, for "showing 101-150 of 429" */
+    from: flat.length ? from + 1 : 0,
+    to: from + slice.length,
+    firstId: flat.length ? flat[0].c.id : null,
+    /* which page a given card sits on -- the global search jumps straight to it */
+    pageOf: (id) => {
+      const at = flat.findIndex((x) => x.c.id === id);
+      return at < 0 ? null : Math.floor(at / size) + 1;
+    },
+  };
 }
 
 /* The open / awarded / closed split, defined once so the nav badges, the tender

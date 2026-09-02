@@ -250,6 +250,17 @@
   ::-webkit-scrollbar-corner{background:transparent}
 
   .empty-note{padding:40px 22px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--l-txt-4);letter-spacing:.05em}
+  /* Feed pager. The feed carries hundreds of signals; the group defs only ever laid
+     out the first bucket, so the rest is walked a page at a time. Same mono/uppercase
+     vocabulary as .fbtn in the filter row above it, so it reads as the same control set. */
+  .pager{display:flex;flex-direction:column;align-items:center;gap:12px;padding:26px 22px 34px;border-top:1px solid var(--d-line)}
+  .pager-range{font-family:var(--mono);font-size:11px;color:var(--l-txt-4);letter-spacing:.05em}
+  .pager-ctl{display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:center}
+  .pgbtn{font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--d-txt-3);border:1px solid var(--d-line);background:transparent;padding:6px 11px;cursor:pointer;transition:.12s;min-width:34px}
+  .pgbtn:hover:not(:disabled){border-color:var(--d-line-2);color:var(--d-txt)}
+  .pgbtn:disabled{opacity:.35;cursor:default}
+  .pgbtn.on{color:var(--d-txt);border-color:var(--d-txt-4);background:var(--d-bg-3)}
+  .pgap{font-family:var(--mono);font-size:11px;color:var(--d-txt-4);padding:0 2px}
 
   /* ===== VIEW SWITCHING ===== */
   .view{display:none}
