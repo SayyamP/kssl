@@ -58,9 +58,43 @@ services:
     # farm.yaml so it survives a reboot; the gateway derives FARM_NODE_PARALLEL from the same key).
     # One worker fills one slot: run_node.py in --node mode calls drain(), which is single
     # threaded and holds one document at a time, so 72 workers left every node at 6/12 running.
-    # 54 + 144 + ~12 service connections = 210, against kssl-db max_connections=300.
+    # 128 here + 16 in worker-big = 144, so the two Pune pools together still fill the pool
+    # exactly once. 54 + 128 + 16 + ~12 service connections = 210, of max_connections 300.
     deploy:
-      replicas: 144
+      replicas: 128
+
+  # Third pool: the OVERSIZE lane. Same image, same farm, two differences that matter.
+  #
+  # C_NODE_CAP_CHARS raises this pool's length ceiling to 250k. The farm's normal cap is 26,639
+  # (minutes x tok_s / ALPHA) and `chars <= cap` sits in the claim's WHERE, so 46 documents on the
+  # priority worklist were invisible to every worker rather than merely last -- among them QinetiQ's
+  # annual reports and interim results, which are the revenue evidence the worklist exists to get.
+  #
+  # C_NODE_MIN_CLASS=0 lets it reach class 0, which the normal pools cannot (farm min_class is P1).
+  # That is the whole trick: oversize documents are parked in a lane only this pool can claim, so
+  # the ordinary claim -- ORDER BY class ASC, est_out ASC, i.e. smallest first -- cannot starve
+  # them. Without it a big-cap worker would still take every small document ahead of a 200k one.
+  # max_class stays 7, so once class 0 is drained these workers rejoin the normal queue instead
+  # of idling.
+  worker-big:
+    build: .
+    image: kssl-extraction:latest
+    env_file: .env
+    network_mode: host
+    command: ["worker"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_URL: "https://pune-llm.i3softlab.com"
+      OLLAMA_API_KEY: "${PUNE_API_KEY:?set PUNE_API_KEY in extraction/.env}"
+      C_GLINER_URL: "https://pune-gliner.i3softlab.com/extract"
+      C_FARM_HEALTH_URL: "https://pune-llm.i3softlab.com/v1/models"
+      C_NODE_CAP_CHARS: "250000"
+      C_NODE_MIN_CLASS: "0"
+    # 16 workers against 37 documents totalling ~3.1M chars. More would not finish sooner: one
+    # worker holds one document start to finish, so the 200,000-char QinetiQ report sets a floor
+    # of ~12 h on its own no matter how many workers are watching it.
+    deploy:
+      replicas: 16
 
   # The feeder: sync new corpus docs -> enqueue (presignal gate) -> reap expired leases, on a timer.
   feeder:

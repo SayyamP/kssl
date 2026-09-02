@@ -304,12 +304,40 @@ if _MAX_CLASS_OVERRIDE:
     if _self in NODES:
         NODES[_self]["max_class"] = int(_MAX_CLASS_OVERRIDE)
 
+# C_NODE_MIN_CLASS lowers the floor the same way, for a pool that must reach a lane the normal
+# workers are fenced out of. The farm's min_class is P1, so class 0 is a lane only an explicitly
+# configured pool can claim -- which is how oversize documents get a dedicated drain without a
+# second queue.
+_MIN_CLASS_OVERRIDE = os.environ.get("C_NODE_MIN_CLASS")
+if _MIN_CLASS_OVERRIDE:
+    _self = os.environ.get("KSSL_NODE", "farm")
+    if _self in NODES:
+        NODES[_self]["min_class"] = int(_MIN_CLASS_OVERRIDE)
+
 for _n in NODES.values():
     _n["cap"] = int(_n["minutes"] * 60 * _n["tok_s"] / ALPHA)
     _ceiling = FALLBACK_MAX_MIN["preemptible" if _n.get("min_class", P0) > P0 else "always_on"]
     _n["fallback_cap"] = min(int(_n["cap"] * FALLBACK_MULTIPLE),
                              int(_ceiling * 60 * _n["tok_s"] / ALPHA))
     _n["order"] = "fifo" if _n["max_class"] == P1 or _n["max_class"] == P3 else "short"
+
+# C_NODE_CAP_CHARS raises the length ceiling for one pool without touching `minutes`. The two were
+# the same number because a cap derived from a lease window is the honest default -- but the lease
+# is now sized per DOCUMENT inside CLAIM (greatest(ttl_floor, 2*chars*sec_per_char + 120)), so a
+# long document already gets a long lease and the cap no longer has to encode one.
+#
+# It exists because 46 documents on the priority worklist sat above the farm's 26,639 cap and were
+# not merely last in the queue -- `chars <= cap` is in the claim's WHERE, so they were invisible to
+# every worker, forever, with no error anywhere. 37 of them are QinetiQ annual reports, investor
+# seminars and interim results: the revenue and profile evidence the worklist exists to collect.
+_CAP_OVERRIDE = os.environ.get("C_NODE_CAP_CHARS")
+if _CAP_OVERRIDE:
+    _self = os.environ.get("KSSL_NODE", "farm")
+    if _self in NODES:
+        NODES[_self]["cap"] = int(_CAP_OVERRIDE)
+        # Relaxed mode must never be SMALLER than strict, or the fallback claim would shrink the
+        # ceiling it exists to widen.
+        NODES[_self]["fallback_cap"] = max(NODES[_self]["fallback_cap"], NODES[_self]["cap"])
 
 
 # Above the largest node cap nothing is eligible anywhere and the document is parked for a human.
