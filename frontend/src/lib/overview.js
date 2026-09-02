@@ -83,6 +83,25 @@ export function buildFeed(cfg, seqMode) {
   return { groups, total: (cfg.cards || []).length };
 }
 
+/* The date a signal is shown with, in ONE format everywhere.
+
+   The card aside printed the pipeline's `ago` ("Aug 2026") while the detail panel beside
+   it printed the same event's day-precision date ("11 Aug 2026") -- 730 of 813 cards
+   disagreed with their own panel, both on screen at once. That is what the report meant
+   by dates being wrong and the format inconsistent: not that the day was incorrect, but
+   that the same signal carried two different answers.
+
+   The panel's value is the richer one and comes from the same pipeline field, so it wins
+   when it exists; `ago` remains the fallback for the 83 rows that carry no day. Nothing
+   is reformatted or re-derived here -- deriving a date a fourth way is how this started. */
+export function signalDate(card, data) {
+  const facts = ((data && data.details && data.details[card && card.id]) || {}).facts || [];
+  for (const row of facts) {
+    if (Array.isArray(row) && row[0] === "Date" && row[1]) return String(row[1]);
+  }
+  return (card && card.ago) || "";
+}
+
 /* How many signals one page of the feed shows. */
 export const FEED_PAGE_SIZE = 50;
 

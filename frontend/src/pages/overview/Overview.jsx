@@ -5,7 +5,7 @@ import ErrorBoundary from "../../components/ErrorBoundary";
 import FeedFilters from "../../components/subHead/FeedFilters";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
-import { buildFeed, paginateFeed, tilePredicate } from "../../lib/overview";
+import { buildFeed, paginateFeed, signalDate, tilePredicate } from "../../lib/overview";
 
 /* The overview feed and its detail column. Shared by all three pillars — the pillar
    only decides which card set and which metric strip config is in play, which is
@@ -208,6 +208,7 @@ export default function Overview({
                   fresh={c.id === firstVisibleId}
                   key={c.id}
                   onSelect={select}
+                  when={signalDate(c, data)}
                   selected={selected === c.id}
                 />
               ))}
@@ -230,6 +231,7 @@ export default function Overview({
                     fresh={c.id === firstVisibleId}
                     key={c.id}
                     onSelect={select}
+                    when={signalDate(c, data)}
                     selected={selected === c.id}
                   />
                 ))}

@@ -6,7 +6,7 @@ import { useData } from "../../state/DataProvider";
    `card.meta` ("Artillery · Hanwha Defense USA · from bench") is deliberately NOT
    rendered — the operator asked for title and description only. The field stays on the
    card because buildFeed's `category` sort orders on it (lib/overview.js). */
-export default function SignalCard({ card, dirWord, selected, fresh, onSelect }) {
+export default function SignalCard({ card, dirWord, selected, fresh, onSelect, when }) {
   const { data } = useData();
   return (
     <div
@@ -39,7 +39,9 @@ export default function SignalCard({ card, dirWord, selected, fresh, onSelect })
       </div>
       <div className="aside">
         <span className={`dirtag ${card.dir}`}>{dirWord}</span>
-        <span className="ago">{card.ago}</span>
+        {/* `when` comes from signalDate() so the card and its detail panel cannot
+            disagree about the same event. Falls back to the card’s own value. */}
+        <span className="ago">{when || card.ago}</span>
       </div>
     </div>
   );
