@@ -66,12 +66,71 @@ const getCompanyDetailsMeta = (p) => {
   };
 };
 
-/* Corporate structure — parent, sister companies, subsidiaries — was typed by hand
- * for the same eleven firms and drawn as a zoomable org chart. Nothing in the
- * serving schema holds corporate structure, so there is no honest value to put
- * here: returning null makes CorporateHierarchySvgMap render nothing (it already
- * guards on it) until a column and a writer exist. */
-const getCorporateStructureMap = () => null;
+/* The graph below was built for corporate structure -- a parent, its sister companies
+ * and its subsidiaries -- and upstream fed it an if-chain of hand-typed strings for
+ * about six firms ("BDL Kanchanbagh Guided Missile Complex" and the like). None of that
+ * came from the corpus, so 95f781c replaced it with null and the graph went dark.
+ *
+ * Nothing in the serving schema holds ownership: there is no parent, sister or
+ * subsidiary column anywhere, and no writer that could fill one. What the schema DOES
+ * hold is competitors.partners -- 582 ties over 178 companies, each with a type and a
+ * source URL. So the graph draws the relationships we can actually prove, and the
+ * heading says "Partner Network" rather than claiming an ownership tree we do not have.
+ *
+ * Ordered so the strongest ties are the ones that survive the cap: equity first (a joint
+ * venture says more about a company than a supply contract), then transfers of
+ * technology, then everything else; a sourced tie always outranks an unsourced one of
+ * the same class. Capped at 8 because one company carries 55 ties and a row of 55 nodes
+ * is not a graph. */
+const TIE_RANK = [
+  [/joint venture|acquisition|stake|jv/i, 0],
+  [/technology|tot|transfer|manufactur/i, 1],
+  [/mou|strategic/i, 2],
+];
+
+const tieRank = (t) => {
+  const hit = TIE_RANK.find(([rx]) => rx.test(t || ""));
+  return hit ? hit[1] : 3;
+};
+
+export const partnerTree = (p, cap = 8) => {
+  const ties = (p && p.partners) || [];
+  if (!ties.length) return null;
+
+  const seen = new Set();
+  const nodes = ties
+    .filter((t) => {
+      const name = (t.label || "").trim();
+      // A tie with no counterparty name cannot be a node, and the same partner listed
+      // twice under two deals must not become two circles.
+      if (!name || seen.has(name.toLowerCase())) return false;
+      seen.add(name.toLowerCase());
+      return true;
+    })
+    .map((t) => ({
+      name: (t.label || "").trim(),
+      type: (t.ptype || t.kind || "").trim(),
+      sourced: Boolean(t.src),
+    }))
+    .sort(
+      (a, b) =>
+        tieRank(a.type) - tieRank(b.type) ||
+        Number(b.sourced) - Number(a.sourced) ||
+        a.name.localeCompare(b.name),
+    )
+    .slice(0, cap);
+
+  if (!nodes.length) return null;
+  return {
+    current: p.name || "Company",
+    sisters: nodes.map((n) => (n.type ? n.name + " · " + n.type : n.name)),
+    subsidiaries: [],
+    shown: nodes.length,
+    total: seen.size,
+  };
+};
+
+const getCorporateStructureMap = (p) => partnerTree(p);
 
 // Generate Company-Specific Interactive News Articles Dataset
 
@@ -134,7 +193,10 @@ function CorporateHierarchySvgMap({ structMap }) {
               textTransform: "uppercase",
             }}
           >
-            Interactive Corporate Structure Graph · {structMap.current}
+            Partner Network · {structMap.current}
+            {structMap.total > structMap.shown
+              ? " · " + structMap.shown + " of " + structMap.total + " ties"
+              : ""}
           </span>
         </div>
 
@@ -825,7 +887,7 @@ export default function Profile() {
                 </div>
               ) : null}
 
-              {/* INTERACTIVE SVG CORPORATE HIERARCHY MAP & GRAPH */}
+              {/* PARTNER NETWORK GRAPH -- real sourced ties, see partnerTree above */}
               {structMap && (
                 <div style={{ marginTop: "24px", marginBottom: "24px" }}>
                   <CorporateHierarchySvgMap structMap={structMap} />
