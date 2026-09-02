@@ -52,8 +52,12 @@ export default function Overview({
      render made the auto-select effect below re-fire forever. */
   const tilePred = useMemo(() => (tile ? tilePredicate(tile) : null), [tile]);
 
-  const visible = (card) => {
-    if (dirFilter && dirFilter !== "all" && card.dir !== dirFilter) return false;
+  /* Split so the filter counts can reuse this predicate verbatim rather than
+     paraphrasing it. A count computed from a paraphrase is the exact bug this page was
+     fixed for: a two-word query, or a hit that lives only in the detail text, made the
+     badges read 0 while matching cards were plainly on screen -- and since an empty
+     filter is disabled, every button including "All" went dead beneath a full feed. */
+  const visibleExceptDir = (card) => {
     if (tilePred && !tilePred(card)) return false;
     const activeQ = (feedSearchQuery || searchQuery || "").trim().toLowerCase();
     if (activeQ) {
@@ -64,6 +68,9 @@ export default function Overview({
     }
     return true;
   };
+
+  const visible = (card) =>
+    (!dirFilter || dirFilter === "all" || card.dir === dirFilter) && visibleExceptDir(card);
 
   /* Picking a signal moves both chat contexts: the scoped ask box answers about this
      signal, and the floating assistant's context line names it. */
@@ -133,20 +140,14 @@ export default function Overview({
   /* How many cards each direction filter would show, before it is applied. Counted over
      the tile/search-filtered set so the number matches what clicking it produces. */
   const filterCounts = useMemo(() => {
-    const inScope = (cfg.cards || []).filter((c) => {
-      if (tilePred && !tilePred(c)) return false;
-      const q = (feedSearchQuery || searchQuery || "").trim().toLowerCase();
-      if (!q) return true;
-      return `${c.title || ""} ${c.company || ""} ${c.tags || ""} ${c.sowhat || ""}`
-        .toLowerCase()
-        .includes(q);
-    });
+    const inScope = (cfg.cards || []).filter(visibleExceptDir);
     const out = {};
     (filters || []).forEach((f) => {
       out[f.f] = f.f === "all" ? inScope.length : inScope.filter((c) => c.dir === f.f).length;
     });
     return out;
-  }, [cfg, filters, tilePred, feedSearchQuery, searchQuery]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfg, filters, tilePred, feedSearchQuery, searchQuery, data.details]);
 
   const isFiltered = dirFilter && dirFilter !== "all";
   const activeFilterObj = (filters || []).find((f) => f.f === dirFilter);

@@ -83,8 +83,8 @@ const getCompanyDetailsMeta = (p) => {
  * the same class. Capped at 8 because one company carries 55 ties and a row of 55 nodes
  * is not a graph. */
 const TIE_RANK = [
-  [/joint venture|acquisition|stake|jv/i, 0],
-  [/technology|tot|transfer|manufactur/i, 1],
+  [/joint venture|acquisition|stake|jv\b/i, 0],
+  [/technology|tot\b|transfer|manufactur/i, 1],
   [/mou|strategic/i, 2],
 ];
 

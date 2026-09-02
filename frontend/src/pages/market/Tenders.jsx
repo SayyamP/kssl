@@ -137,20 +137,19 @@ export default function Tenders({ mode = "tender" }) {
     return () => document.removeEventListener("click", onDocClick);
   }, []);
 
-  /* Everything EXCEPT the two dropdown facets. The option counts are built from this,
-     so a badge can never describe a different set than the rows below it: they read
-     "India 7" against a list of 2, because the count ran over all 106 tenders while the
-     list showed only the 74 that are open. Five of those seven had closed. */
-  const base = useMemo(
+  /* `scope` is the tab and the search box -- everything that is NOT one of the three
+     dropdown facets. Each facet's option counts are then taken from scope with the OTHER
+     two facets applied, so a badge can never describe a different set than the rows
+     below it. They read "India 7" over a list of 2, because the counts ran over all 106
+     tenders while the list showed only the 74 that are open; five of those seven had
+     closed. Product Type had the same fault and is included here -- fixing two of three
+     facets and leaving the third is how this bug survives a fix. */
+  const isAirNaval = (t) =>
+    /uav|drone|naval|marine|missile|air defence/i.test(`${t.cat} ${t.title}`);
+
+  const scope = useMemo(
     () =>
       (data.tenders || [])
-        .filter((t) => {
-          if (!productType) return true;
-          const isAirNaval = /uav|drone|naval|marine|missile|air defence/i.test(`${t.cat} ${t.title}`);
-          if (productType === "Air, Naval & Missiles") return isAirNaval;
-          if (productType === "Land Systems") return !isAirNaval;
-          return true;
-        })
         .filter((t) => {
           const isAwarded = (t.status || "").toLowerCase() === "awarded" || t.urlKind === "award";
           const isClosed = !isAwarded && (t.isLive === false || (t.status || "").toLowerCase() === "closed" || (t.deadline || "").toLowerCase().includes("closed"));
@@ -166,15 +165,32 @@ export default function Tenders({ mode = "tender" }) {
           const fullText = `${t.title || ""} ${t.issuer || ""} ${t.cat || ""} ${t.country || ""} ${t.desc || ""}`.toLowerCase();
           return tokens.every((tok) => fullText.includes(tok));
         }),
-    [data.tenders, productType, mode, searchQuery],
+    [data.tenders, mode, searchQuery],
   );
+
+  /* One place decides what each facet means, so the list and the counts cannot drift. */
+  const facetOk = {
+    country: (t, v) => !v || t.country === v,
+    cat: (t, v) => !v || t.cat === v,
+    productType: (t, v) =>
+      !v || (v === "Air, Naval & Missiles" ? isAirNaval(t) : !isAirNaval(t)),
+  };
+
+  const applyFacets = (rows, except) =>
+    rows.filter(
+      (t) =>
+        (except === "country" || facetOk.country(t, country)) &&
+        (except === "cat" || facetOk.cat(t, cat)) &&
+        (except === "productType" || facetOk.productType(t, productType)),
+    );
 
   const list = useMemo(
     () =>
-      base
-        .filter((t) => (!country || t.country === country) && (!cat || t.cat === cat))
-        .sort((a, b) => (Number(a.dl) || 999) - (Number(b.dl) || 999)),
-    [base, country, cat],
+      applyFacets(scope, null).sort(
+        (a, b) => (Number(a.dl) || 999) - (Number(b.dl) || 999),
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scope, country, cat, productType],
   );
 
   const select = (id) => {
@@ -209,24 +225,18 @@ export default function Tenders({ mode = "tender" }) {
 
   const menuItems = (which) => {
     if (which === "productType") {
-      const isAirNaval = (x) => /uav|drone|naval|marine|missile|air defence/i.test(`${x.cat} ${x.title}`);
-      const counts = {
-        "Land Systems": (data.tenders || []).filter((x) => !isAirNaval(x)).length,
-        "Air, Naval & Missiles": (data.tenders || []).filter(isAirNaval).length,
-      };
+      const pool = applyFacets(scope, "productType");
       return [
-        { v: "Land Systems", n: counts["Land Systems"] },
-        { v: "Air, Naval & Missiles", n: counts["Air, Naval & Missiles"] },
+        { v: "Land Systems", n: pool.filter((x) => !isAirNaval(x)).length },
+        { v: "Air, Naval & Missiles", n: pool.filter(isAirNaval).length },
       ];
     }
     /* Option values come from the SERVED tenders — the config lists only order
        values that exist; a country no tender mentions is not offered as a filter. */
     const cfgOrder = which === "country" ? data.tpAllCountries || [] : data.tpAllCats || [];
-    /* Counted over `base` with the OTHER facet applied -- the facet being counted is
+    /* Counted over `scope` with the OTHER facets applied -- the facet being counted is
        excluded, so picking one of its options gives exactly the number promised. */
-    const pool = base.filter((x) =>
-      which === "country" ? !cat || x.cat === cat : !country || x.country === country,
-    );
+    const pool = applyFacets(scope, which);
     /* The configured vocabulary is included even where it has no rows. Building the
        options from served rows alone silently dropped "Armoured Vehicle MRO" -- a
        configured category with 0 tenders -- so the interface advertised 7 categories

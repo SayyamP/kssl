@@ -80,27 +80,54 @@ export function coTokens(name) {
   return new Set(nameKey(name).split(" ").filter((t) => t.length > 1 && !CO_NOISE.has(t)));
 }
 
+/* The acronym a company's name reduces to: "Advanced Weapons and Equipment India
+   Limited" -> "aweil". The roster serves that company as the bare string "AWEIL", which
+   shares NO token with its own full name, so token comparison alone leaves it stranded
+   exactly as the substring join did. Joining words are skipped, or "and" would put an
+   extra letter in the middle. */
+const CO_JOINERS = new Set(["and", "of", "the", "for"]);
+
+function coAcronym(name) {
+  const w = nameKey(name).split(" ").filter((t) => t && !CO_JOINERS.has(t));
+  return w.length > 1 ? w.map((t) => t[0]).join("") : "";
+}
+
 /* Does a matchup's company label denote the same company as this roster entry?
 
-   The old test was `a.includes(b) || b.includes(a)` on the normalised display names.
-   That strands 40 of 160 matchups -- "Advanced Weapons and Equipment India Limited" is
-   neither a substring of nor a superstring of the roster's "Advanced Weapons & Equipment
-   India (AWEIL)", because "&" normalises away and "limited" faces "aweil". AWEIL alone
-   lost 20 matchups, and with them the only spec data the corpus holds for that company.
+   The old test was `a.includes(b) || b.includes(a)` on the normalised display names,
+   which stranded 40 of 160 matchups -- a quarter of the only spec data the corpus holds.
 
-   Comparing distinctive tokens instead: once the noise words are gone, one name's tokens
-   being a subset of the other's is a much stronger statement than a substring, and it
-   survives punctuation, ampersands, legal suffixes and a trailing acronym. */
+   Comparing distinctive tokens survives punctuation, ampersands and legal suffixes, but
+   needs two guards that a plain subset test does not give:
+
+   1. A single-token name must match EXACTLY. The roster carries Hanwha Aerospace,
+      Hanwha Defense USA, Hanwha Ocean and Hanwha Group; "group" is a noise word, so
+      Hanwha Group reduces to {hanwha}, a subset of all three siblings -- and every
+      Hanwha Aerospace matchup would list its products under Hanwha Group as well.
+      Attributing one company's products to another is worse than missing the join.
+
+   2. An acronym is checked separately, because it shares no token with the words it
+      stands for. */
 export function sameCompany(a, b) {
   const A = coTokens(a);
   const B = coTokens(b);
   if (!A.size || !B.size) return false;
+
   const [small, big] = A.size <= B.size ? [A, B] : [B, A];
+
+  // a bare acronym against the full name it abbreviates
+  if (small.size === 1) {
+    const one = [...small][0];
+    if (one.length >= 3 && (coAcronym(a) === one || coAcronym(b) === one)) return true;
+  }
+
+  // one distinctive word cannot claim a longer name -- see guard 1 above
+  if (small.size === 1 && big.size !== 1) return false;
+
   let hit = 0;
   small.forEach((t) => {
     if (big.has(t)) hit += 1;
   });
-  // every distinctive word of the shorter name appears in the longer one
   return hit === small.size;
 }
 
@@ -709,9 +736,9 @@ export default function Products() {
                     }}
                   >
                     No specifications are held for {selectedProduct.name}. This corpus
-                    carries measured specs only for products paired in a KSSL matchup; this
-                    one is listed by name from the company’s own catalogue, with no
-                    sourced figures behind it.
+                    carries measured specs only where a product is paired in a KSSL
+                    matchup and those figures cleared the publish gate. Nothing is shown
+                    here in preference to a figure with no source behind it.
                   </div>
                 )}
               </div>
@@ -737,7 +764,10 @@ export default function Products() {
                         LATEST NEWS & INTEL ON {selectedProduct.name.toUpperCase()}
                       </div>
                       <div style={{ fontSize: "12px", color: "var(--d-txt-3)", marginTop: "2px" }}>
-                        Real-time updates, sales contracts, technology upgrades & testing trials for {selectedProduct.name}
+                        {/* "Real-time" promised something nothing delivers: these are
+                            corpus articles, dated when they were published. The three
+                            named categories were also the impossible pill list. */}
+                        Sourced articles naming {selectedProduct.name}
                       </div>
                     </div>
                   </div>
@@ -794,7 +824,7 @@ export default function Products() {
                       tabIndex={0}
                     >
                       <div style={{ position: "relative", width: "100%", height: "200px", overflow: "hidden", background: "var(--d-bg-1)" }}>
-                        <img src={topProdStory.image} alt="Top Story" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <img src={topProdStory.image || undefined} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                         <span style={{ position: "absolute", left: "12px", bottom: "12px", background: "#b5341f", color: "#fff", fontFamily: "var(--mono)", fontSize: "10px", fontWeight: "700", letterSpacing: ".1em", padding: "3px 8px", borderRadius: "3px" }}>
                           TOP STORY
                         </span>

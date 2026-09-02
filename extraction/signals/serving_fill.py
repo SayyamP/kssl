@@ -853,7 +853,7 @@ def strip_kssl_tail(sowhat):
         # instead ('...strengthening'). Walk back to the last clause boundary, which is
         # always grammatical, and if there is no comma to fall back to, drop the
         # sentence: a dangling fragment reads worse than silence.
-        while re.search(r"(?:its|their|his|her|our|your|the|an?|of|in|on|at|by|from|"
+        while re.search(r"\b(?:its|their|his|her|our|your|the|an?|of|in|on|at|by|from|"
                         r"with|and|but|to|for)$", core, re.I):
             head, sep, _ = core.rpartition(",")
             core = head.strip().rstrip(",;. ") if sep else ""

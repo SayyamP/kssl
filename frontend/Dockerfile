@@ -10,7 +10,12 @@ RUN npm run build
 # is unskippable on either path -- and the bundle is the only artefact that
 # reflects what a viewer actually sees. Two hand-typed executive rosters passed a
 # source review and were found by grepping the DEPLOYED bundle.
+# A backslash escape that reached a source file as a literal control byte compiles
+# fine and matches nothing, so the fix ships dead and the build stays green. Four
+# such bytes were found in this repo on 2026-09-03.
+RUN node check_no_control_bytes.mjs
 RUN node check_no_fabrication.mjs
+RUN node test_feed_pagination.mjs && node test_same_company.mjs && node test_partner_tree.mjs
 
 FROM caddy:2-alpine
 COPY --from=build /app/dist /srv

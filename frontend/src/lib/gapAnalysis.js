@@ -216,7 +216,7 @@ const unitOf = (v) => {
   // the LAST number, not the rest of the string
   const u = t
     .slice(m.index + m[0].length)
-    .replace(/^\s*(?:[-–—]|to)\s*[\d.,]+/, "")
+    .replace(/^\s*(?:[-–—]|\bto\b)\s*[\d.,]+/, "")
     .trim();
   return { n: parseFloat(m[0].replace(/,/g, "")), u, pre: t.slice(0, m.index).trim(), raw: t };
 };
@@ -242,7 +242,7 @@ export function pairVals(x) {
   /* A range is not a number. "30-56" parses as 30, and converting it printed
      "30 km" for a gun whose published range runs to 56 -- dropping the upper bound
      silently. A range keeps its own text and only gains the unit. */
-  const isRange = (t) => /\d\s*(?:[-–—]|to)\s*\d/.test(t);
+  const isRange = (t) => /\d\s*(?:[-–—]|\bto\b)\s*\d/.test(t);
   const conv = (base, own) =>
     isRange(own.raw)
       ? `${own.raw}${own.u || !target.u ? "" : ` ${target.u}`}`

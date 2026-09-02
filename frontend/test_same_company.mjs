@@ -23,7 +23,11 @@ const t = (a, b, want, why) => {
   (got === want ? ok : bad).push(`${got === want ? "" : "WRONG "}${why}: ${a} <> ${b}`);
 };
 
-// pairs the substring join dropped
+/* Pairs the substring join dropped. The first is taken from the LIVE roster, which
+   serves this company as the bare acronym -- an earlier version of this test used a
+   plausible-looking full name the roster does not actually have, so it passed while
+   AWEIL stayed stranded in production. Test the strings the API serves. */
+t("Advanced Weapons and Equipment India Limited", "AWEIL", true, "bare acronym (live roster)");
 t("Advanced Weapons and Equipment India Limited", "Advanced Weapons & Equipment India (AWEIL)",
   true, "ampersand + trailing acronym");
 t("Larsen & Toubro", "Larsen and Toubro Ltd", true, "ampersand vs 'and'");
@@ -41,6 +45,14 @@ t("Tata Advanced Systems", "Tata Motors", false, "same group, different company"
 t("Israel Aerospace Industries", "India Aerospace Industries", false, "one token apart");
 // the noise list must not reduce a name to nothing and then match everything
 t("India Limited", "Europe Holdings Ltd", false, "both are entirely noise words");
+/* The live roster carries four Hanwha entries. "Hanwha Group" reduces to {hanwha},
+   a subset of all its siblings, so a plain subset test listed Hanwha Aerospace's
+   products under three other companies as well. */
+t("Hanwha Aerospace", "Hanwha Group", false, "sibling under a group name");
+t("Hanwha Aerospace", "Hanwha Ocean", false, "two siblings");
+t("Hanwha Aerospace", "Hanwha Defense USA", false, "two siblings");
+t("Hanwha Aerospace", "Hanwha Aerospace", true, "the same company still matches");
+t("Saab", "Saab AB", true, "single token both sides, legal suffix only");
 
 if (bad.length) {
   console.log("FAIL\n  " + bad.join("\n  "));

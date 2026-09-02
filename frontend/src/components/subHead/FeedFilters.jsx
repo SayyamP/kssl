@@ -42,7 +42,10 @@ export default function FeedFilters({ filters, active, onFilter, seqMode, onSeq,
       <span className="dir-filters" style={{ display: "inline-flex", alignItems: "center", gap: "4px", flexWrap: "nowrap", whiteSpace: "nowrap", flexShrink: 0 }}>
         {(filters || []).map((f) => {
           const n = counts ? counts[f.f] : undefined;
-          const empty = n === 0;
+          /* "All" is the reset door and is never disabled. If a search matches nothing
+             every count is 0, and disabling all four would leave the reader with no
+             control to click their way out of -- only the search box's little cross. */
+          const empty = n === 0 && f.f !== "all";
           return (
             <button
               className={`fbtn${active === f.f ? " on" : ""}${empty ? " empty" : ""}`}
