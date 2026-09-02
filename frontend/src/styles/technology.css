@@ -30,6 +30,9 @@
   .innov .mat.fielded{color:var(--threat);border-color:var(--threat)}
   .innov .mat.dev{color:var(--watch);border-color:var(--watch)}
   .innov .mat.lab{color:var(--d-txt-3);border-color:var(--d-line-2)}
+  /* 'prod' is 100 of 1,101 rows and had no rule, so it fell back to the bare
+     .mat border and read as a different kind of thing from its neighbours. */
+  .innov .mat.prod{color:var(--fav);border-color:var(--fav)}
   .innov .ides{font-size:12.5px;color:var(--d-read);line-height:1.5;margin-bottom:8px}
   .innov .imeta{font-family:var(--mono);font-size:10px;color:var(--d-txt-3);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .innov .imeta .sep{color:var(--d-txt-4)}

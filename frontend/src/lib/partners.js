@@ -411,8 +411,23 @@ export function createPartners(d) {
 
       // Main Circular Partner Node
       const rNode = 12;
-      const labelText = esc(p.label || "");
-      const kindText = esc(p.kind || "Partner");
+      /* Truncated to PG_LBL_MAX, the same cap layoutGraph()/pgLabel() have always used
+         and that the overlap self-check at the foot of this file validates. graphSvg is
+         a newer renderer that took the label untruncated, so on a company with many
+         partners two adjacent nodes' labels ran into each other -- 55 partners on
+         `thales` puts nodes 22.5 degrees apart on two radii, and the x-ranges overlap by
+         well over a hundred pixels while the y-separation is about six.
+         The full name is still in the <title> below. */
+      const fullLabel = String(p.label || "");
+      const labelText = esc(
+        fullLabel.length > PG_LBL_MAX
+          ? `${fullLabel.slice(0, PG_LBL_MAX - 1).replace(/[\s,(./-]+$/, "")}…`
+          : fullLabel,
+      );
+      /* The 9.5px kind sub-line is the run that collides first, because it sits 13px
+         below a label that is already near its neighbour. Past ten nodes it is dropped
+         -- the kind is still on the row in the list beside the graph. */
+      const kindText = displayParts.length > 10 ? "" : esc(p.kind || "Partner");
 
       // Smart label placement by hemisphere with safe clearance around node radius
       const cosA = Math.cos(ang);
@@ -442,7 +457,9 @@ export function createPartners(d) {
         `<circle cx="${nx}" cy="${ny}" r="${rNode + 2}" fill="none" stroke="${strokeColor}" stroke-width="1.2" opacity="0.4" />` +
         `<circle cx="${nx}" cy="${ny}" r="${rNode}" fill="${fillColor}" stroke="#ffffff" stroke-width="1.5" />` +
         `<text class="lbl-ptr" x="${lx}" y="${ly}" text-anchor="${textAnchor}" fill="#ffffff" font-size="11.5px" font-weight="700" font-family="var(--mono)">${labelText}</text>` +
-        `<text class="lbl-sub" x="${lx}" y="${ly + 13}" text-anchor="${textAnchor}" fill="#94a3b8" font-size="9.5px" font-family="var(--mono)">${kindText}</text>` +
+        (kindText
+          ? `<text class="lbl-sub" x="${lx}" y="${ly + 13}" text-anchor="${textAnchor}" fill="#94a3b8" font-size="9.5px" font-family="var(--mono)">${kindText}</text>`
+          : "") +
         `</g>`;
     });
 
@@ -802,13 +819,23 @@ export function createPartners(d) {
 
       // Source Publisher Subtitle
       h += `  <div style="font-size: 12px; color: #6b6a63; font-weight: 600;">`;
-      h += `    Source Publisher: <span style="color: #b5341f;">🔴 ${esc(card.source)} ✓</span>`;
+      h += card.url
+        ? `    Source Publisher: <a href="${esc(card.url)}" target="_blank" rel="noopener noreferrer" style="color: #b5341f;">${esc(card.source)} ↗</a>`
+        : `    Source Publisher: <span style="color: #b5341f;">${esc(card.source)}</span>`;
       h += `  </div>`;
 
-      // Featured Hero Image
+      /* Featured hero image, with a fallback. serving.partner.image exists as a column
+         but is populated on 0 of 582 partner objects the API serves, so this block never
+         ran -- and there was no else, so the card simply had a hole where every other
+         card has an image. A neutral tile keeps the layout honest until the column is
+         written. */
       if (card.image) {
         h += `  <div style="width: 100%; max-height: 320px; overflow: hidden; border-radius: 6px; background: #f0efea;">`;
         h += `    <img src="${card.image}" alt="${esc(card.title)}" style="width: 100%; height: 100%; object-fit: cover;" />`;
+        h += `  </div>`;
+      } else {
+        h += `  <div style="width: 100%; height: 120px; border-radius: 6px; background: #f0efea; border: 1px solid #e3e1d8; display: flex; align-items: center; justify-content: center;">`;
+        h += `    <span style="font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: #8a8880;">No image published with this article</span>`;
         h += `  </div>`;
       }
 

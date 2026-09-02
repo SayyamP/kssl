@@ -7,7 +7,13 @@
    in geo.css — those are different prefixes, checked before porting. */
 
 .ov-report{grid-column:2;height:100%;overflow-y:auto;background:var(--d-bg);color:var(--d-txt)}
-.ov-report .tp-fbar{position:static;z-index:auto;display:flex;align-items:center;gap:10px;padding:8px 18px;background:var(--d-bg-1);border-bottom:1px solid var(--d-line);flex-wrap:nowrap !important;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
+/* Wraps, like the Tender Pipeline bar it is a sibling of. It used to be
+   flex-wrap:nowrap !important with the scrollbar hidden, so on a narrow window the
+   controls ran off the edge with no affordance -- and because every child had
+   flex-shrink:0 EXCEPT the letter-spaced "Filter" eyebrow, the row overflowed and
+   .sortnote's margin-left:auto pushed the count note out of reach entirely. */
+.ov-report .tp-fbar{position:static;z-index:auto;display:flex;align-items:center;gap:10px;padding:8px 18px;background:var(--d-bg-1);border-bottom:1px solid var(--d-line);flex-wrap:wrap;row-gap:8px}
+.ov-report .tp-fbar .eyebrow{flex-shrink:0}
 .ov-report .tp-fbar::-webkit-scrollbar{display:none}
 .ov-report .tp-fbar select{background:var(--d-bg-2);border:1px solid var(--d-line-2);color:var(--d-txt-2);padding:5px 8px;border-radius:4px;font-family:var(--sans);font-size:11.5px;outline:none;cursor:pointer;transition:all .12s ease;max-width:180px;text-overflow:ellipsis;flex-shrink:0}
 .ov-report .tp-fbar select:hover,.ov-report .tp-fbar select:focus{border-color:var(--d-txt-4);background:var(--d-bg-3);color:var(--d-txt)}
@@ -30,7 +36,9 @@
 .ovtab.on .ovtab-ct{color:var(--d-txt-2);background:var(--d-bg-3)}
 
 /* ---- cards ---- */
-.ovc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr))}
+/* 420, not 400: the pie is 150px of svg + 22px gap + a 190px legend + 44px of card
+   padding = 406px, so at the old floor the legend was squeezed every time. */
+.ovc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr))}
 .ovc{padding:18px 22px 22px;border-right:1px solid var(--d-line);border-bottom:1px solid var(--d-line);background:var(--d-bg-1);min-width:0}
 .ovc:last-child{border-right:none}
 .ovc-h{display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;margin-bottom:16px}
@@ -60,7 +68,10 @@
 
 /* ---- closing-window bars ---- */
 .ovb{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);gap:10px;align-items:end;width:100%}
-.ovb-col{display:grid;grid-template-rows:auto 118px auto auto;gap:6px;justify-items:center;min-width:0}
+/* The label row is a fixed 2.8em. It was `auto`, so "No date published" wrapping to
+   three lines made that one column taller, and .ovb's align-items:end then pushed its
+   bar and number up out of line with its neighbours. */
+.ovb-col{display:grid;grid-template-rows:auto 118px 2.8em auto;gap:6px;justify-items:center;min-width:0}
 .ovb-n{font-family:var(--mono);font-size:12.5px;color:var(--d-txt);font-variant-numeric:tabular-nums}
 .ovb-track{width:100%;height:118px;display:flex;align-items:flex-end;background:linear-gradient(var(--d-bg-2),var(--d-bg-2)) bottom/100% 1px no-repeat}
 .ovb-track i{display:block;width:100%;background:var(--fav-badge);border-radius:2px 2px 0 0;transition:height .25s ease}

@@ -377,6 +377,15 @@ export function viewMetaFor(d) {
       cnt: `${geoCompCount} competitors · ${geoCountries.size} markets · competitor activity by country`,
       filters: false,
     },
+    /* m-report was the only view with no entry here, which is why Layout carried a
+       hardcoded "Market Report" -- and that literal was gated on a flag covering all
+       four tender views, so the page labelled "Tender Pipeline" on the rail rendered
+       under the heading "Market Report". */
+    "m-report": {
+      title: "Market Report",
+      cnt: "Demand shape, spec and requirement",
+      filters: false,
+    },
     tender: {
       title: "Tender Pipeline",
       cnt: "Live opportunities matched to product portfolio",

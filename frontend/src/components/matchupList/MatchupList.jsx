@@ -128,7 +128,11 @@ export default function MatchupList({ data, selected, onSelect }) {
       if (!shown) return null;
       return { key, label, total: items.length, anchors };
     }).filter(Boolean);
-  }, [matchups, POS_CATS, CAT_KEY, query, co, cat, koel, country]);
+    /* searchQuery belongs here because line 88 reads it. Without it the context change
+       re-rendered the component, this memo did NOT recompute, and the Positioning list
+       never moved -- while the local box on the same page worked. That asymmetry is
+       exactly what "the search bar is not working" looked like. */
+  }, [matchups, POS_CATS, CAT_KEY, query, searchQuery, co, cat, koel, country]);
 
   const select = (setter) => (e) => setter(e.target.value);
 

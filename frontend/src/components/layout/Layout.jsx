@@ -86,16 +86,18 @@ export default function Layout() {
   const wideNoDrawer = onOverview || onMarketReport || view === "innovation";
   /* Each pillar's overview carries its own heading ("Market Intelligence"), which lives
      on the served config; viewMeta only has the competitive one. */
-  const headTitle = onMarketReport
-    ? "Market Report"
-    : onOverview
-      ? cfg.title || meta.title
-      : meta.title;
+  /* onMarketReport gates LAYOUT (metric strip, collapsed third column) and covers
+     m-report, tender, awarded-tenders and closed-tenders. It must not also pick the
+     title, or all four render as "Market Report". Every heading now comes from
+     viewMeta; only a pillar overview overrides it, from its served config. */
+  const headTitle = onOverview ? cfg.title || meta.title : meta.title;
 
   /* The count line reflects whichever filter is active — the original rewrote it in
      applyFilter(), with the tile label or the direction word. */
   const countLine = (() => {
-    if (onMarketReport) {
+    /* The tender bucket line belongs to the Market Report only; the three tender views
+       carry their own cnt in viewMeta and were having it overwritten. */
+    if (view === "m-report") {
       const { open, awarded, closed } = bucketTenders(data.tenders || []);
       return `${open.length} open · ${awarded.length} awarded · ${closed.length} closed · demand shape, spec and requirement`;
     }
@@ -177,18 +179,30 @@ export default function Layout() {
           /* The market tiles are a readout, not doors — the page below them has its own
              tabs and filter. Rendering them as buttons that do nothing is worse than
              rendering them as numbers. */
-          inert={onMarketReport}
+          /* Also inert on Innovation: the strip renders there (wideNoDrawer includes it)
+             but Innovation.jsx never reads `tile`, so every tile was a focusable button
+             with a hover state and an arrow that did precisely nothing. */
+          inert={onMarketReport || view === "innovation"}
           metrics={metrics}
           /* The 'all' tiles are the reset door: they clear both the tile and the
              direction filter rather than filtering to everything. Redirect tile clicks if requested. */
           onPick={(m, act) => {
             const label = (m && m.l ? m.l : typeof m === "string" ? m : "").toLowerCase().trim();
-            if (label.includes("audited rival skus") || label.includes("rival skus")) {
+            /* These matched labels the API does not serve. The served strings are
+               "Companies tracked" and "Analytical lenses" -- never "tracked competitors"
+               or "rival skus" -- so both tiles fell through to the act==="all" branch
+               below and reset a filter that was already clear. Two of five tiles worked;
+               the other three advertised themselves as doors and opened nothing. */
+            if (label.includes("analytical lenses") || label.includes("rival skus")) {
               jumpTo("competitive", "positioning");
               return;
             }
-            if (label.includes("competitor brands") || label.includes("competitor brand") || label.includes("tracked competitors")) {
+            if (label.includes("companies tracked") || label.includes("competitor brands") || label.includes("tracked competitors")) {
               jumpTo("competitive", "partnerships");
+              return;
+            }
+            if (label.includes("domains tracked")) {
+              jumpTo("technology", "innovation");
               return;
             }
             if (act === "all") {

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { productNews } from "../../lib/news";
+import { formatSectorName } from "../../lib/profile";
 
 // Clean company display name helper
 const cleanCompanyName = (rawName) => {
@@ -88,8 +89,12 @@ const countryOf = (hq) => {
 
 const getCompanyFilterMeta = (co) => ({
   country: countryOf(co.hq),
-  /* The maker's own sector, not a bucket mapped onto it. */
-  category: (co.sector && String(co.sector).trim()) || null,
+  /* The maker's own sector, not a bucket mapped onto it -- but normalised through the
+     one shared formatter. Rendered raw, the sidebar dropdown listed the same sector six
+     times ("Aerospace and Defense", "Defence", "defense technology", "defence and
+     aerospace", "Defence manufacturing", "defence technology") as six separate options,
+     and each matched only its own spelling when picked. */
+  category: (co.sector && formatSectorName(String(co.sector).trim())) || null,
   /* serving.matchup.revenue_filter is the column for this and is not yet written;
      until it is, a company has no revenue tier rather than a guessed one. */
   revenueTier: co.revenue_filter || null,

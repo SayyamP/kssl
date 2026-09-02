@@ -180,7 +180,12 @@ export default function Innovation() {
             >
               <div className="ih">
                 <span className="it">{item.t}</span>
-                <span className={`mat ${item.mat}`}>{MAT_LAB[item.mat] || item.mat}</span>
+                {/* mat is null on 15 of 1,101 rows. The label rendered empty but .mat
+                    still carries border:1px solid + padding, leaving a bare ~16x18px
+                    rectangle beside the title -- the "small Box symbol" in the report. */}
+                {has(item.mat) ? (
+                  <span className={`mat ${item.mat}`}>{MAT_LAB[item.mat] || item.mat}</span>
+                ) : null}
               </div>
               <div
                 className="ides"

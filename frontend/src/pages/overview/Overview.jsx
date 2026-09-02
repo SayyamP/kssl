@@ -5,7 +5,7 @@ import ErrorBoundary from "../../components/ErrorBoundary";
 import FeedFilters from "../../components/subHead/FeedFilters";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
-import { buildFeed, tilePredicate } from "../../lib/overview";
+import { buildFeed, paginateFeed, tilePredicate } from "../../lib/overview";
 
 /* The overview feed and its detail column. Shared by all three pillars — the pillar
    only decides which card set and which metric strip config is in play, which is
@@ -24,6 +24,7 @@ export default function Overview({
   const { setScope, takePending, searchQuery } = useAppState();
   const [selected, setSelected] = useState(null);
   const [feedSearchQuery, setFeedSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
 
   // the shell's third column collapses when nothing is selected, so Layout has to know
   useEffect(() => {
@@ -38,6 +39,14 @@ export default function Overview({
   useEffect(() => {
     setSelected(null);
   }, [pillarKey, seqMode]);
+
+  /* Anything that changes WHAT the feed contains sends the reader back to page 1.
+     The search boxes are in this list because they were not in the pre-port version --
+     they did not exist yet -- and a query that shrinks 453 signals to 3 would otherwise
+     leave the reader on page 7 of a 1-page feed, looking at nothing. */
+  useEffect(() => {
+    setPage(1);
+  }, [pillarKey, seqMode, dirFilter, tile, feedSearchQuery, searchQuery]);
 
   /* Memoised on the tile NAME, not rebuilt per render: an identity that changed every
      render made the auto-select effect below re-fire forever. */
@@ -73,6 +82,11 @@ export default function Overview({
   useEffect(() => {
     const pend = takePending("overview");
     if (pend && pend.cardId && data.details && data.details[pend.cardId]) {
+      /* A hit is usually not on the page in view -- 453 signals is ten pages -- so turn
+         to the page holding it BEFORE selecting, or the reader gets a detail panel
+         beside a feed that does not list what it describes. */
+      const at = pageView.pageOf(pend.cardId);
+      if (at && at !== pageView.page) goPage(at);
       select(pend.cardId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,18 +100,42 @@ export default function Overview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tile]);
 
-  const shownCount = (cfg.cards || []).filter(visible).length;
-  const firstVisibleId = (cfg.cards || []).find(visible)?.id;
+  /* paginateFeed takes the `keep` predicate, so the pager runs over the search-filtered
+     set rather than fighting it -- the two cannot disagree about what is on screen. */
+  const pageView = useMemo(
+    () => paginateFeed(feed.groups, visible, page),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [feed, dirFilter, tilePred, feedSearchQuery, searchQuery, page],
+  );
+  const shownCount = pageView.shown;
+  const firstVisibleId = pageView.firstId;
+
+  const goPage = (n) => {
+    setPage(n);
+    const el = document.getElementById("feed");
+    if (el) el.scrollTop = 0;
+  };
+
+  /* first, last, and a window around the current page -- 453 signals is ten pages, and a
+     corpus that grows to eighty must not put eighty buttons on screen */
+  const pageNumbers = (cur, count) => {
+    if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1);
+    const out = [1];
+    const from = Math.max(2, cur - 1);
+    const to = Math.min(count - 1, cur + 1);
+    if (from > 2) out.push("…");
+    for (let n = from; n <= to; n += 1) out.push(n);
+    if (to < count - 1) out.push("…");
+    out.push(count);
+    return out;
+  };
 
   const isFiltered = dirFilter && dirFilter !== "all";
   const activeFilterObj = (filters || []).find((f) => f.f === dirFilter);
 
-  const groupsWithCards = feed.groups
-    .map((g) => ({
-      ...g,
-      visibleCards: g.cards.filter(visible),
-    }))
-    .filter((g) => g.visibleCards.length > 0);
+  /* paginateFeed already applied `visible` and re-grouped the slice, so this keeps the
+     ported shape ({...g, visibleCards}) while showing one page rather than all 453. */
+  const groupsWithCards = pageView.groups.map((g) => ({ ...g, visibleCards: g.cards }));
 
   let topHeaderTitle = "";
   let topHeaderSub = "";
@@ -180,7 +218,48 @@ export default function Overview({
                 : "— no signals served yet —"}
             </div>
           ) : (
-            <div className="empty-note">— end of active signals · {feed.total} total —</div>
+            <div className="pager">
+              <div className="pager-range">
+                showing {pageView.from}–{pageView.to} of {shownCount}
+                {shownCount !== feed.total ? ` filtered · ${feed.total} total` : " signals"}
+              </div>
+              {pageView.pageCount > 1 ? (
+                <div className="pager-ctl">
+                  <button
+                    className="pgbtn"
+                    disabled={pageView.page <= 1}
+                    onClick={() => goPage(pageView.page - 1)}
+                    type="button"
+                  >
+                    ‹ Prev
+                  </button>
+                  {pageNumbers(pageView.page, pageView.pageCount).map((n, i) =>
+                    n === "…" ? (
+                      <span className="pgap" key={`gap${i}`}>
+                        …
+                      </span>
+                    ) : (
+                      <button
+                        className={`pgbtn num${n === pageView.page ? " on" : ""}`}
+                        key={n}
+                        onClick={() => goPage(n)}
+                        type="button"
+                      >
+                        {n}
+                      </button>
+                    ),
+                  )}
+                  <button
+                    className="pgbtn"
+                    disabled={pageView.page >= pageView.pageCount}
+                    onClick={() => goPage(pageView.page + 1)}
+                    type="button"
+                  >
+                    Next ›
+                  </button>
+                </div>
+              ) : null}
+            </div>
           )}
         </div>
 

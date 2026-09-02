@@ -138,7 +138,7 @@ function PieChart({ rows, total, colorOf, onPick, examples }) {
    grey marks it off-scale and the label says so in words. */
 const WINDOW_COLORS = {
   "1–7 days": "#ef4444",
-  "8–14 days": "#f59e0b",
+  "8–14 days": "#fbbf24",
   "15–30 days": "#10b981",
   "30+ days": "#3b82f6",
   "No date published": "#64748b",

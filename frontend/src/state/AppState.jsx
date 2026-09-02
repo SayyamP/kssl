@@ -126,6 +126,14 @@ export function AppStateProvider({ children }) {
   /* Global search query state used by the top bar to filter the currently open page's rows live */
   const [searchQuery, setSearchQuery] = useState("");
 
+  /* Cleared on navigation. The box filters the page in view, so carrying a query across
+     a page change silently filtered the next page's rows -- a reader who searched
+     "drone" on Overview then opened Products found a near-empty sidebar and nothing
+     saying why. */
+  useEffect(() => {
+    setSearchQuery("");
+  }, [view]);
+
   const value = useMemo(
     () => ({
       pillar,

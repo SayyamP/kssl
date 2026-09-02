@@ -296,7 +296,9 @@ export default function Geo() {
               data-news-id="${article.id}"
               style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; gap: 10px; align-items: center;"
             >
-              <img src="${article.image}" alt="${escAll(article.title)}" style="width: 72px; height: 60px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #f1f5f9;" />
+              ${article.image
+                ? `<img src="${article.image}" alt="${escAll(article.title)}" style="width: 72px; height: 60px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #f1f5f9;" />`
+                : `<div style="width: 72px; height: 60px; border-radius: 4px; flex-shrink: 0; background: #f1f5f9;"></div>`}
               <div style="display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <span style="background: #f1f5f9; color: #b5341f; font-family: var(--mono); font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; border: 1px solid #cbd5e1;">${escAll(article.category)}</span>
@@ -912,7 +914,19 @@ export default function Geo() {
 
             {/* Source Publisher Line */}
             <div style={{ fontSize: "12px", color: "#6b6a63", fontWeight: "600" }}>
-              Source Publisher: <span style={{ color: "#b5341f" }}>🔴 {activeGeoNewsArticle.source} ✓</span>
+              Source Publisher:{" "}
+              {activeGeoNewsArticle.url ? (
+                <a
+                  href={activeGeoNewsArticle.url}
+                  rel="noopener noreferrer"
+                  style={{ color: "#b5341f" }}
+                  target="_blank"
+                >
+                  {activeGeoNewsArticle.source} ↗
+                </a>
+              ) : (
+                <span style={{ color: "#b5341f" }}>{activeGeoNewsArticle.source}</span>
+              )}
             </div>
 
             {/* Featured Image */}
