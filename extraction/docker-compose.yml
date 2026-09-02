@@ -29,8 +29,35 @@ services:
     # each replica claims its own docs via FOR UPDATE SKIP LOCKED). 45 saturates the 9-node farm
     # extraction pool and stays under kssl-db max_connections=60 (45 workers + ~8 service conns).
     # `docker compose up -d` honors this, so CI redeploys keep the scale instead of dropping to 1.
+    # 22 + 23 on the Pune pool = 45 workers total, unchanged, so the connection count is unchanged.
     deploy:
-      replicas: 45
+      replicas: 22
+
+  # Second worker pool, pointed at the PUNE farm. Identical role and image; only the three
+  # endpoints differ. KSSL_NODE deliberately stays "farm": route.py's NODES table has entries for
+  # vps-a / dc / vps-b / farm only, and the lease window, class cap and tok/s tuning all hang off
+  # that key -- an unknown node name would have no tuning at all. Both pools therefore claim as
+  # 'farm', which is safe because claiming is FOR UPDATE SKIP LOCKED and atomic.
+  #
+  # One key serves both front doors: comprehend._auth() sends OLLAMA_API_KEY as the bearer for the
+  # LLM *and* for GLiNER, and the Pune gateway uses its master_key for both.
+  worker-pune:
+    build: .
+    image: kssl-extraction:latest
+    env_file: .env
+    network_mode: host
+    command: ["worker"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_URL: "https://pune-llm.i3softlab.com"
+      OLLAMA_API_KEY: "${PUNE_API_KEY:?set PUNE_API_KEY in extraction/.env}"
+      C_GLINER_URL: "https://pune-gliner.i3softlab.com/extract"
+      C_FARM_HEALTH_URL: "https://pune-llm.i3softlab.com/v1/models"
+    # Sized with the Kharghar pool so the two together stay under kssl-db max_connections=60
+    # (each worker holds exactly one connection; ~8 more are the other services). Raise both to 45
+    # once max_connections is raised -- the farms have the capacity, the database is the limit.
+    deploy:
+      replicas: 23
 
   # The feeder: sync new corpus docs -> enqueue (presignal gate) -> reap expired leases, on a timer.
   feeder:
