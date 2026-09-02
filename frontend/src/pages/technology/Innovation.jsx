@@ -173,6 +173,17 @@ export default function Innovation() {
               domain
             </span>
           </div>
+          {/* Stated ONCE for the domain, not per record. "What's new" -- the dated
+              development behind an innovation -- is written as a literal NULL by
+              enrich_serving.py, so it is absent on every served row. Printing "not
+              assessed" 1,101 times reads as a page that failed to load, and printing
+              nothing at all leaves a reader wondering whether the field exists. */}
+          {list.length && !list.some((iv) => has(iv.whatsNew)) ? (
+            <div className="lh-note" style={{ padding: "6px 0 2px", opacity: 0.75 }}>
+              Dated developments are not assessed on these records — the extractor does
+              not yet emit that field. Background, maturity and analyst impact below are.
+            </div>
+          ) : null}
           {list.map((item, i) => (
             <div
               className={`innov${sel === i ? " sel" : ""}`}
