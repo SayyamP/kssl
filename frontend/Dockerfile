@@ -5,6 +5,12 @@ COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
+# Blocks the image if invented content reached the bundle. Here rather than in a
+# workflow step because BOTH ci.yml and deploy.yml build this image, so the guard
+# is unskippable on either path -- and the bundle is the only artefact that
+# reflects what a viewer actually sees. Two hand-typed executive rosters passed a
+# source review and were found by grepping the DEPLOYED bundle.
+RUN node check_no_fabrication.mjs
 
 FROM caddy:2-alpine
 COPY --from=build /app/dist /srv
