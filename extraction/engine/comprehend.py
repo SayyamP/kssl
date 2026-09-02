@@ -369,6 +369,54 @@ def _salvage(raw):
     return out or None
 
 
+# The farm gateway sits behind Cloudflare, which cuts any response that stays silent for 100 s
+# (HTTP 524). With stream: False a dense chunk is silent for its WHOLE generation, so the cut
+# fires on exactly the chunks with the most in them: measured 132 x 524 per hour across the
+# fleet, each retried three times at ~100 s of GPU apiece for zero items. A stream sends a
+# token every few ms, so the cut never fires; and a stream that dies mid-reply hands the items
+# that already arrived to _salvage instead of nothing.
+_STREAM_IDLE_S = float(os.environ.get("C_STREAM_IDLE_S", "120"))   # silent this long = lost
+
+
+def _sse_content(lines):
+    """Concatenate the delta text of an OpenAI SSE stream. Tolerant on purpose: keep-alives,
+    [DONE] and a torn last line are skipped, so a stream cut mid-reply yields what arrived."""
+    out = []
+    for line in lines:
+        if not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            continue
+        try:
+            for c in json.loads(data).get("choices") or []:
+                out.append((c.get("delta") or {}).get("content") or "")
+        except (json.JSONDecodeError, AttributeError):
+            continue
+    return "".join(out)
+
+
+def _stream_openai(endpoint, body, want_tokens):
+    """POST with stream: true; returns (status, text). The read timeout now means BETWEEN bytes
+    (_STREAM_IDLE_S); the whole-reply budget from _read_timeout becomes a wall-clock deadline so
+    a runaway still cannot hold a worker for an hour. A transport error mid-stream returns the
+    partial text as a 200 so the caller salvages it rather than retrying the full generation."""
+    deadline = time.time() + _read_timeout(want_tokens).read
+    tmo = httpx.Timeout(connect=10.0, read=_STREAM_IDLE_S, write=30.0, pool=10.0)
+    got = []
+    with _HTTP.stream("POST", endpoint, json=body, timeout=tmo, **_auth()) as r:
+        if r.status_code != 200:
+            return r.status_code, ""
+        try:
+            for line in r.iter_lines():
+                got.append(line)
+                if time.time() > deadline:
+                    break            # ponytail: leaving the `with` drops the socket; Ollama finishes alone
+        except httpx.HTTPError:
+            pass                     # partial reply is still worth salvaging
+    return 200, _sse_content(got)
+
+
 def _ollama(prompt, schema, num_predict, model=None, retries=3, num_ctx=None, audit=None):
     """One call. Returns a dict, or None if the call genuinely failed (caller must not treat that
     as 'the model found nothing'). An unparseable reply is salvaged rather than retried.
@@ -443,6 +491,7 @@ def _ollama(prompt, schema, num_predict, model=None, retries=3, num_ctx=None, au
             ctx_max = int(os.environ.get("C_CTX_MAX", "4096"))
             mt = max(256, min(npred, ctx_max - int(len(prompt) / 2.0) - 128))
             body = {"model": model or MODEL, "temperature": _TEMP, "max_tokens": mt,
+                    "stream": True,                # see _stream_openai
                     "messages": [{"role": "user", "content": prompt}]}
             want_tokens = mt
             if _GUIDED and _FORMAT != "tsv":
@@ -470,11 +519,14 @@ def _ollama(prompt, schema, num_predict, model=None, retries=3, num_ctx=None, au
             if _FORMAT != "tsv":
                 body["format"] = schema
         try:
-            r = _HTTP.post(endpoint, json=body, timeout=_read_timeout(want_tokens),
-                           **_auth())
-            if r.status_code == 200:
-                raw = (r.json()["choices"][0]["message"]["content"] if _OPENAI
-                       else r.json().get("response", ""))
+            if _OPENAI:
+                status, raw = _stream_openai(endpoint, body, want_tokens)
+            else:
+                r = _HTTP.post(endpoint, json=body, timeout=_read_timeout(want_tokens),
+                               **_auth())
+                status = r.status_code
+                raw = r.json().get("response", "") if status == 200 else ""
+            if status == 200:
                 last_raw = raw or last_raw
                 if _FORMAT == "tsv":
                     return _tsv_parse(raw, schema)
@@ -494,7 +546,7 @@ def _ollama(prompt, schema, num_predict, model=None, retries=3, num_ctx=None, au
                     print(f"      [llm] unparseable reply ({len(raw)} chars), nothing salvageable "
                           f"-- attempt {attempt + 1}/{retries}", flush=True)
             else:
-                print(f"      [llm] HTTP {r.status_code} attempt {attempt + 1}/{retries}",
+                print(f"      [llm] HTTP {status} attempt {attempt + 1}/{retries}",
                       flush=True)
         except Exception as e:
             print(f"      [llm] {type(e).__name__} attempt {attempt + 1}/{retries}", flush=True)
@@ -1418,6 +1470,11 @@ def _demo():
     esc = '{"spans": [{"text": "say \\"hi\\"", "type": "Other", "gloss": "x", "in_article": "y"}]}'
     assert len(_salvage(esc)["spans"]) == 1, _salvage(esc)
     assert _salvage("total garbage, no json here") is None
+    # SSE accumulation: keep-alives, [DONE] and a torn last line must not lose what arrived
+    _sse = ['data: {"choices":[{"delta":{"content":"ab"}}]}', ': ping', "",
+            'data: {"choices":[{"delta":{"content":"c"}}]}', "data: [DONE]",
+            'data: {"choices":[{"delta":{"con']
+    assert _sse_content(_sse) == "abc", _sse_content(_sse)
 
     # --- evidence fragment vs sentence: the distinction the spec-table pages forced -----------
     assert evidence_is_fragment("Couleur/Finition du Canon Noir")           # a table cell
