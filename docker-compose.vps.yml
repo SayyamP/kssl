@@ -32,12 +32,23 @@ services:
     # loopback only: the database is reached through the SSH tunnel, never the net
     ports:
       - "127.0.0.1:${KSSL_DB_PORT:-5460}:5432"
+    # A -c flag beats BOTH postgresql.conf and an ALTER SYSTEM in postgresql.auto.conf,
+    # so this line is the only place the limit is really set. Someone had already run
+    # ALTER SYSTEM SET max_connections = 200 and it never took effect -- the server kept
+    # starting at 60 and nothing said why. Change it HERE.
+    #
+    # The budget is one connection per client, and the extraction farm is the client that
+    # counts: 143 worker containers against 60 slots took the dashboard down on 2026-09-02.
+    # Workers that cannot connect crash and restart, and each restart re-opens a
+    # connection, so the shortage feeds itself and even psql is refused. 300 covers the
+    # farm at its pinned 45 replicas with room for a scale-up, the backend, the enrich and
+    # signals roles, and a human holding a psql session.
     command: >
       postgres
       -c shared_buffers=2GB
       -c work_mem=32MB
       -c maintenance_work_mem=512MB
-      -c max_connections=60
+      -c max_connections=300
     volumes:
       - kssl_pgdata:/var/lib/postgresql/data
       # init scripts run in name order, on a FRESH volume only
