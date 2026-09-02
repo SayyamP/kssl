@@ -56,10 +56,11 @@ services:
       C_FARM_HEALTH_URL: "https://pune-llm.i3softlab.com/v1/models"
     # Pune runs 12 nodes x num_parallel 12 = 144 slots (q8_0 KV cache + flash attention, set from
     # farm.yaml so it survives a reboot; the gateway derives FARM_NODE_PARALLEL from the same key).
-    # Ramping there in stages rather than in one jump -- 72 is half the pool, measured before the
-    # rest. 54 + 72 + ~12 service connections = 138, against kssl-db max_connections=300.
+    # One worker fills one slot: run_node.py in --node mode calls drain(), which is single
+    # threaded and holds one document at a time, so 72 workers left every node at 6/12 running.
+    # 54 + 144 + ~12 service connections = 210, against kssl-db max_connections=300.
     deploy:
-      replicas: 72
+      replicas: 144
 
   # The feeder: sync new corpus docs -> enqueue (presignal gate) -> reap expired leases, on a timer.
   feeder:
