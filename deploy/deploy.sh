@@ -43,15 +43,24 @@ done
 # --- Extraction stack (its own compose project, network_mode: host) -------------
 # Rebuild the image from the just-synced source and recreate the roles. `up -d` only
 # recreates containers whose image actually changed, so a push that didn't touch
-# extraction/ is a no-op. Preserve the live worker count -- a bare `up -d` resets the
-# `worker` service to 1 replica and would kill the rest of the fleet. restart:
-# unless-stopped + the feeder's lease reaping make a rolling recreate safe (in-flight
-# leases expire and requeue).
+# extraction/ is a no-op. restart: unless-stopped + the feeder's lease reaping make a
+# rolling recreate safe (in-flight leases expire and requeue).
 if [ -f extraction/docker-compose.yml ]; then
-  echo ">> extraction: rebuild + recreate (preserving worker scale)"
-  WN=$(docker ps --filter "name=extraction-worker" -q | wc -l | tr -d ' ')
-  [ "${WN:-0}" -lt 1 ] && WN=1
-  ( cd extraction && docker compose build && docker compose up -d --scale worker="$WN" ) \
+  # The scale comes from `deploy.replicas` in extraction/docker-compose.yml -- do NOT pass
+  # --scale here. This block used to read the live count and re-apply it, from before the
+  # compose file carried replicas:
+  #
+  #     WN=$(docker ps --filter "name=extraction-worker" -q | wc -l)
+  #     docker compose up -d --scale worker="$WN"
+  #
+  # That filter is a PREFIX match, so once a second pool existed it counted worker,
+  # worker-pune AND worker-big -- then applied the TOTAL to the `worker` service alone.
+  # Every deploy multiplied the Kharghar pool by the size of the whole fleet: 54 became
+  # 198, which made the next deploy's total 342. It exhausted max_connections twice on
+  # 2026-09-02 ("sorry, too many clients already") and silently overrode every replicas:
+  # value in the compose file.
+  echo ">> extraction: rebuild + recreate (scale from compose replicas)"
+  ( cd extraction && docker compose build && docker compose up -d ) \
     || echo "!! extraction recreate reported an error — see 'docker compose -f extraction/docker-compose.yml logs'"
 fi
 
