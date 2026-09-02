@@ -32,17 +32,27 @@ services:
     # loopback only: the database is reached through the SSH tunnel, never the net
     ports:
       - "127.0.0.1:${KSSL_DB_PORT:-5460}:5432"
-    # A -c flag beats BOTH postgresql.conf and an ALTER SYSTEM in postgresql.auto.conf,
-    # so this line is the only place the limit is really set. Someone had already run
-    # ALTER SYSTEM SET max_connections = 200 and it never took effect -- the server kept
-    # starting at 60 and nothing said why. Change it HERE.
+    # max_connections is 300, not the default 60. Each extraction worker holds exactly one
+    # connection for its whole life, so this number caps the worker fleet -- and the fleet is
+    # the throughput ceiling: at 60 the GPU farms sat at ~0.9 concurrent requests per node
+    # against a measured knee of 6. The database, not the GPUs, was the limit.
     #
-    # The budget is one connection per client, and the extraction farm is the client that
-    # counts: 143 worker containers against 60 slots took the dashboard down on 2026-09-02.
-    # Workers that cannot connect crash and restart, and each restart re-opens a
-    # connection, so the shortage feeds itself and even psql is refused. 300 covers the
-    # farm at its pinned 45 replicas with room for a scale-up, the backend, the enrich and
-    # signals roles, and a human holding a psql session.
+    # A -c flag beats BOTH postgresql.conf and an ALTER SYSTEM in postgresql.auto.conf, so this
+    # line is the only place the limit is really set. `ALTER SYSTEM SET max_connections = 200`
+    # was run once and never took effect: the server kept starting at 60 and nothing said why.
+    # Change it HERE.
+    #
+    # 300 is sized for both farms full: 9 Kharghar nodes x 6 + 12 Pune nodes x 12 = 198 slots,
+    # needing ~198 workers + ~12 service connections = 210, plus room for a human holding a
+    # psql session. Worst case 300 x work_mem 32MB + 2GB shared_buffers = 11.4 GB of 31 GB.
+    #
+    # Running out is not a graceful degradation: a worker that cannot connect crashes and
+    # restarts, and each restart re-opens a connection, so the shortage feeds itself until
+    # even psql is refused. 143 workers against 60 slots took the dashboard down on 2026-09-02.
+    #
+    # NOTE: `command: >` is a FOLDED scalar -- every line below is joined into one command
+    # string, so a `#` comment inside it becomes a literal argument and postgres refuses to
+    # start with: invalid argument "#". Keep comments above this key, never inside it.
     command: >
       postgres
       -c shared_buffers=2GB

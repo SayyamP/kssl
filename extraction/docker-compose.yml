@@ -26,12 +26,13 @@ services:
     command: ["worker"]
     restart: unless-stopped
     # Queue-mode parallelism = container replicas (run_node --workers is a no-op in --node mode;
-    # each replica claims its own docs via FOR UPDATE SKIP LOCKED). 45 saturates the 9-node farm
-    # extraction pool and stays under kssl-db max_connections=60 (45 workers + ~8 service conns).
+    # each replica claims its own docs via FOR UPDATE SKIP LOCKED).
     # `docker compose up -d` honors this, so CI redeploys keep the scale instead of dropping to 1.
-    # 22 + 23 on the Pune pool = 45 workers total, unchanged, so the connection count is unchanged.
+    # This number IS the deployed scale: a `docker compose up` (including a CI redeploy) resets any
+    # runtime `--scale` back to it, so raising the fleet means raising it HERE, not on the box.
+    # Kharghar serves 9 nodes x FARM_NODE_PARALLEL 6 = 54 slots; one worker fills one slot.
     deploy:
-      replicas: 22
+      replicas: 54
 
   # Second worker pool, pointed at the PUNE farm. Identical role and image; only the three
   # endpoints differ. KSSL_NODE deliberately stays "farm": route.py's NODES table has entries for
@@ -53,11 +54,12 @@ services:
       OLLAMA_API_KEY: "${PUNE_API_KEY:?set PUNE_API_KEY in extraction/.env}"
       C_GLINER_URL: "https://pune-gliner.i3softlab.com/extract"
       C_FARM_HEALTH_URL: "https://pune-llm.i3softlab.com/v1/models"
-    # Sized with the Kharghar pool so the two together stay under kssl-db max_connections=60
-    # (each worker holds exactly one connection; ~8 more are the other services). Raise both to 45
-    # once max_connections is raised -- the farms have the capacity, the database is the limit.
+    # Pune runs 12 nodes x num_parallel 12 = 144 slots (q8_0 KV cache + flash attention, set from
+    # farm.yaml so it survives a reboot; the gateway derives FARM_NODE_PARALLEL from the same key).
+    # Ramping there in stages rather than in one jump -- 72 is half the pool, measured before the
+    # rest. 54 + 72 + ~12 service connections = 138, against kssl-db max_connections=300.
     deploy:
-      replicas: 23
+      replicas: 72
 
   # The feeder: sync new corpus docs -> enqueue (presignal gate) -> reap expired leases, on a timer.
   feeder:
