@@ -1,10 +1,28 @@
 import { useMemo, useState } from "react";
+import { useAppState } from "../../state/AppState";
+
+const formatCategoryLabel = (str) => {
+  if (!str) return "Uncategorised";
+  let s = String(str).replace(/&amp;/g, "&").trim();
+  s = s.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+  const acronyms = new Set(["KSSL", "DRDO", "BDL", "BEL", "L&T", "UAV", "IAF", "BAE", "IAI", "HAL", "JSW", "MRO", "EO/IR", "GPS", "RF", "C4I"]);
+  return s
+    .split(/\s+/)
+    .map((word) => {
+      const clean = word.toUpperCase();
+      if (acronyms.has(clean)) return clean;
+      if (word === "&") return "&";
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+};
 
 /* The competitor-product list: kVA band → KSSL anchor product → the rivals paired
    against it. Bands collapse; the four selects narrow each other, so a combination
    that matches nothing can't be chosen. */
 export default function MatchupList({ data, selected, onSelect }) {
   const { matchups, POS_CATS, CAT_KEY } = data;
+  const { searchQuery } = useAppState();
   const [query, setQuery] = useState("");
   const [co, setCo] = useState("");
   const [cat, setCat] = useState("");
@@ -16,7 +34,7 @@ export default function MatchupList({ data, selected, onSelect }) {
   const labels = useMemo(() => {
     const catLabel = {};
     POS_CATS.forEach(([v, lab]) => {
-      catLabel[v] = lab;
+      catLabel[v] = formatCategoryLabel(lab);
     });
     const coLabel = {};
     const ctLabel = {};
@@ -67,7 +85,8 @@ export default function MatchupList({ data, selected, onSelect }) {
   /* band → anchor → matchups, filtered. Anchors are ordered by how many rivals they
      face, and within an anchor global primes lead. */
   const groups = useMemo(() => {
-    const q = query.toLowerCase().trim();
+    const q = (query || searchQuery || "").toLowerCase().trim();
+    const tokens = q.split(/\s+/).filter(Boolean);
     /* An unknown cat must still render somewhere — mirror how wireDataset appends a
        chip for unknown techCats. Without this, the row counts in the nav badge but
        appears in no group. */
@@ -92,10 +111,10 @@ export default function MatchupList({ data, selected, onSelect }) {
             .sort((a, b) => (matchups[b].global ? 1 : 0) - (matchups[a].global ? 1 : 0))
             .filter((id) => {
               const m = matchups[id];
-              const search = `${m.comp || ""} ${m.compBy || ""} ${m.cat || ""} ${m.country || ""} ${m.anchor || ""}${
+              const search = `${m.title || ""} ${m.comp || ""} ${m.compBy || ""} ${m.cat || ""} ${m.country || ""} ${m.anchor || ""}${
                 m.global ? " global prime benchmark" : ""
               }`.toLowerCase();
-              if (q && !search.includes(q)) return false;
+              if (tokens.length > 0 && !tokens.every((tok) => search.includes(tok))) return false;
               if (co && (m.compBy || "").toLowerCase() !== co) return false;
               if (cat && CAT_KEY[m.cat] !== cat) return false;
               if (koel && (m.anchor || m.bf || "").toLowerCase() !== koel) return false;
@@ -180,7 +199,7 @@ export default function MatchupList({ data, selected, onSelect }) {
               }}
             >
               <span className="cleft">
-                <i className="chev">▾</i> {g.label}
+                <i className="chev">▾</i> {formatCategoryLabel(g.label)}
               </span>
               <span className="ccount">{g.total}</span>
             </div>

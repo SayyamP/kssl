@@ -44,10 +44,12 @@ export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTen
   return (
     <div className="mu-dossier">
       <div className="mu-dossier-scroll" ref={dossierRef}>
-        <div className="mu-d-h">
-          <button aria-label="Close" className="col-close" onClick={onClose} title="Close" type="button">
-            ✕
-          </button>
+        <div className="mu-d-h" style={{ position: "relative", paddingRight: "84px" }}>
+          <div className="ctx-h-actions">
+            <button aria-label="Close" className="col-close" onClick={onClose} title="Close" type="button">
+              ✕
+            </button>
+          </div>
           <span className="eyebrow">
             {m.cat}{" "}
             <span className="srcbadge" style={{ marginLeft: "6px" }}>

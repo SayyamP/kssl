@@ -83,7 +83,7 @@ export default function Layout() {
      metric strip above, and the shell's third column collapsed so it can use the width.
      Gating those on `isOverview` alone left it rendering into a two-column grid with a
      third column reserved for a drawer that never opens. */
-  const wideNoDrawer = onOverview || onMarketReport;
+  const wideNoDrawer = onOverview || onMarketReport || view === "innovation";
   /* Each pillar's overview carries its own heading ("Market Intelligence"), which lives
      on the served config; viewMeta only has the competitive one. */
   const headTitle = onMarketReport

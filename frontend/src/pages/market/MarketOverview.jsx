@@ -136,6 +136,14 @@ function PieChart({ rows, total, colorOf, onPick, examples }) {
    this corpus it is a quarter of the open set. Drawn in the series colour at the
    right-hand end it would read as "the longest runway" — the exact opposite. Neutral
    grey marks it off-scale and the label says so in words. */
+const WINDOW_COLORS = {
+  "1–7 days": "#ef4444",
+  "8–14 days": "#f59e0b",
+  "15–30 days": "#10b981",
+  "30+ days": "#3b82f6",
+  "No date published": "#64748b",
+};
+
 function ColumnChart({ rows, total, examples }) {
   const max = rows.reduce((m, r) => Math.max(m, r.n), 0) || 1;
   return (
@@ -149,7 +157,7 @@ function ColumnChart({ rows, total, examples }) {
           <span className="ovb-n">{fmt(r.n)}</span>
           <span className="ovb-track">
             {/* min 2px so a bucket of 1 is a mark, not an invisible zero */}
-            <i style={{ height: `max(2px, ${(r.n / max) * 100}%)` }} />
+            <i style={{ height: `max(2px, ${(r.n / max) * 100}%)`, background: WINDOW_COLORS[r.key] || "var(--fav-badge)" }} />
           </span>
           <span className="ovb-lab">{r.key}</span>
           <span className="ovb-pct">{total ? `${Math.round((r.n / total) * 100)}%` : ""}</span>

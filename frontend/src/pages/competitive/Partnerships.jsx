@@ -3,12 +3,10 @@ import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import ScopeChat from "../../components/scopeChat/ScopeChat";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
-import { unescapeEntities } from "../../lib/html";
+import { formatSectorName, formatCompanyName } from "../../lib/profile";
 
-/* `sector` is escaped at write time ("Defence &amp; Aerospace") and is the one
-   competitor field rendered as TEXT rather than injected as HTML, so the entity
-   reached the screen intact. Decode it here; JSX re-escapes on the way out. */
-const sectorText = (co) => unescapeEntities(co && co.sector);
+/* `sector` is escaped at write time ("Defence &amp; Aerospace") and is formatted consistently here. */
+const sectorText = (co) => formatSectorName(co && co.sector);
 
 /* Competitor-centric relationship graph. Three panes: the rival list, the alliance
    network with the shared-partner read beneath it, and a drawer that switches between
@@ -18,7 +16,7 @@ const sectorText = (co) => unescapeEntities(co && co.sector);
    its own angle, so no two lines coincide and no line runs through another node. */
 export default function Partnerships() {
   const { data, partners } = useData();
-  const { setScope } = useAppState();
+  const { setScope, searchQuery } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
   const getSavedPart = () => {
     try {
@@ -75,14 +73,18 @@ export default function Partnerships() {
     return [...set].filter(Boolean).sort();
   }, [data]);
 
+  const activeQ = (query || searchQuery || "").trim().toLowerCase();
+  const tokens = activeQ.split(/\s+/).filter(Boolean);
+
   const list = data.compOrder
     .filter((k) => k !== (data.client?.id || "KSSL"))
     .filter((k) => {
       const co = data.competitors[k];
       if (!co) return false;
       const nsh = partners.pgSharedFor(co).length;
-      const search = `${(co.name || "").toLowerCase()} ${sectorText(co).toLowerCase()}${nsh ? " overlap" : ""}`;
-      if (query.trim() && !search.includes(query.trim().toLowerCase())) return false;
+      const pNames = (co.partners || []).map((x) => x.name).join(" ");
+      const search = `${(co.name || "").toLowerCase()} ${sectorText(co).toLowerCase()} ${(co.hq || "").toLowerCase()} ${pNames.toLowerCase()}${nsh ? " overlap" : ""}`;
+      if (tokens.length > 0 && !tokens.every((tok) => search.includes(tok))) return false;
       if (hq && (co.hq || "").toLowerCase() !== hq) return false;
       return true;
     });
@@ -287,7 +289,7 @@ export default function Partnerships() {
           <div className="pg-legend">
             <span className="lg">
               <span className="nd" style={{ background: "#ffffff", boxShadow: "0 0 6px #ffffff" }} />
-              Selected OEM (White Node)
+              {c ? c.name : "Current Company"} (White Node)
             </span>
             <span className="lg">
               <span className="nd" style={{ background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
@@ -305,7 +307,7 @@ export default function Partnerships() {
       <div className={`pg-drawer${cid ? " open" : ""}`} id="pg-drawer">
         <div style={{ display: "flex", flex: 1, flexDirection: "column", height: "100%", overflow: "hidden" }}>
           <div className="pg-drawer-scroll" ref={drawerRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", paddingBottom: "24px" }}>
-            <div style={{ position: "absolute", top: "12px", right: "14px", display: "flex", alignItems: "center", gap: "6px", zIndex: 30 }}>
+            <div style={{ position: "absolute", top: "12px", right: "14px", display: "flex", alignItems: "center", gap: "6px", zIndex: 30, paddingBottom: "10px" }}>
               {(tie || mode === "field") && (
                 <button
                   type="button"
@@ -318,13 +320,14 @@ export default function Partnerships() {
                   style={{
                     position: "static",
                     width: "auto",
-                    height: "24px",
-                    padding: "0 8px",
-                    fontSize: "11px",
+                    height: "26px",
+                    padding: "0 10px",
+                    fontSize: "11.5px",
                     fontWeight: "600",
                     display: "inline-flex",
                     alignItems: "center",
-                    gap: "3px",
+                    gap: "4px",
+                    marginBottom: "8px",
                   }}
                 >
                   ‹ Back
@@ -336,12 +339,12 @@ export default function Partnerships() {
                 onClick={() => setCid(null)}
                 title="Close"
                 type="button"
-                style={{ position: "static" }}
+                style={{ position: "static", height: "26px", width: "26px", marginBottom: "8px" }}
               >
                 ✕
               </button>
             </div>
-            <div className="pg-drawer-head" dangerouslySetInnerHTML={{ __html: drawerHeadText() }} />
+            <div className="pg-drawer-head" style={{ paddingRight: "110px", paddingBottom: "16px" }} dangerouslySetInnerHTML={{ __html: drawerHeadText() }} />
             <HtmlBlock
               className="pg-drawer-body"
               handlers={{

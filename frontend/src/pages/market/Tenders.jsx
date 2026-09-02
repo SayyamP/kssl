@@ -95,7 +95,7 @@ const ctaNote = (t) => {
 
 export default function Tenders({ mode = "tender" }) {
   const { data, gapModel } = useData();
-  const { setScope, takePending } = useAppState();
+  const { setScope, takePending, searchQuery } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
   const getSavedTender = () => {
     try {
@@ -150,15 +150,21 @@ export default function Tenders({ mode = "tender" }) {
         })
         .filter((t) => {
           const isAwarded = (t.status || "").toLowerCase() === "awarded" || t.urlKind === "award";
-          const isClosed = !isAwarded && (t.isLive === false || t.dl <= 0 || (t.deadline || "").includes("Closed"));
+          const isClosed = !isAwarded && (t.isLive === false || (t.status || "").toLowerCase() === "closed" || (t.deadline || "").toLowerCase().includes("closed"));
           const isOpen = !isAwarded && !isClosed;
 
           if (mode === "awarded-tenders") return isAwarded;
           if (mode === "closed-tenders") return isClosed;
           return isOpen;
         })
-        .sort((a, b) => a.dl - b.dl),
-    [data.tenders, country, cat, productType, mode],
+        .filter((t) => {
+          if (!searchQuery) return true;
+          const tokens = searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
+          const fullText = `${t.title || ""} ${t.issuer || ""} ${t.cat || ""} ${t.country || ""} ${t.desc || ""}`.toLowerCase();
+          return tokens.every((tok) => fullText.includes(tok));
+        })
+        .sort((a, b) => (Number(a.dl) || 999) - (Number(b.dl) || 999)),
+    [data.tenders, country, cat, productType, mode, searchQuery],
   );
 
   const select = (id) => {
@@ -377,19 +383,22 @@ export default function Tenders({ mode = "tender" }) {
           <div id="tp-asmt-body" style={{ display: "flex", flex: 1, flexDirection: "column", height: "100%", overflow: "hidden" }}>
             <div className="tp-asmt-scroll" ref={asmtRef} style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", paddingBottom: "24px" }}>
               <div className="tp-asmt-h">
-                <button
-                  aria-label="Close"
-                  className="col-close"
-                  onClick={() => setSel(null)}
-                  title="Close"
-                  type="button"
-                >
-                  ✕
-                </button>
+                <div className="ctx-h-actions">
+                  <button
+                    aria-label="Close"
+                    className="col-close"
+                    onClick={() => setSel(null)}
+                    title="Close"
+                    type="button"
+                  >
+                    ✕
+                  </button>
+                </div>
                 <span className="eyebrow">Tender Assessment</span>
                 <div className="ct">{t.title}</div>
-                <div className="sub">
-                  {metaLine([t.issuer, t.country, t.value, t.timing || t.deadline])}
+                <div className="sub" style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "8px" }}>
+                  <div>{metaLine([t.issuer, t.country, t.value])}</div>
+                  <div>{metaLine([t.timing || t.deadline])}</div>
                 </div>
               </div>
 

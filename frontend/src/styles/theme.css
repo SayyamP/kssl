@@ -34,14 +34,30 @@
     --sans:'Archivo', system-ui, sans-serif;
   }
   *{margin:0;padding:0;box-sizing:border-box}
-  html,body{background:var(--d-bg);color:var(--d-txt);font-family:var(--sans);-webkit-font-smoothing:antialiased;height:100%;width:100%;max-width:100vw;overflow-x:hidden !important}
-  body{display:flex;flex-direction:column;height:100vh;overflow-x:hidden !important;overflow-y:hidden}
-  #root{display:flex;flex-direction:column;height:100vh;width:100%;max-width:100vw;overflow-x:hidden !important}
-  .eyebrow{font-family:var(--mono);font-size:12px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--d-txt-3)}
+  html,body{background:var(--d-bg);color:var(--d-txt);font-family:var(--sans);-webkit-font-smoothing:antialiased;height:100vh;height:100dvh;width:100vw;max-width:100vw;overflow:hidden !important;position:fixed;top:0;left:0;right:0;bottom:0}
+  body{display:flex;flex-direction:column;height:100vh;height:100dvh;overflow:hidden !important}
+  #root{display:flex;flex-direction:column;height:100vh;height:100dvh;width:100%;max-width:100vw;overflow:hidden !important}
+  .eyebrow{font-family:var(--mono);font-size:clamp(10px, 0.8vw, 12px);font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--d-txt-3)}
   .mono{font-family:var(--mono)}
 
-  /* Enforce minimum 12px font size globally */
-  *, *::before, *::after {
+  /* Custom modern thin scrollbars */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.35);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
     min-height: 0;
   }
   body {

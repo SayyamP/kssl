@@ -1,5 +1,5 @@
   /* ===== POSITIONING VIEW — MATCHUP DOSSIER ===== */
-  .pos-view{grid-column:2 / span 2;display:grid;grid-template-columns:420px 1fr;overflow:hidden;min-height:0;transition:grid-template-columns .26s cubic-bezier(.22,.61,.36,1)}
+  .pos-view{grid-column:2 / span 2;display:grid;grid-template-columns:clamp(300px, 28vw, 420px) 1fr;overflow:hidden;min-height:0;height:100%;transition:grid-template-columns .26s cubic-bezier(.22,.61,.36,1)}
   .pos-view.no-sel{grid-template-columns:1fr 0px}
   .pos-view.no-sel .mu-dossier{display:none}
   .pos-view.has-sel .mu-dossier{animation:panelSlideWide .42s cubic-bezier(.22,.61,.36,1)}

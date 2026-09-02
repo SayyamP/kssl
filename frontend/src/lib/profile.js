@@ -21,6 +21,62 @@ import { unescapeEntities } from "./html.js";
    characters. Decode once, here, rather than at each of the eight render sites. */
 const txt = (s) => unescapeEntities(s || "").trim();
 
+/* Standardized sector/industry name formatting helper */
+export function formatSectorName(rawSector) {
+  if (!rawSector) return "Defence & Aerospace";
+  let s = unescapeEntities(String(rawSector)).replace(/&amp;/g, "&").trim();
+  if (!s) return "Defence & Aerospace";
+
+  const uppercaseAcronyms = new Set([
+    "EW", "UAV", "UAS", "C-UAS", "C4I", "OEM", "R&D", "PSU", "MBT", "ARV", "HMV", "ICV", "ATGMS", "ATGM", "BVR", "JV", "FCV", "RCWS", "LMG", "SPH", "AD", "OFB"
+  ]);
+
+  const capitalizeToken = (token) => {
+    if (!token) return "";
+    const upperCandidate = token.toUpperCase();
+    if (uppercaseAcronyms.has(upperCandidate)) {
+      return upperCandidate;
+    }
+    if (token.includes("/")) {
+      return token.split("/").map(capitalizeToken).join("/");
+    }
+    if (token.includes("-")) {
+      return token.split("-").map(capitalizeToken).join("-");
+    }
+    if (token === "&") return "&";
+    if (token === "·") return "·";
+    if (token.toLowerCase() === "defense" || token.toLowerCase() === "defence") return "Defence";
+    return token.charAt(0).toUpperCase() + token.slice(1);
+  };
+
+  return s
+    .split(/\s+/)
+    .map(capitalizeToken)
+    .join(" ");
+}
+
+/* Standardized company name formatting helper */
+export function formatCompanyName(rawName) {
+  if (!rawName) return "";
+  let s = unescapeEntities(String(rawName)).trim();
+  const acronyms = new Set(["KSSL", "DRDO", "BDL", "BEL", "L&T", "UAV", "IAF", "BAE", "IAI", "HAL", "JSW", "BHEL", "ISRO", "ADA", "NAL", "HQ"]);
+  return s
+    .split(/\s+/)
+    .map((word) => {
+      const clean = word.toUpperCase();
+      if (acronyms.has(clean)) return clean;
+      if (word.includes("/")) {
+        return word
+          .split("/")
+          .map((part) => formatCompanyName(part))
+          .join(" / ");
+      }
+      if (word.length <= 3 && word === word.toUpperCase() && /^[A-Z]+$/.test(word)) return word;
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
 /* Three of these four are now HARVESTED from the maker's own site — see
    pipeline/harvest/. What remains genuinely uncollected is the forward timeline, and a
    company with no harvested rows still shows the honest absence rather than an empty box.
@@ -108,35 +164,20 @@ export function buildProfile(d, cid) {
     });
   });
 
-  const presence = [];
-  Object.entries((d.geoData || {})[cid] || {}).forEach(([country, rows]) => {
-    (rows || []).forEach((r) => presence.push({ country, ...r }));
-  });
+  const presence = (d.geoPresence || []).filter((g) => nameKey(g.comp) === nk);
 
-  const patents = ((d.PATENTS && d.PATENTS.byCompetitor && d.PATENTS.byCompetitor[cid]) || {})
-    .records || [];
+  const patents = ((d.PATENTS && d.PATENTS.byCompetitor) || {})[cid] || [];
 
-  /* companySources is keyed by display name; c.srcs is on every company. Take both,
-     dedupe on url — neither alone covers the roster. */
-  const srcMap = {};
-  const cs = d.companySources || {};
-  []
-    /* look up under both forms: `name` is entity-decoded, the index key is whatever
-       the pipeline wrote */
-    .concat(cs[name] || cs[c.name] || [], c.srcs || [])
-    .forEach((s) => {
-      const u = s && (s.url || s);
-      if (u && !srcMap[u]) srcMap[u] = typeof s === "string" ? { url: s, label: "" } : s;
-    });
-  const sources = Object.values(srcMap);
+  const sources = (d.companySources || {})[name] || [];
 
   const leadership = sourcedRows(c, "leadership");
   const facilitiesRows = sourcedRows(c, "facilities");
   const salesRows = sourcedRows(c, "sales");
 
   const sections = [
+    { key: "updates", label: "Latest updates", rows: updatesHtml(c) ? 1 : 0 },
     { key: "products", label: "Products", rows: (c.products || []).length },
-    { key: "specs", label: "Spec comparisons", rows: matchups.length },
+    { key: "matchups", label: "Matchups", rows: matchups.length },
     { key: "development", label: "In development", rows: development.length },
     { key: "news", label: "News", rows: cards.length },
     { key: "partners", label: "Partnerships", rows: (c.partners || []).length },
@@ -150,8 +191,8 @@ export function buildProfile(d, cid) {
   return {
     cid,
     name,
-    sector: txt(c.sector),
-    hq: txt(c.hq),
+    sector: formatSectorName(c.sector),
+    hq: formatSectorName(c.hq),
     site: c.site || "",
     /* The 2026-09-01 columns. They have to be listed here or they stop at this
        function: the Profile panel reads the profile object, not the raw competitor

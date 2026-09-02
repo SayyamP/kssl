@@ -11,6 +11,53 @@ const cleanCompanyName = (rawName) => {
   return name || rawName;
 };
 
+// Title Case formatter for portfolio categories & product specs
+const formatCategoryTitle = (cat) => {
+  if (!cat) return "Defense Systems";
+  let s = String(cat).replace(/&amp;/g, "&").trim();
+  const upperAcronyms = new Set(["UAV", "UAVS", "AI", "MRO", "EO/IR", "GPS", "RF", "C4I", "KSSL", "DRDO", "BDL", "BEL", "L&T"]);
+  return s
+    .split(/\s+/)
+    .map((word) => {
+      const clean = word.toUpperCase();
+      if (upperAcronyms.has(clean)) return clean;
+      if (word === "&") return "&";
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+};
+
+const formatTitleCase = (str) => {
+  if (!str) return "";
+  const acronyms = new Set([
+    "KSSL", "DRDO", "BDL", "BEL", "L&T", "UAV", "UAS", "IAF", "BAE", "IAI", "HAL", "JSW", "BHEL", "ISRO", "ADA", "NAL", "GPS", "EO/IR", "RF", "C4I", "AI", "MRO", "C-UAS", "VTOL", "ATGM", "BVR", "HE", "APFSDS", "T-90", "BMP-2", "MK1", "MK2"
+  ]);
+
+  const capitalizeToken = (word) => {
+    if (!word) return "";
+    const upperCandidate = word.toUpperCase();
+    if (acronyms.has(upperCandidate)) return upperCandidate;
+
+    if (word.includes("/")) {
+      return word.split("/").map(capitalizeToken).join(" / ");
+    }
+
+    if (word.includes("-")) {
+      return word.split("-").map(capitalizeToken).join("-");
+    }
+
+    if (word === "&" || word === "·") return word;
+
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  };
+
+  return String(str)
+    .trim()
+    .split(/\s+/)
+    .map(capitalizeToken)
+    .join(" ");
+};
+
 function nameKey(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
@@ -121,17 +168,23 @@ export default function Products() {
     return ["all", ...Array.from(set)];
   }, [companyRoster]);
 
+  const { searchQuery } = useAppState();
+
   // Filter company sidebar roster based on search + country + category + revenue
   const filteredCompanyRoster = useMemo(() => {
-    const q = companyQuery.trim().toLowerCase();
+    const q = (companyQuery || searchQuery || "").trim().toLowerCase();
+    const tokens = q.split(/\s+/).filter(Boolean);
     return companyRoster.filter((c) => {
-      if (q && !`${c.name} ${c.sector}`.toLowerCase().includes(q)) return false;
+      if (tokens.length > 0) {
+        const fullText = `${c.name || ""} ${c.sector || ""} ${c.hq || ""} ${c.cid || ""}`.toLowerCase();
+        if (!tokens.every((tok) => fullText.includes(tok))) return false;
+      }
       if (sidebarCountryFilter !== "all" && c.country !== sidebarCountryFilter) return false;
       if (sidebarCategoryFilter !== "all" && c.category !== sidebarCategoryFilter) return false;
       if (sidebarRevenueFilter !== "all" && c.revenueTier !== sidebarRevenueFilter) return false;
       return true;
     });
-  }, [companyRoster, companyQuery, sidebarCountryFilter, sidebarCategoryFilter, sidebarRevenueFilter]);
+  }, [companyRoster, companyQuery, searchQuery, sidebarCountryFilter, sidebarCategoryFilter, sidebarRevenueFilter]);
 
   // Selected company details
   const selectedCompany = useMemo(() => {
@@ -168,14 +221,14 @@ export default function Products() {
           const specsObj = {};
           (m.specs || []).forEach((s) => {
             if (s && s.l && s.kv && s.kv !== "no published figure" && s.kv !== "not published") {
-              specsObj[s.l] = s.kv;
+              specsObj[formatCategoryTitle(s.l)] = s.kv;
             }
           });
           prods.push({
             id: `kssl-${name}`,
-            name: name,
+            name: formatTitleCase(name),
             company: clientName,
-            category: m.cat || "Defense Systems",
+            category: formatCategoryTitle(m.cat || "Defense Systems"),
             specs: specsObj,
             reason: m.reason || "",
           });
@@ -194,14 +247,14 @@ export default function Products() {
             const specsObj = {};
             (m.specs || []).forEach((s) => {
               if (s && s.l && (s.cv || s.kv)) {
-                specsObj[s.l] = s.cv || s.kv;
+                specsObj[formatCategoryTitle(s.l)] = s.cv || s.kv;
               }
             });
             prods.push({
               id: `comp-${m.id || name}`,
-              name: name,
+              name: formatTitleCase(name),
               company: selectedCompany.name,
-              category: m.cat || "Defense Systems",
+              category: formatCategoryTitle(m.cat || "Defense Systems"),
               specs: specsObj,
               reason: m.reason || "",
             });
@@ -215,9 +268,9 @@ export default function Products() {
           seen.add(name.toLowerCase());
           prods.push({
             id: `co-prod-${name}`,
-            name: name,
+            name: formatTitleCase(name),
             company: selectedCompany.name,
-            category: co.sector || "Defense Systems",
+            category: formatCategoryTitle(co.sector || "Defense Systems"),
             specs: {},
             reason: "",
           });
@@ -325,7 +378,7 @@ export default function Products() {
               style={{ width: "100%" }}
               value={sidebarCountryFilter}
             >
-              <option value="all">All Countries ({companyRoster.length})</option>
+              <option value="all">All Countries</option>
               {sidebarCountries.filter((c) => c !== "all").map((c) => (
                 <option key={c} value={c}>
                   {c}
@@ -584,7 +637,7 @@ export default function Products() {
                           {label}
                         </span>
                         <span style={{ color: "#ffffff", fontWeight: "600" }}>
-                          {val}
+                          {formatTitleCase(val)}
                         </span>
                       </div>
                     ))}

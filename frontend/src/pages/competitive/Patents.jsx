@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import { useData } from "../../state/DataProvider";
+import { useAppState } from "../../state/AppState";
 import {
   searchPatents,
   patCompBody,
@@ -13,6 +14,7 @@ import {
    fencing a field is competitive intelligence — so one view with a lens toggle. */
 export default function Patents() {
   const { data } = useData();
+  const { setScope, takePending } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
   const getSavedPat = () => {
     try {
@@ -28,6 +30,13 @@ export default function Patents() {
   const [cid, setCid] = useState(savedPat.cid || data.compOrder[0]);
   const [catFilter, setCatFilter] = useState(savedPat.catFilter || "");
   const [compRes, setCompRes] = useState(null);
+
+  useEffect(() => {
+    const pend = takePending("patents-comp");
+    if (pend && pend.cid) {
+      setCid(pend.cid);
+    }
+  }, [takePending]);
 
   const areas = useMemo(() => {
     // fall back to the tracked technology areas when no patent area has filings yet,

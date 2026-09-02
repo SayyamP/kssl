@@ -7,7 +7,13 @@
    in geo.css — those are different prefixes, checked before porting. */
 
 .ov-report{grid-column:2;height:100%;overflow-y:auto;background:var(--d-bg);color:var(--d-txt)}
-.ov-report .tp-fbar{position:static;z-index:auto}
+.ov-report .tp-fbar{position:static;z-index:auto;display:flex;align-items:center;gap:10px;padding:8px 18px;background:var(--d-bg-1);border-bottom:1px solid var(--d-line);flex-wrap:nowrap !important;overflow-x:auto;scrollbar-width:none;white-space:nowrap}
+.ov-report .tp-fbar::-webkit-scrollbar{display:none}
+.ov-report .tp-fbar select{background:var(--d-bg-2);border:1px solid var(--d-line-2);color:var(--d-txt-2);padding:5px 8px;border-radius:4px;font-family:var(--sans);font-size:11.5px;outline:none;cursor:pointer;transition:all .12s ease;max-width:180px;text-overflow:ellipsis;flex-shrink:0}
+.ov-report .tp-fbar select:hover,.ov-report .tp-fbar select:focus{border-color:var(--d-txt-4);background:var(--d-bg-3);color:var(--d-txt)}
+.ov-report .tp-fbar .ovt-link{font-family:var(--mono);font-size:11px;color:var(--fav-badge);background:var(--d-bg-2);border:1px solid var(--d-line-2);border-radius:4px;padding:3px 7px;white-space:nowrap;cursor:pointer;flex-shrink:0;transition:all .12s ease}
+.ov-report .tp-fbar .ovt-link:hover{background:var(--d-bg-3);color:var(--d-txt)}
+.ov-report .tp-fbar .sortnote{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--d-txt-4);white-space:nowrap;padding-left:8px;flex-shrink:0}
 
 /* ---- tabs ---- */
 .ovtabs{display:flex;align-items:stretch;background:var(--d-bg);border-bottom:1px solid var(--d-line);position:sticky;top:0;z-index:6;overflow-x:auto;scrollbar-width:none}
@@ -94,6 +100,6 @@
    transparent at "All" — a grey chip there would name a category that isn't selected.
    Per-option colour is applied where the browser honours it and is ignored where it
    does not; nothing depends on it, the option text says the category either way. */
-.ovf-cat{display:inline-flex;align-items:center;gap:7px}
+.ovf-cat{display:inline-flex;align-items:center;gap:7px;flex-shrink:0}
 .ovf-sw{width:10px;height:10px;border-radius:2px;flex-shrink:0;box-shadow:inset 0 0 0 1px rgb(255 255 255 / .18)}
-.ovf-cat select{min-width:210px}
+.ovf-cat select{max-width:180px}

@@ -49,10 +49,11 @@
   .flash{animation:valueFlash 1.1s ease-out}
 
   /* ============ SUBHEAD ============ */
-  .subhead{display:flex;align-items:center;justify-content:space-between;height:46px;padding:0 20px;border-bottom:1px solid var(--d-line);background:var(--d-bg-1);flex-shrink:0}
-  .subhead .left{display:flex;align-items:baseline;gap:12px}
-  .subhead h1{font-size:17px;font-weight:600;letter-spacing:-.01em;color:var(--d-txt)}
-  .subhead .cnt{font-family:var(--mono);font-size:11px;color:var(--d-txt-3)}
+  .subhead{display:flex;align-items:center;justify-content:space-between;height:46px;padding:0 20px;border-bottom:1px solid var(--d-line);background:var(--d-bg-1);flex-shrink:0;gap:12px;overflow-x:auto;scrollbar-width:none}
+  .subhead::-webkit-scrollbar{display:none}
+  .subhead .left{display:flex;align-items:center;gap:12px;white-space:nowrap !important;flex-shrink:0}
+  .subhead h1{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--d-txt);white-space:nowrap !important;flex-shrink:0}
+  .subhead .cnt{font-family:var(--mono);font-size:11px;color:var(--d-txt-3);white-space:nowrap !important;flex-shrink:0}
   .subhead-toast {
     font-family: var(--mono);
     font-size: 11px;
@@ -63,11 +64,16 @@
     border-radius: 4px;
     margin-left: 10px;
     animation: fadeIn .2s ease-in;
+    white-space: nowrap !important;
+    flex-shrink: 0;
   }
   .subhead-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    flex-wrap: nowrap !important;
+    white-space: nowrap !important;
+    flex-shrink: 0;
   }
   .subhead-btn {
     font-family: var(--sans);
@@ -77,12 +83,14 @@
     background: var(--d-bg);
     border: 1px solid var(--d-line);
     border-radius: 5px;
-    padding: 4px 10px;
+    padding: 4px 9px;
     cursor: pointer;
     transition: all .15s;
-    display: flex;
+    display: inline-flex;
     align-items: center;
     gap: 4px;
+    white-space: nowrap !important;
+    flex-shrink: 0;
   }
   .subhead-btn:hover {
     color: var(--d-txt);
@@ -114,16 +122,17 @@
       background: transparent !important;
     }
   }
-  .filters{display:flex;gap:8px;align-items:center}
-  .fbtn{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt-3);border:1px solid var(--d-line);padding:5px 11px;cursor:pointer;background:transparent;transition:.12s}
+  .filters{display:flex;gap:6px;align-items:center;flex-wrap:nowrap !important;white-space:nowrap;flex-shrink:0}
+  .dir-filters{display:inline-flex;gap:4px;align-items:center;flex-wrap:nowrap !important;white-space:nowrap;flex-shrink:0}
+  .fbtn{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--d-txt-3);border:1px solid var(--d-line);padding:4px 7px;cursor:pointer;background:transparent;transition:.12s;white-space:nowrap !important;flex-shrink:0}
   .fbtn:hover{border-color:var(--d-line-2);color:var(--d-txt-2)}
   .fbtn.on{color:var(--d-txt);border-color:var(--d-txt-4);background:var(--d-bg-3)}
-  .seq-sep{width:1px;height:18px;background:var(--d-line);margin:0 4px}
-  .seq-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--d-txt-4)}
-  .seq-select{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--d-txt-2);background:transparent;border:1px solid var(--d-line);padding:5px 8px;cursor:pointer;transition:.12s;outline:none}
+  .seq-sep{width:1px;height:18px;background:var(--d-line);margin:0 4px;flex-shrink:0}
+  .seq-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--d-txt-4);white-space:nowrap;flex-shrink:0}
+  .seq-select{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--d-txt-2);background:transparent;border:1px solid var(--d-line);padding:4px 6px;cursor:pointer;transition:.12s;outline:none;white-space:nowrap;flex-shrink:0}
   .seq-select:hover{border-color:var(--d-line-2);color:var(--d-txt)}
   .seq-select option{background:#1a1a1a;color:#e8e8e8}
-  .fbtn .sw{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:6px;vertical-align:1px}
+  .fbtn .sw{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:5px;vertical-align:1px}
 
   /* ============ METRICS STRIP (dark) ============ */
   .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));border-bottom:1px solid var(--d-line);background:var(--d-bg);flex-shrink:0}

@@ -47,13 +47,15 @@ export default function DetailPanel({ detail, onClose }) {
     <div className="ctx v-overview revealed">
       <div className="ctx-scroll" ref={panelRef}>
         <div className={`ctx-h dir-${dir}`}>
-          <button aria-label="Close" className="col-close" onClick={onClose} title="Close" type="button">
-            ✕
-          </button>
+          <div className="ctx-h-actions">
+            <button aria-label="Close" className="col-close" onClick={onClose} title="Close" type="button">
+              ✕
+            </button>
+            <span className={`dirpill dir-${dir}`}>{DIR_WORD[dir]}</span>
+          </div>
           <span className="eyebrow">{detail.rank}</span>
           <div className="ct">
-            <span dangerouslySetInnerHTML={{ __html: detail.title }} />{" "}
-            <span className={`dirpill dir-${dir}`}>{DIR_WORD[dir]}</span>
+            <span dangerouslySetInnerHTML={{ __html: detail.title }} />
           </div>
         </div>
 

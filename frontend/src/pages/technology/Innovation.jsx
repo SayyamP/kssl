@@ -220,15 +220,20 @@ export default function Innovation() {
               <div className={`tech-d-h ${iv && iv.gap ? iv.gap : ""}`} id="tech-d-h">
                 {iv ? (
                   <>
-                    <button
-                      aria-label="Close"
-                      className="col-close"
-                      onClick={() => setSel(null)}
-                      title="Close"
-                      type="button"
-                    >
-                      ✕
-                    </button>
+                    <div className="ctx-h-actions">
+                      <button
+                        aria-label="Close"
+                        className="col-close"
+                        onClick={() => setSel(null)}
+                        title="Close"
+                        type="button"
+                      >
+                        ✕
+                      </button>
+                      <span className={`dirpill ${iv.gap || "behind"}`}>
+                        {iv.gap === "behind" ? "GAP" : iv.gap === "parity" ? "WATCH" : "AHEAD"}
+                      </span>
+                    </div>
                     <span className="eyebrow">
                       Innovation Detail{" "}
                       <span className="srcbadge" style={{ marginLeft: "6px" }}>
@@ -261,22 +266,6 @@ export default function Innovation() {
                   }}
                   html={detailBody()}
                 />
-                {iv && !report ? (
-                  <div className="tech-d-sec" style={{ borderBottom: "none" }}>
-                    <button
-                      className="tech-report-btn"
-                      disabled={generating}
-                      onClick={generate}
-                      type="button"
-                    >
-                      {generating ? "Generating…" : "Generate detailed intelligence report"}
-                    </button>
-                    <div className="tech-report-hint">
-                      Full CEO briefing · adds competitive landscape &amp; live market exposure across
-                      pillars
-                    </div>
-                  </div>
-                ) : null}
                 {report ? (
                   <HtmlBlock
                     handlers={{ "[data-print]": () => window.print() }}

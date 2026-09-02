@@ -44,8 +44,8 @@ export function windowOf(t) {
    the legend direct-labels every slice with its name, count and share, so hue is never
    doing the work alone. A ninth category folds into "Other" rather than earning a
    generated hue. */
-const SERIES = ["#5486E8", "#BE7530", "#0E9CAC", "#9364CB", "#669E54", "#C05E7A"];
-const OTHER_COLOR = "#7A7A82";
+const SERIES = ["#3B82F6", "#F59E0B", "#10B981", "#8B5CF6", "#EC4899", "#06B6D4", "#F97316"];
+const OTHER_COLOR = "#94A3B8";
 const _catSlot = new Map();
 let _otherLabel = "";
 

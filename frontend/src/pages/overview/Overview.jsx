@@ -5,21 +5,7 @@ import ErrorBoundary from "../../components/ErrorBoundary";
 import FeedFilters from "../../components/subHead/FeedFilters";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
-import { buildFeed, paginateFeed, tilePredicate, FEED_PAGE_SIZE } from "../../lib/overview";
-
-/* Page numbers with an ellipsis: first, last, and a window around the current page.
-   Nine pages fit; a corpus that grows to eighty must not put eighty buttons on screen. */
-function pageNumbers(cur, count) {
-  if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1);
-  const out = [1];
-  const from = Math.max(2, cur - 1);
-  const to = Math.min(count - 1, cur + 1);
-  if (from > 2) out.push("…");
-  for (let n = from; n <= to; n += 1) out.push(n);
-  if (to < count - 1) out.push("…");
-  out.push(count);
-  return out;
-}
+import { buildFeed, tilePredicate } from "../../lib/overview";
 
 /* The overview feed and its detail column. Shared by all three pillars — the pillar
    only decides which card set and which metric strip config is in play, which is
@@ -35,9 +21,9 @@ export default function Overview({
   onSelectionChange,
 }) {
   const { data } = useData();
-  const { setScope, takePending } = useAppState();
+  const { setScope, takePending, searchQuery } = useAppState();
   const [selected, setSelected] = useState(null);
-  const [page, setPage] = useState(1);
+  const [feedSearchQuery, setFeedSearchQuery] = useState("");
 
   // the shell's third column collapses when nothing is selected, so Layout has to know
   useEffect(() => {
@@ -53,12 +39,6 @@ export default function Overview({
     setSelected(null);
   }, [pillarKey, seqMode]);
 
-  /* Any change to what the feed contains sends the reader back to page 1 -- staying on
-     page 7 of a filter that now has two pages would show an empty list. */
-  useEffect(() => {
-    setPage(1);
-  }, [pillarKey, seqMode, dirFilter, tile]);
-
   /* Memoised on the tile NAME, not rebuilt per render: an identity that changed every
      render made the auto-select effect below re-fire forever. */
   const tilePred = useMemo(() => (tile ? tilePredicate(tile) : null), [tile]);
@@ -66,6 +46,13 @@ export default function Overview({
   const visible = (card) => {
     if (dirFilter && dirFilter !== "all" && card.dir !== dirFilter) return false;
     if (tilePred && !tilePred(card)) return false;
+    const activeQ = (feedSearchQuery || searchQuery || "").trim().toLowerCase();
+    if (activeQ) {
+      const qTokens = activeQ.split(/\s+/).filter(Boolean);
+      const detail = (data.details && data.details[card.id]) || {};
+      const fullText = `${card.title || ""} ${card.company || ""} ${card.tags || ""} ${card.sowhat || ""} ${card.ago || ""} ${detail.facts || ""} ${detail.what || ""} ${detail.why || ""}`.toLowerCase();
+      if (!qTokens.every((tok) => fullText.includes(tok))) return false;
+    }
     return true;
   };
 
@@ -86,11 +73,6 @@ export default function Overview({
   useEffect(() => {
     const pend = takePending("overview");
     if (pend && pend.cardId && data.details && data.details[pend.cardId]) {
-      /* A global-search hit is usually not on the page in view -- 429 signals is nine
-         pages -- so turn to the one holding it before selecting, or the reader gets a
-         detail panel beside a feed that does not list what it describes. */
-      const at = pageView.pageOf(pend.cardId);
-      if (at && at !== page) goPage(at);
       select(pend.cardId);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -104,37 +86,41 @@ export default function Overview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tile]);
 
-  /* One page of the filtered feed. `feed.groups` now covers every served card, so the
-     page maths runs over the whole corpus and the reader walks it 50 at a time. */
-  const pageView = useMemo(
-    () => paginateFeed(feed.groups, visible, page),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [feed, dirFilter, tilePred, page],
-  );
-  const shownCount = pageView.shown;
-  const firstVisibleId = pageView.firstId;
+  const shownCount = (cfg.cards || []).filter(visible).length;
+  const firstVisibleId = (cfg.cards || []).find(visible)?.id;
 
-  /* The feed scrolls independently of the window, so a page turn has to rewind it --
-     otherwise page 2 opens halfway down. */
-  const goPage = (n) => {
-    setPage(n);
-    const el = document.getElementById("feed");
-    if (el) el.scrollTop = 0;
-  };
-  /* An empty feed still has a header, and the hardcoded fallback below printed the COMPETITIVE
-     heading over the technology pillar -- a wrong label on an empty panel reads as a wrong panel.
-     The pillar's own group def carries the right words even when it has no cards to slice. */
-  const topGroup =
-    pageView.groups[0] ||
-    feed.groups[0] ||
-    (cfg.groups || [])[0] || { h: cfg.title || "Signals", s: "" };
+  const isFiltered = dirFilter && dirFilter !== "all";
+  const activeFilterObj = (filters || []).find((f) => f.f === dirFilter);
+
+  const groupsWithCards = feed.groups
+    .map((g) => ({
+      ...g,
+      visibleCards: g.cards.filter(visible),
+    }))
+    .filter((g) => g.visibleCards.length > 0);
+
+  let topHeaderTitle = "";
+  let topHeaderSub = "";
+
+  if (isFiltered && activeFilterObj) {
+    topHeaderTitle = activeFilterObj.l || "Filtered Signals";
+    const matchingGroup = groupsWithCards[0] || (cfg.groups || [])[0];
+    topHeaderSub = matchingGroup?.s || "";
+  } else if (groupsWithCards.length > 0) {
+    topHeaderTitle = groupsWithCards[0].h;
+    topHeaderSub = groupsWithCards[0].s;
+  } else {
+    const fallback = (cfg.groups || [])[0] || { h: cfg.title || "Signals", s: "" };
+    topHeaderTitle = fallback.h;
+    topHeaderSub = fallback.s;
+  }
 
   return (
     <div className="ov-wrap">
       {/* FIXED TOP HEADER LINE: Fixed header bar with controls */}
       <div className="feed-grp-h ov-fixed-header">
         <span className="eyebrow">
-          {topGroup.h} <span className="sub">{topGroup.s}</span>
+          {topHeaderTitle} <span className="sub">{topHeaderSub}</span>
         </span>
         <FeedFilters
           active={tile ? null : dirFilter}
@@ -142,24 +128,37 @@ export default function Overview({
           onFilter={onFilter}
           onSeq={onSeq}
           seqMode={seqMode}
+          searchQuery={feedSearchQuery}
+          onSearch={setFeedSearchQuery}
         />
       </div>
 
-      <div className="ov-body">
+      <div className={`ov-body${selected ? " has-sel" : ""}`}>
         <div className="feed v-overview" id="feed">
-          {pageView.groups.map((g, gi) => {
-            const cards = g.cards.filter(visible);
-            if (!cards.length && gi !== 0) return null;
-            return (
+          {isFiltered ? (
+            <div className="feed-grp">
+              {groupsWithCards.flatMap((g) => g.visibleCards).map((c) => (
+                <SignalCard
+                  card={c}
+                  dirWord={cfg.dirWord[c.dir] || c.dir}
+                  fresh={c.id === firstVisibleId}
+                  key={c.id}
+                  onSelect={select}
+                  selected={selected === c.id}
+                />
+              ))}
+            </div>
+          ) : (
+            groupsWithCards.map((g, gi) => (
               <div className="feed-grp" key={g.h}>
-                {gi > 0 && cards.length ? (
+                {gi > 0 ? (
                   <div className="feed-grp-h">
                     <span className="eyebrow">
                       {g.h} <span className="sub">{g.s}</span>
                     </span>
                   </div>
                 ) : null}
-                {cards.map((c) => (
+                {g.visibleCards.map((c) => (
                   <SignalCard
                     card={c}
                     dirWord={cfg.dirWord[c.dir] || c.dir}
@@ -170,8 +169,8 @@ export default function Overview({
                   />
                 ))}
               </div>
-            );
-          })}
+            ))
+          )}
           {shownCount === 0 ? (
             <div className="empty-note">
               {/* an empty feed with no filter active is a served-nothing state,
@@ -181,50 +180,7 @@ export default function Overview({
                 : "— no signals served yet —"}
             </div>
           ) : (
-            <div className="pager">
-              <div className="pager-range">
-                showing {pageView.from}–{pageView.to} of {shownCount}
-                {shownCount !== feed.total ? ` filtered · ${feed.total} total` : " signals"}
-              </div>
-              {pageView.pageCount > 1 ? (
-                <div className="pager-ctl">
-                  <button
-                    className="pgbtn"
-                    disabled={pageView.page <= 1}
-                    onClick={() => goPage(pageView.page - 1)}
-                    type="button"
-                  >
-                    ‹ Prev
-                  </button>
-                  {pageNumbers(pageView.page, pageView.pageCount).map((n, i) =>
-                    n === "…" ? (
-                      <span className="pgap" key={`gap${i}`}>
-                        …
-                      </span>
-                    ) : (
-                      <button
-                        className={`pgbtn num${n === pageView.page ? " on" : ""}`}
-                        key={n}
-                        onClick={() => goPage(n)}
-                        type="button"
-                      >
-                        {n}
-                      </button>
-                    ),
-                  )}
-                  <button
-                    className="pgbtn"
-                    disabled={pageView.page >= pageView.pageCount}
-                    onClick={() => goPage(pageView.page + 1)}
-                    type="button"
-                  >
-                    Next ›
-                  </button>
-                </div>
-              ) : (
-                <div className="pager-range">— end of active signals —</div>
-              )}
-            </div>
+            <div className="empty-note">— end of active signals · {feed.total} total —</div>
           )}
         </div>
 

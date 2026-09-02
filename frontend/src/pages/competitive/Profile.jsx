@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
-import { buildProfile, rosterOf } from "../../lib/profile";
+import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
 import { companyNews } from "../../lib/news";
 
 // Helper function to extract clean company short name without full form or legal suffixes
@@ -203,11 +203,11 @@ function CorporateHierarchySvgMap({ structMap }) {
         </div>
       </div>
 
-      {/* Interactive SVG Canvas - Radial Constellation Graph */}
+      {/* Interactive SVG Canvas - One-to-Many Connector Tree Graph */}
       <div
         style={{
           width: "100%",
-          height: "480px",
+          height: "460px",
           overflow: "hidden",
           background: "#0d1117",
           borderRadius: "8px",
@@ -216,24 +216,39 @@ function CorporateHierarchySvgMap({ structMap }) {
         }}
       >
         {(() => {
-          const cx = 450;
-          const cy = 250;
-          const rx = 280;
-          const ry = 160;
+          const sisterList = Array.from(
+            new Set([...(structMap.sisters || []), ...(structMap.subsidiaries || [])])
+          );
+          const n = sisterList.length;
 
-          // Combine parent, sisters, and subsidiaries into radial nodes
-          const sisterList = structMap.sisters || [];
-          const subList = structMap.subsidiaries || [];
-          const radialItems = [
-            ...sisterList.map((s) => ({ label: s, type: "sister" })),
-            ...subList.slice(0, 3).map((s) => ({ label: s, type: "sister" })),
-          ];
+          const canvasWidth = 900;
+          const canvasHeight = 460;
 
-          const nRadial = radialItems.length;
+          // Top Card (Actual Company) - Dynamic Width based on Company Name Length
+          const companyName = structMap.current || "Company";
+          const cardW = Math.max(340, Math.min(680, companyName.length * 9.5 + 110));
+          const cardH = 85;
+          const cardX = (canvasWidth - cardW) / 2;
+          const cardY = 40;
+
+          const rootBottomX = canvasWidth / 2;
+          const rootBottomY = cardY + cardH;
+
+          // Connector Junction
+          const junctionY = 200;
+          const leafY = 295;
+
+          // Sister Company Column Positions (X coordinates)
+          const leftMargin = 100;
+          const rightMargin = 800;
+          const stepX = n > 1 ? (rightMargin - leftMargin) / (n - 1) : canvasWidth / 2;
+
+          const minX = n > 1 ? leftMargin : canvasWidth / 2;
+          const maxX = n > 1 ? rightMargin : canvasWidth / 2;
 
           return (
             <svg
-              viewBox="0 0 900 500"
+              viewBox="0 0 900 460"
               style={{
                 width: "100%",
                 height: "100%",
@@ -246,97 +261,218 @@ function CorporateHierarchySvgMap({ structMap }) {
               <pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse">
                 <path d="M 30 0 L 0 0 0 30" fill="none" stroke="#1e293b" strokeWidth="0.5" strokeDasharray="2 2" />
               </pattern>
-              <rect width="900" height="500" fill="url(#grid)" />
+              <rect width="900" height="460" fill="url(#grid)" />
 
-              {/* ============ TOP PARENT COMPANY NODE ============ */}
-              {(() => {
-                const px = 450;
-                const py = 75;
+              {/* ============ CONNECTOR LINES SYSTEM ============ */}
+              {/* 1. Main Vertical Line down from Root Card */}
+              <line
+                x1={rootBottomX}
+                y1={rootBottomY}
+                x2={rootBottomX}
+                y2={junctionY}
+                stroke="#e8483a"
+                strokeWidth="2.5"
+              />
+
+              {/* 2. Red Dot at Root Card bottom edge */}
+              <circle cx={rootBottomX} cy={rootBottomY} r="5" fill="#e8483a" />
+
+              {/* 3. Red Dot at Horizontal Junction Center */}
+              <circle cx={rootBottomX} cy={junctionY} r="5" fill="#e8483a" />
+
+              {/* 4. Horizontal Dashed Connector Bar */}
+              {n > 0 && (
+                <line
+                  x1={minX}
+                  y1={junctionY}
+                  x2={maxX}
+                  y2={junctionY}
+                  stroke="#64748b"
+                  strokeWidth="1.8"
+                  strokeDasharray="4,4"
+                />
+              )}
+
+              {/* 5. Vertical Lines to Sister Nodes */}
+              {sisterList.map((item, i) => {
+                const sisterX = n === 1 ? canvasWidth / 2 : leftMargin + i * stepX;
+                const isHovered = hoveredNode === item;
+
                 return (
-                  <g key="parent-group">
-                    <line x1={cx} y1={cy} x2={px} y2={py} stroke="#eab308" strokeWidth="2.5" opacity="0.85" />
-                    <g className="graph-node parent-node" style={{ cursor: "pointer" }}>
-                      <circle cx={px} cy={py} r="22" fill="#1e293b" stroke="#eab308" strokeWidth="3" />
-                      <circle cx={px} cy={py} r="13" fill="#eab308" />
-                      <text x={px} y={py - 30} textAnchor="middle" style={{ fill: "#fef08a", fontFamily: "var(--mono)", fontSize: "11.5px", fontWeight: "800" }}>
-                        {structMap.mother}
-                      </text>
-                    </g>
-                  </g>
-                );
-              })()}
-
-              {/* ============ SURROUNDING RADIAL SISTER NODES ============ */}
-              {radialItems.map((item, i) => {
-                const angle = -Math.PI / 2 + (i + 1) * ((2 * Math.PI) / (nRadial + 1));
-                const nx = Math.round(cx + rx * Math.cos(angle));
-                const ny = Math.round(cy + ry * Math.sin(angle));
-
-                const isRight = Math.cos(angle) >= 0;
-                const textAnchor = Math.abs(Math.cos(angle)) < 0.2 ? "middle" : isRight ? "start" : "end";
-                const textX = isRight ? nx + 26 : nx - 26;
-                const textY = ny + 4;
-
-                return (
-                  <g key={`sister-${i}`}>
-                    <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="#38bdf8" strokeWidth="1.8" strokeDasharray="3,3" opacity="0.75" />
-                    <g className="graph-node sister-node" style={{ cursor: "pointer" }}>
-                      <circle cx={nx} cy={ny} r="19" fill="#1e293b" stroke="#38bdf8" strokeWidth="2.5" />
-                      <circle cx={nx} cy={ny} r="11" fill="#38bdf8" />
-                      <text x={textX} y={textY} textAnchor={textAnchor} style={{ fill: "#e2e8f0", fontFamily: "var(--mono)", fontSize: "11px", fontWeight: "700" }}>
-                        {item.label}
-                      </text>
-                    </g>
+                  <g key={`connector-${i}`}>
+                    {/* Junction Dot on Horizontal Bar */}
+                    <circle
+                      cx={sisterX}
+                      cy={junctionY}
+                      r="3.5"
+                      fill={isHovered ? "#38bdf8" : "#64748b"}
+                    />
+                    {/* Vertical Drop Line */}
+                    <line
+                      x1={sisterX}
+                      y1={junctionY}
+                      x2={sisterX}
+                      y2={leafY}
+                      stroke={isHovered ? "#38bdf8" : "#64748b"}
+                      strokeWidth={isHovered ? 2.2 : 1.6}
+                      strokeDasharray="4,4"
+                      style={{ transition: "stroke 0.2s" }}
+                    />
                   </g>
                 );
               })}
 
-              {/* ============ ACTUAL COMPANY (CENTER HUB NODE) ============ */}
-              <g className="graph-node actual-node" style={{ cursor: "pointer" }}>
-                <circle cx={cx} cy={cy} r="28" fill="#1e293b" stroke="#e8483a" strokeWidth="3.5" />
-                <circle cx={cx} cy={cy} r="18" fill="#e8483a" />
-                <text x={cx} y={cy - 36} textAnchor="middle" style={{ fill: "#ffffff", fontFamily: "var(--mono)", fontSize: "14px", fontWeight: "800" }}>
-                  {structMap.current}
+              {/* ============ SISTER COMPANY NODES (BOTTOM ROW) ============ */}
+              {sisterList.map((item, i) => {
+                const sisterX = n === 1 ? canvasWidth / 2 : leftMargin + i * stepX;
+                const label = typeof item === "string" ? item : item.name || "";
+                const isHovered = hoveredNode === item;
+
+                // Stagger label Y position for odd index nodes when there are 4+ nodes to prevent text overlap
+                const isStaggered = n > 4 && i % 2 !== 0;
+                const labelY1 = isStaggered ? leafY + 60 : leafY + 34;
+                const labelY2 = isStaggered ? leafY + 74 : leafY + 48;
+
+                const words = label.split(" ");
+                let line1 = label;
+                let line2 = "";
+                if (label.length > 18 && words.length > 1) {
+                  const mid = Math.ceil(words.length / 2);
+                  line1 = words.slice(0, mid).join(" ");
+                  line2 = words.slice(mid).join(" ");
+                }
+
+                return (
+                  <g
+                    key={`sister-node-${i}`}
+                    onMouseEnter={() => setHoveredNode(item)}
+                    onMouseLeave={() => setHoveredNode(null)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    {/* Connector line extensions for staggered labels */}
+                    {isStaggered && (
+                      <line
+                        x1={sisterX}
+                        y1={leafY + 18}
+                        x2={sisterX}
+                        y2={labelY1 - 12}
+                        stroke={isHovered ? "#38bdf8" : "#334155"}
+                        strokeWidth="1"
+                        strokeDasharray="2,2"
+                      />
+                    )}
+
+                    {/* Blue Ring Circle */}
+                    <circle
+                      cx={sisterX}
+                      cy={leafY}
+                      r={isHovered ? 20 : 16}
+                      fill="#0d1117"
+                      stroke={isHovered ? "#38bdf8" : "#0284c7"}
+                      strokeWidth={isHovered ? 3.5 : 2.5}
+                      style={{ transition: "all 0.2s" }}
+                    />
+                    <circle
+                      cx={sisterX}
+                      cy={leafY}
+                      r={7}
+                      fill={isHovered ? "#38bdf8" : "transparent"}
+                      style={{ transition: "fill 0.2s" }}
+                    />
+
+                    {/* Sister Company Name Below Circle */}
+                    <text
+                      x={sisterX}
+                      y={labelY1}
+                      textAnchor="middle"
+                      style={{
+                        fill: isHovered ? "#ffffff" : "#e2e8f0",
+                        fontFamily: "var(--mono)",
+                        fontSize: n > 5 ? "10.5px" : "11.5px",
+                        fontWeight: isHovered ? "700" : "600",
+                        transition: "fill 0.2s",
+                      }}
+                    >
+                      {line1}
+                    </text>
+                    {line2 && (
+                      <text
+                        x={sisterX}
+                        y={labelY2}
+                        textAnchor="middle"
+                        style={{
+                          fill: isHovered ? "#38bdf8" : "#94a3b8",
+                          fontFamily: "var(--mono)",
+                          fontSize: n > 5 ? "9.5px" : "10.5px",
+                          fontWeight: "500",
+                          transition: "fill 0.2s",
+                        }}
+                      >
+                        {line2}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+
+              {/* ============ ROOT NODE CARD (ACTUAL COMPANY) ============ */}
+              <g style={{ cursor: "pointer" }}>
+                {/* Main Card Border & Background */}
+                <rect
+                  x={cardX}
+                  y={cardY}
+                  width={cardW}
+                  height={cardH}
+                  rx="12"
+                  fill="#161b22"
+                  stroke="#e8483a"
+                  strokeWidth="1.8"
+                />
+
+                {/* Building Icon Container */}
+                <circle cx={cardX + 38} cy={cardY + cardH / 2} r="20" fill="rgba(232, 72, 58, 0.12)" />
+                <text
+                  x={cardX + 38}
+                  y={cardY + cardH / 2 + 6}
+                  textAnchor="middle"
+                  style={{ fontSize: "18px", userSelect: "none" }}
+                >
+                  🏢
+                </text>
+
+                {/* Company Title */}
+                <text
+                  x={cardX + 70}
+                  y={cardY + 38}
+                  style={{
+                    fill: "#ffffff",
+                    fontFamily: "var(--mono)",
+                    fontSize: "14px",
+                    fontWeight: "800",
+                    letterSpacing: ".01em",
+                  }}
+                >
+                  {companyName}
+                </text>
+
+                {/* Subtitle Badge */}
+                <text
+                  x={cardX + 70}
+                  y={cardY + 58}
+                  style={{
+                    fill: "#e8483a",
+                    fontFamily: "var(--mono)",
+                    fontSize: "11px",
+                    fontWeight: "700",
+                    letterSpacing: ".04em",
+                  }}
+                >
+                  Actual Company
                 </text>
               </g>
             </svg>
           );
         })()}
-
-        {/* BOTTOM-RIGHT 3-COLOR COMPANY STRUCTURE LEGEND INDEX */}
-        <div
-          className="pg-company-structure-index"
-          style={{
-            position: "absolute",
-            bottom: "16px",
-            right: "16px",
-            background: "#ffffff",
-            border: "1px solid #e2e0d8",
-            padding: "10px 14px",
-            borderRadius: "8px",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
-            display: "flex",
-            flexDirection: "column",
-            gap: "6px",
-            zIndex: 20,
-          }}
-        >
-          <div style={{ fontSize: "10px", fontWeight: "700", color: "#b5341f", textTransform: "uppercase", letterSpacing: ".08em", marginBottom: "2px", fontFamily: "var(--mono)" }}>
-            COMPANY STRUCTURE INDEX
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11.5px", color: "#161614", fontWeight: "600" }}>
-            <span style={{ width: "12px", height: "12px", borderRadius: "50%", background: "#eab308", border: "2px solid #ca8a04", display: "inline-block" }} />
-            <span>1. Parent Company</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11.5px", color: "#161614", fontWeight: "600" }}>
-            <span style={{ width: "12px", height: "12px", borderRadius: "50%", background: "#e8483a", border: "2px solid #b91c1c", display: "inline-block" }} />
-            <span>2. Actual Company</span>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "11.5px", color: "#161614", fontWeight: "600" }}>
-            <span style={{ width: "12px", height: "12px", borderRadius: "50%", background: "#38bdf8", border: "2px solid #0284c7", display: "inline-block" }} />
-            <span>3. Sister Companies</span>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -356,7 +492,7 @@ function Sec({ title, note, children }) {
 
 export default function Profile() {
   const { data } = useData();
-  const { setScope, takePending } = useAppState();
+  const { setScope, takePending, searchQuery } = useAppState();
   const [query, setQuery] = useState("");
   const roster = useMemo(() => rosterOf(data), [data]);
   const [cid, setCid] = useState(() => (roster[0] ? roster[0].cid : ""));
@@ -375,13 +511,22 @@ export default function Profile() {
   const [newsFilter, setNewsFilter] = useState("All");
   const [activeArticle, setActiveArticle] = useState(null);
 
+  useEffect(() => {
+    const pend = takePending("profile");
+    if (pend && pend.cid) {
+      setCid(pend.cid);
+    }
+  }, [takePending]);
+
   const list = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = (query || searchQuery || "").trim().toLowerCase();
     if (!q) return roster;
-    return roster.filter(
-      (r) => `${r.name} ${r.sector}`.toLowerCase().indexOf(q) >= 0,
-    );
-  }, [roster, query]);
+    const tokens = q.split(/\s+/).filter(Boolean);
+    return roster.filter((r) => {
+      const fullText = `${r.name || ""} ${r.sector || ""} ${r.hq || ""} ${r.cid || ""}`.toLowerCase();
+      return tokens.every((tok) => fullText.includes(tok));
+    });
+  }, [roster, query, searchQuery]);
 
   const p = useMemo(() => (cid ? buildProfile(data, cid) : null), [data, cid]);
 
@@ -612,7 +757,7 @@ export default function Profile() {
             </div>
 
             {/* 2. COMPANY DETAILS (ROW BY ROW METADATA) */}
-            <Sec title="Company Details" note="Corporate metadata, operational focus & manufactured portfolio">
+            <Sec title="Company Details" note="Corporate metadata & operational focus">
               {companyMeta && (
                 <div
                   className="cp-meta-rows"
@@ -665,7 +810,7 @@ export default function Profile() {
                     <span style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--d-txt-3)", fontWeight: "600", textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>
                       Industry / Sector
                     </span>
-                    <span style={{ color: "var(--d-txt)", fontWeight: "600" }}>{companyMeta.sector}</span>
+                    <span style={{ color: "var(--d-txt)", fontWeight: "600" }}>{formatSectorName(companyMeta.sector)}</span>
                   </div>
                 </div>
               )}
@@ -684,22 +829,6 @@ export default function Profile() {
               {structMap && (
                 <div style={{ marginTop: "24px", marginBottom: "24px" }}>
                   <CorporateHierarchySvgMap structMap={structMap} />
-                </div>
-              )}
-
-              {/* Manufactured Products & Portfolio */}
-              {p.products && p.products.length > 0 && (
-                <div style={{ marginTop: "12px" }}>
-                  <span className="eyebrow" style={{ fontSize: "10px", color: "var(--d-txt-3)", display: "block", marginBottom: "8px" }}>
-                    Manufactured Products & Portfolio ({p.products.length})
-                  </span>
-                  <div className="cp-chips">
-                    {p.products.map((n, i) => (
-                      <span className="cp-chip" key={`${n}-${i}`}>
-                        {typeof n === "string" ? n : n.name || n.n || ""}
-                      </span>
-                    ))}
-                  </div>
                 </div>
               )}
             </Sec>

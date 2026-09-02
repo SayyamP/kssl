@@ -409,43 +409,30 @@ export function createPartners(d) {
       // Connecting Radial Line
       edgeHtml += `<line class="pg-edge ${lineClass}" data-b="${p.id}" x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" style="stroke: ${strokeColor}; stroke-width: ${isOverlap ? "2px" : "1.5px"}; opacity: ${isOverlap ? "0.85" : "0.55"};" />`;
 
-      // Satellite Sub-Nodes (Expandable Hierarchy Satellites inspired by sc/image.png)
-      const satCount = 2 + (i % 2);
-      const satSpread = 0.45;
-      for (let s = 0; s < satCount; s++) {
-        const satAng = ang + (s - (satCount - 1) / 2) * satSpread;
-        const satDist = 28;
-        const sx = nx + satDist * Math.cos(satAng);
-        const sy = ny + satDist * Math.sin(satAng);
-
-        edgeHtml += `<line x1="${nx}" y1="${ny}" x2="${sx}" y2="${sy}" style="stroke: ${strokeColor}; stroke-width: 1px; opacity: 0.35;" />`;
-        nodeHtml += `<circle cx="${sx}" cy="${sy}" r="3" fill="${fillColor}" opacity="0.7" />`;
-      }
-
       // Main Circular Partner Node
       const rNode = 12;
       const labelText = esc(p.label || "");
       const kindText = esc(p.kind || "Partner");
 
-      // Smart label placement by hemisphere
+      // Smart label placement by hemisphere with safe clearance around node radius
       const cosA = Math.cos(ang);
       const sinA = Math.sin(ang);
       let textAnchor = "middle";
       let lx = nx;
-      let ly = ny + rNode + 14;
+      let ly = ny + rNode + 16;
 
       if (cosA > 0.35) {
         textAnchor = "start";
-        lx = nx + rNode + 8;
-        ly = ny + 4;
+        lx = nx + rNode + 10;
+        ly = ny - 2;
       } else if (cosA < -0.35) {
         textAnchor = "end";
-        lx = nx - rNode - 8;
-        ly = ny + 4;
+        lx = nx - rNode - 10;
+        ly = ny - 2;
       } else if (sinA < 0) {
         textAnchor = "middle";
         lx = nx;
-        ly = ny - rNode - 8;
+        ly = ny - rNode - 22;
       }
 
       nodeHtml +=
@@ -465,8 +452,7 @@ export function createPartners(d) {
       `<circle cx="${cx}" cy="${cy}" r="46" fill="rgba(255,255,255,0.06)" />` +
       `<circle cx="${cx}" cy="${cy}" r="34" fill="rgba(255,255,255,0.12)" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" />` +
       `<circle cx="${cx}" cy="${cy}" r="22" fill="#ffffff" stroke="#ffffff" stroke-width="2" style="filter: drop-shadow(0 0 12px rgba(255,255,255,0.9));" />` +
-      `<text x="${cx}" y="${cy + 38}" text-anchor="middle" fill="#ffffff" font-size="13.5px" font-weight="800" font-family="var(--mono)" letter-spacing="0.05em">${centerName}</text>` +
-      `<text x="${cx}" y="${cy + 52}" text-anchor="middle" fill="#94a3b8" font-size="9.5px" font-family="var(--mono)" letter-spacing="0.08em">SELECTED OEM</text>` +
+      `<text x="${cx}" y="${cy + 42}" text-anchor="middle" fill="#ffffff" font-size="14px" font-weight="800" font-family="var(--mono)" letter-spacing="0.03em">${centerName}</text>` +
       `</g>`;
 
     return svg + edgeHtml + nodeHtml + centerHtml;

@@ -123,6 +123,9 @@ export function AppStateProvider({ children }) {
     [pending],
   );
 
+  /* Global search query state used by the top bar to filter the currently open page's rows live */
+  const [searchQuery, setSearchQuery] = useState("");
+
   const value = useMemo(
     () => ({
       pillar,
@@ -137,8 +140,10 @@ export function AppStateProvider({ children }) {
       jumpTo,
       pending,
       takePending,
+      searchQuery,
+      setSearchQuery,
     }),
-    [pillar, view, setPillar, chatCtx, scoped, setScope, jumpTo, pending, takePending],
+    [pillar, view, setPillar, chatCtx, scoped, setScope, jumpTo, pending, takePending, searchQuery],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
