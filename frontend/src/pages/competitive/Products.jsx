@@ -155,8 +155,24 @@ const countryOf = (hq) => {
   return parts.length > 1 ? parts[parts.length - 1] : null;
 };
 
+/* The country facet, from the catalogued column first and the hq string only as a
+   fallback. hq alone offered 11 values for a 178-company roster -- only 42 companies
+   carry one at all, and three of the values it yielded ("Virginia", "Telangana",
+   "Calif.") are not countries, because a "City, Region" hq has a region in its tail.
+   competitors.global_locations is structured {url, value} written by the profile-facts
+   writer and sourced per value, and it covers 75 companies. A sourced value beats a
+   string split every time. */
+const countriesOf = (co) => {
+  const gl = Array.isArray(co.global_locations) ? co.global_locations : [];
+  const named = gl.map((g) => (g && typeof g === "object" ? g.value : g)).filter(Boolean);
+  if (named.length) return [...new Set(named.map((v) => String(v).trim()))];
+  const one = countryOf(co.hq);
+  return one ? [one] : [];
+};
+
 const getCompanyFilterMeta = (co) => ({
-  country: countryOf(co.hq),
+  countries: countriesOf(co),
+  country: countriesOf(co)[0] || null,
   /* The maker's own sector, not a bucket mapped onto it -- but normalised through the
      one shared formatter. Rendered raw, the sidebar dropdown listed the same sector six
      times ("Aerospace and Defense", "Defence", "defense technology", "defence and
@@ -199,6 +215,7 @@ export default function Products() {
           threat: co.threat || "watch",
           sector: co.sector || "",
           country: meta.country,
+          countries: meta.countries,
           category: meta.category,
           revenueTier: meta.revenueTier,
         });
@@ -232,7 +249,9 @@ export default function Products() {
 
   // Unique lists for sidebar dropdown options
   const sidebarCountries = useMemo(() => {
-    const set = new Set(companyRoster.map((c) => c.country).filter(Boolean));
+    /* Every country a company is present in, not just the first -- Airbus is in five,
+       and offering only one of them made the other four unreachable by this filter. */
+    const set = new Set(companyRoster.flatMap((c) => c.countries || []).filter(Boolean));
     return ["all", ...Array.from(set)];
   }, [companyRoster]);
 
@@ -252,7 +271,8 @@ export default function Products() {
         const fullText = `${c.name || ""} ${c.sector || ""} ${c.hq || ""} ${c.cid || ""}`.toLowerCase();
         if (!tokens.every((tok) => fullText.includes(tok))) return false;
       }
-      if (sidebarCountryFilter !== "all" && c.country !== sidebarCountryFilter) return false;
+      if (sidebarCountryFilter !== "all" && !(c.countries || []).includes(sidebarCountryFilter))
+        return false;
       if (sidebarCategoryFilter !== "all" && c.category !== sidebarCategoryFilter) return false;
       if (sidebarRevenueFilter !== "all" && c.revenueTier !== sidebarRevenueFilter) return false;
       return true;
