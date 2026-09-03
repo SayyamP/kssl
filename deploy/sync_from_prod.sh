@@ -4,6 +4,15 @@
 #   ./deploy/sync_from_prod.sh staging
 #   ./deploy/sync_from_prod.sh dev
 #
+# RUN IT DETACHED. A restore of production's dump takes many minutes, and over a plain SSH
+# session a dropped connection kills pg_restore mid-way:
+#
+#   systemd-run --unit=kssl-sync --collect --property=WorkingDirectory=/opt/kssl/app \
+#     --setenv=DUMP_FILE=/tmp/prod.dump ./deploy/sync_from_prod.sh staging
+#
+# The restore-then-rename below means an interrupted run is harmless -- kssl_incoming is
+# left behind and the live database is untouched -- but finishing beats retrying.
+#
 # ONE WAY, ALWAYS. Production is the only writable copy of the corpus and the serving
 # tables; this pulls from it and never pushes back. That is what makes staging and dev safe
 # to be destructive in -- whatever they do to their data, the next refresh overwrites it and
@@ -68,7 +77,10 @@ echo ">> [$(date -u +%H:%M:%S)] dump is $SZ, restoring into $LOCAL_DB"
 # --clean --if-exists so a re-run replaces rather than conflicts. Restore into a temp
 # database first and swap only on success: a half-restored environment that still reports
 # itself healthy is worse than one that is plainly a version behind.
+# DROP first: an interrupted run leaves a partial kssl_incoming behind, and restoring into
+# it again would silently merge two attempts.
 docker exec -i "$LOCAL_DB" psql -U postgres -d postgres -q \
+  -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='kssl_incoming' AND pid <> pg_backend_pid();" \
   -c "DROP DATABASE IF EXISTS kssl_incoming;" -c "CREATE DATABASE kssl_incoming;"
 # pg_restore cannot run a PARALLEL restore from a stream -- "parallel restore from standard
 # input is not supported" -- and a 973MB dump is exactly where -j earns its keep. So the
