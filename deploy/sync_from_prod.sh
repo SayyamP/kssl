@@ -41,6 +41,18 @@ PROD_SSH="${PROD_SSH:-root@62.72.59.79}"
 LOCAL_DB="${KSSL_PREFIX}-db"
 DUMP=/tmp/kssl_prod_$ENVN.dump
 
+# A dump can also be DELIVERED rather than pulled:
+#
+#   DUMP_FILE=/tmp/prod.dump ./deploy/sync_from_prod.sh staging
+#
+# That path exists because the replica hosts have no SSH key to production and issuing one
+# would mean changing production to serve a non-production environment. An operator who can
+# reach both machines streams the dump across and points this at the file.
+if [ -n "${DUMP_FILE:-}" ]; then
+  [ -f "$DUMP_FILE" ] || { echo "!! DUMP_FILE=$DUMP_FILE does not exist"; exit 4; }
+  DUMP="$DUMP_FILE"
+  echo ">> [$(date -u +%H:%M:%S)] using delivered dump $DUMP"
+else
 echo ">> [$(date -u +%H:%M:%S)] dumping production ($PROD_SSH)"
 # -Fc is compressed and lets pg_restore run its loads in parallel on the way back in.
 # --no-owner/--no-acl because the roles on prod need not exist here.
@@ -48,6 +60,7 @@ ssh -o BatchMode=yes -o ConnectTimeout=30 "$PROD_SSH" \
   "docker exec -i kssl-db pg_dump -U postgres -d kssl -Fc --no-owner --no-acl \
      -n public -n extracted -n serving \
      -T public.prio -T public.prio_demote_backup -T public.oversize_backup" > "$DUMP"
+fi
 
 SZ=$(du -h "$DUMP" | cut -f1)
 echo ">> [$(date -u +%H:%M:%S)] dump is $SZ, restoring into $LOCAL_DB"
@@ -69,7 +82,7 @@ ALTER DATABASE kssl RENAME TO kssl_previous;
 ALTER DATABASE kssl_incoming RENAME TO kssl;
 SQL
 
-rm -f "$DUMP"
+[ -z "${DUMP_FILE:-}" ] && rm -f "$DUMP"   # a delivered dump belongs to the caller
 echo ">> [$(date -u +%H:%M:%S)] $ENVN now carries production's data (previous kept as kssl_previous)"
 docker exec -i "$LOCAL_DB" psql -U postgres -d kssl -At -c \
   "select 'documents='||(select count(*) from documents)
