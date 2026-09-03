@@ -82,12 +82,37 @@ echo ">> [$(date -u +%H:%M:%S)] dump is $SZ, restoring into $LOCAL_DB"
 docker exec -i "$LOCAL_DB" psql -U postgres -d postgres -q \
   -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='kssl_incoming' AND pid <> pg_backend_pid();" \
   -c "DROP DATABASE IF EXISTS kssl_incoming;" -c "CREATE DATABASE kssl_incoming;"
+# A new database is created WITH a public schema, and the dump carries its own
+# "CREATE SCHEMA public" -- which then fails with 'schema "public" already exists'. Drop it
+# so the dump can create it, rather than leaving pg_restore to report an error for a step
+# that actually needs to happen.
+docker exec -i "$LOCAL_DB" psql -U postgres -d kssl_incoming -q -c "DROP SCHEMA IF EXISTS public CASCADE;"
 # pg_restore cannot run a PARALLEL restore from a stream -- "parallel restore from standard
 # input is not supported" -- and a 973MB dump is exactly where -j earns its keep. So the
 # dump goes INTO the container as a file first, and is removed afterwards.
 docker cp "$DUMP" "$LOCAL_DB:/tmp/restore.dump"
-docker exec -i "$LOCAL_DB" pg_restore -U postgres -d kssl_incoming --no-owner --no-acl -j 4 /tmp/restore.dump
+# pg_restore's exit code is NOT the test. It returns non-zero for warnings that do not
+# matter (a missing role, an extension comment) and, with -j, keeps going after a failed
+# item -- so trusting it either aborts a good restore or, worse, lets a bad one through.
+# The test below is whether the data actually arrived.
+set +e
+docker exec -i "$LOCAL_DB" pg_restore -U postgres -d kssl_incoming --no-owner --no-acl -j 4 /tmp/restore.dump 2>/tmp/restore.err
+RC=$?
+set -e
 docker exec -i "$LOCAL_DB" rm -f /tmp/restore.dump
+[ "$RC" -eq 0 ] || echo "   pg_restore exited $RC; $(grep -c . /tmp/restore.err 2>/dev/null || echo 0) message(s) -- verifying the data instead"
+
+# VERIFY BEFORE SWAPPING. An environment that is a version behind is fine; one that is
+# half-loaded while reporting itself healthy is not.
+CNT=$(docker exec -i "$LOCAL_DB" psql -U postgres -d kssl_incoming -At -F' ' -c \
+  "select (select count(*) from public.documents), (select count(*) from extracted.document), (select count(*) from serving.card)" 2>/dev/null || echo "")
+read -r N_DOCS N_EXTR N_CARD <<< "${CNT:-0 0 0}"
+echo "   restored: documents=$N_DOCS extracted=$N_EXTR serving.card=$N_CARD"
+if [ "${N_DOCS:-0}" -lt 1 ] || [ "${N_CARD:-0}" -lt 1 ]; then
+  echo "!! restore did not produce data -- leaving $ENVN on its previous database untouched."
+  [ -s /tmp/restore.err ] && { echo "   first errors:"; head -5 /tmp/restore.err; }
+  exit 6
+fi
 
 docker exec -i "$LOCAL_DB" psql -U postgres -d postgres -q <<'SQL'
 -- Swap under one lock. Sessions on the old database are terminated first, or the rename
