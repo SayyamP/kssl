@@ -1,0 +1,16 @@
+# DEV override (data centre) — same images, smallest possible footprint.
+#
+#   docker compose -f docker-compose.vps.yml -f docker-compose.dev.yml up -d
+#
+# THE DATA CENTRE IS A SHARED MACHINE. Other people's containers and the crawler itself run
+# on it, so dev takes two workers and nothing else. A change that needs volume to evaluate
+# belongs on staging or prod, not here.
+#
+# What dev is FOR: it sits beside the crawler corpus, so a corpus-selection or
+# body-pull change (select_worklist.py, route.py's classes and caps) can be tested against
+# the real source without moving 800MB across the network first.
+services:
+  frontend:
+    image: ghcr.io/137mallory/kssl-deploy/frontend:${TAG:-latest}
+  backend:
+    image: ghcr.io/137mallory/kssl-deploy/backend:${TAG:-latest}

@@ -10,10 +10,27 @@
 # to ghcr.io (the CI deploy step logs in with its ephemeral token).
 set -euo pipefail
 
-SHA="${1:?usage: deploy.sh <git-sha>}"
+SHA="${1:?usage: deploy.sh <git-sha> [env]}"
 APP="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$APP"
-COMPOSE=(docker compose -f docker-compose.vps.yml -f docker-compose.prod.yml)
+
+# ENVIRONMENT. Three of them, one per machine, differing only in which overlay is applied
+# and which container-name prefix and ports they claim:
+#
+#   prod     main branch     VPS-B                authoritative data, the extraction fleet
+#   staging  staging branch  VPS-A                replica data, 4+4 workers
+#   dev      dev branch      data centre          replica data, 1+1 workers
+#
+# Defaults to prod so an existing `deploy.sh <sha>` call keeps behaving exactly as before --
+# the production deploy path is the one thing this split must not change.
+KSSL_ENV_NAME="${2:-${KSSL_ENV:-prod}}"
+ENV_FILE="$APP/deploy/envs/$KSSL_ENV_NAME.env"
+[ -f "$ENV_FILE" ] || { echo "!! no such environment: $KSSL_ENV_NAME (expected $ENV_FILE)"; exit 2; }
+# shellcheck disable=SC1090
+set -a; . "$ENV_FILE"; set +a
+echo ">> environment: $KSSL_ENV_NAME  prefix=$KSSL_PREFIX  overlay=$COMPOSE_OVERLAY"
+
+COMPOSE=(docker compose -f docker-compose.vps.yml -f "$COMPOSE_OVERLAY")
 
 # pin TAG in the server .env (add the line if it isn't there yet) and record what's live
 if grep -q '^TAG=' .env 2>/dev/null; then
@@ -22,6 +39,15 @@ else
   echo "TAG=$SHA" >> .env
 fi
 export TAG="$SHA"
+# The environment's identity has to be IN the server .env, not just this shell: every later
+# `docker compose` run on that box (a manual restart, the next deploy) interpolates
+# ${KSSL_PREFIX} and the port variables from it. Without this a hand-run compose on VPS-A
+# would fall back to the bare `kssl-` names and try to take over production's.
+for kv in "KSSL_ENV=$KSSL_ENV_NAME" "KSSL_PREFIX=$KSSL_PREFIX" "KSSL_DB_PORT=$KSSL_DB_PORT" \
+          "KSSL_OLLAMA_PORT=$KSSL_OLLAMA_PORT" "LLMAPI_PORT=$LLMAPI_PORT"; do
+  k="${kv%%=*}"
+  if grep -q "^$k=" .env 2>/dev/null; then sed -i "s|^$k=.*|$kv|" .env; else echo "$kv" >> .env; fi
+done
 echo "$SHA" > .DEPLOYED_SHA
 
 echo ">> pulling images @ $SHA"
@@ -32,7 +58,7 @@ echo ">> recreating frontend + backend (nothing else)"
 
 # health gate — both containers must be running after the swap
 sleep 4
-for c in kssl-frontend kssl-backend; do
+for c in "$KSSL_PREFIX-frontend" "$KSSL_PREFIX-backend"; do
   if [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != "true" ]; then
     echo "!! $c is not running after deploy — see 'docker compose logs $c'"
     "${COMPOSE[@]}" ps frontend backend

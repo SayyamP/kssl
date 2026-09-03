@@ -1,0 +1,22 @@
+# STAGING extraction overlay (VPS-A).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d
+#
+# The pools are a different compose PROJECT from the app (network_mode: host, its own
+# lifecycle), so the environment split has to be expressed here too rather than in the
+# app's staging overlay.
+#
+# Four workers per farm, not 54 and 128. Staging proves a change claims, leases, chunks,
+# calls GLiNER and the LLM, stores and releases -- it does not move corpus volume. It also
+# shares kssl-db's connection budget with prod's 198 workers, and VPS-A is already carrying
+# the crawler and comprehension dashboards.
+services:
+  worker:
+    deploy:
+      replicas: 4
+  worker-pune:
+    deploy:
+      replicas: 4
+  worker-big:
+    deploy:
+      replicas: 0

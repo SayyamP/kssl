@@ -1,16 +1,27 @@
-name: Deploy to VPS-B
+name: Deploy
 
-# Push to kssl-deploy → build+push SHA-pinned images to GHCR. The deploy to VPS-B then
+# THREE ENVIRONMENTS, ONE WORKFLOW. The branch decides the machine:
+#
+#   main     -> prod     VPS-B          authoritative data, the extraction fleet
+#   staging  -> staging   VPS-A         replica data, small fleet
+#   dev      -> dev       data centre   replica data, one worker per farm
+#
+# Host, user, port and key come from a GitHub *Environment* of the same name, so the same
+# steps deploy to a different machine with no branching in the script. DEPLOY_ENABLED is
+# still consulted for prod only -- staging and dev are the whole point of being able to
+# deploy freely, and neither one can reach production's data.
+#
+# Push to kssl-deploy → build+push SHA-pinned images to GHCR. The deploy to the target then
 # rsyncs the exact commit's source (compose, db/*.sql, deploy/) and recreates ONLY
 # frontend+backend from GHCR — the extraction farm and DB/LLM containers are never touched.
 #
-# SAFETY: the deploy job only runs when the repo variable DEPLOY_ENABLED == 'true'. Until
-# then, pushes just build+push images (harmless) and the VPS is left alone. Flip the
-# variable (repo → Settings → Variables → Actions) to arm auto-deploy. workflow_dispatch
-# with a `sha` input re-deploys any past build — that is also the rollback path.
+# SAFETY: the PRODUCTION deploy only runs when the repo variable DEPLOY_ENABLED == 'true'.
+# Until then a push to main just builds and pushes images (harmless) and VPS-B is left
+# alone. Flip the variable (repo → Settings → Variables → Actions) to arm it.
+# workflow_dispatch with a `sha` input re-deploys any past build — that is the rollback path.
 on:
   push:
-    branches: [main]
+    branches: [main, staging, dev]
     paths:
       - "frontend/**"
       - "backend/**"
@@ -28,7 +39,8 @@ on:
         required: false
 
 concurrency:
-  group: deploy-vps-b
+  # Per branch, so a staging deploy never queues behind a production one.
+  group: deploy-${{ github.ref_name }}
   cancel-in-progress: false
 
 permissions:
@@ -40,9 +52,17 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.pick.outputs.sha }}
+      env: ${{ steps.pick.outputs.env }}
     steps:
       - id: pick
-        run: echo "sha=${{ github.event.inputs.sha || github.sha }}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=${{ github.event.inputs.sha || github.sha }}" >> "$GITHUB_OUTPUT"
+          case "${{ github.ref_name }}" in
+            main)    echo "env=prod"    >> "$GITHUB_OUTPUT" ;;
+            staging) echo "env=staging" >> "$GITHUB_OUTPUT" ;;
+            dev)     echo "env=dev"     >> "$GITHUB_OUTPUT" ;;
+            *)       echo "env=none"    >> "$GITHUB_OUTPUT" ;;
+          esac
 
   build:
     needs: resolve
@@ -84,8 +104,10 @@ jobs:
   deploy:
     needs: [resolve, build]
     runs-on: ubuntu-latest
-    # Armed only when the operator flips DEPLOY_ENABLED. Off = build images but never touch the VPS.
-    if: vars.DEPLOY_ENABLED == 'true'
+    # Production stays gated behind DEPLOY_ENABLED. Staging and dev deploy on every push --
+    # that is what they are for, and neither can reach production's data.
+    if: needs.resolve.outputs.env != 'none' && (needs.resolve.outputs.env != 'prod' || vars.DEPLOY_ENABLED == 'true')
+    environment: ${{ needs.resolve.outputs.env }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,16 +121,20 @@ jobs:
           GHTOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
           SHA: ${{ needs.resolve.outputs.sha }}
+          KENV: ${{ needs.resolve.outputs.env }}
         run: |
           install -m600 /dev/stdin "$HOME/dk" <<< "$SSH_KEY"
           SSH="ssh -i $HOME/dk -o StrictHostKeyChecking=accept-new -p $PORT"
-          # source in lockstep with the image; never delete VPS-only runtime files (.env, PRODUCTION.html)
+          # Source in lockstep with the image; never delete VPS-only runtime files (.env,
+          # PRODUCTION.html). NOTE the exclude is '/*.env', anchored to the transfer root --
+          # a bare '*.env' also matches deploy/envs/{prod,staging,dev}.env, and without those
+          # files deploy.sh exits with "no such environment" on every host.
           rsync -az \
             --exclude='.git' --exclude='node_modules' --exclude='frontend/dist' \
-            --exclude='__pycache__' --exclude='*.pyc' --exclude='.env' --exclude='*.env' \
+            --exclude='__pycache__' --exclude='*.pyc' --exclude='.env' --exclude='/*.env' \
             --exclude='*.log' --exclude='*.sqlite*' \
             -e "$SSH" ./ "$USER@$HOST:/opt/kssl/app/"
           $SSH "$USER@$HOST" \
             "echo '$GHTOKEN' | docker login ghcr.io -u '$ACTOR' --password-stdin \
-             && cd /opt/kssl/app && chmod +x deploy/deploy.sh && ./deploy/deploy.sh '$SHA' \
+             && cd /opt/kssl/app && chmod +x deploy/deploy.sh && ./deploy/deploy.sh '$SHA' '$KENV' \
              && docker logout ghcr.io"

@@ -1,3 +1,9 @@
+# ENVIRONMENT PREFIX. Container names carry ${KSSL_PREFIX:-kssl} so the same compose file
+# can run on all three hosts without colliding: prod keeps the bare `kssl-` names, staging
+# on VPS-A uses `kssl-stg-`, dev at the data centre uses `kssl-dev-`. VPS-A already runs a
+# container called kssl-gliner for the dashboards, which is exactly the collision this
+# avoids. Published ports are already env-driven (KSSL_DB_PORT, KSSL_OLLAMA_PORT,
+# LLMAPI_PORT) and each environment file picks a distinct set.
 # The VPS stack: Postgres + backend + built frontend, published through the
 # Traefik that is ALREADY running on this server.
 #
@@ -24,7 +30,7 @@ name: kssl
 services:
   db:
     image: postgres:16
-    container_name: kssl-db
+    container_name: ${KSSL_PREFIX:-kssl}-db
     environment:
       POSTGRES_PASSWORD: ${KSSL_DB_PASSWORD:?set KSSL_DB_PASSWORD in .env}
       POSTGRES_DB: ${KSSL_DB_NAME:-kssl}
@@ -85,7 +91,7 @@ services:
       # second copy of it living under backend/
       context: .
       dockerfile: backend/Dockerfile
-    container_name: kssl-backend
+    container_name: ${KSSL_PREFIX:-kssl}-backend
     environment:
       KSSL_DSN: host=db port=5432 dbname=${KSSL_DB_NAME:-kssl} user=${KSSL_DB_USER:-postgres} password=${KSSL_DB_PASSWORD}
       KSSL_SERVE_ORIGIN: ${KSSL_SERVE_ORIGIN:-live}
@@ -127,7 +133,7 @@ services:
   frontend:
     build:
       context: ./frontend
-    container_name: kssl-frontend
+    container_name: ${KSSL_PREFIX:-kssl}-frontend
     expose:
       - "80"
     depends_on:
@@ -167,7 +173,7 @@ services:
   # was wrong -- a few hundred cards at 14-28 s each is under two hours.
   llm:
     image: ollama/ollama:latest
-    container_name: kssl-llm
+    container_name: ${KSSL_PREFIX:-kssl}-llm
     environment:
       OLLAMA_MODELS: /models
       # one request at a time; parallelism buys nothing without a GPU and
@@ -203,7 +209,7 @@ services:
   gliner:
     build: {context: ./llmapi/gliner_server}
     image: kssl-gliner:latest
-    container_name: kssl-gliner
+    container_name: ${KSSL_PREFIX:-kssl}-gliner
     environment:
       GLINER_BIND: 0.0.0.0
       GLINER_PORT: ${GLINER_PORT:-8620}
@@ -235,7 +241,7 @@ services:
   tunnel-vpsa:
     build: {context: ./llmapi/tunnel}
     image: kssl-tunnel-hub:latest
-    container_name: kssl-tunnel-vpsa
+    container_name: ${KSSL_PREFIX:-kssl}-tunnel-vpsa
     environment:
       REMOTE_NAME: vps-a
       REMOTE_HOST: ${VPSA_SSH_HOST:-}   # inert unless the "hub" is configured
@@ -254,7 +260,7 @@ services:
   tunnel-dc:
     build: {context: ./llmapi/tunnel}
     image: kssl-tunnel-hub:latest
-    container_name: kssl-tunnel-dc
+    container_name: ${KSSL_PREFIX:-kssl}-tunnel-dc
     environment:
       REMOTE_NAME: dc
       REMOTE_HOST: ${DC_SSH_HOST:-}   # inert unless the "hub" is configured
@@ -288,7 +294,7 @@ services:
       context: ./llmapi
       dockerfile: Dockerfile
     image: kssl-llmapi:latest
-    container_name: kssl-llmapi
+    container_name: ${KSSL_PREFIX:-kssl}-llmapi
     environment:
       LLMAPI_BIND: 0.0.0.0
       LLMAPI_PORT: ${LLMAPI_PORT:-8610}

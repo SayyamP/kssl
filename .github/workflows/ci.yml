@@ -4,8 +4,10 @@ name: CI
 # frontend gate; the backend image build validates its deps), backend lints clean, and the
 # hermetic pipeline self-tests pass. No deploy, no registry push — that is deploy.yml's job.
 on:
+  # Every promotion step is a PR, so all three targets gate the same way:
+  #   feature -> dev -> staging -> main
   pull_request:
-    branches: [main]
+    branches: [main, staging, dev]
 
 permissions:
   contents: read

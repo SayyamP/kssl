@@ -1,0 +1,16 @@
+# STAGING override (VPS-A) — same GHCR images as production, pinned to the staging branch's
+# SHA, with the extraction fleet cut to a size that fits a box already running the crawler
+# and comprehension dashboards.
+#
+#   docker compose -f docker-compose.vps.yml -f docker-compose.staging.yml up -d
+#
+# WHY THE FLEET IS SMALL HERE. Staging exists to prove that a change deploys, migrates and
+# serves -- not to move corpus volume. Eight workers exercise every code path an extraction
+# run touches (claim, lease, chunk, GLiNER, LLM, store, release) while leaving VPS-A's CPU
+# and its 8443/8444 dashboards alone. Throughput numbers from staging are meaningless and
+# should never be compared with prod's.
+services:
+  frontend:
+    image: ghcr.io/137mallory/kssl-deploy/frontend:${TAG:-latest}
+  backend:
+    image: ghcr.io/137mallory/kssl-deploy/backend:${TAG:-latest}

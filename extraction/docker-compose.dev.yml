@@ -1,0 +1,17 @@
+# DEV extraction overlay (data centre).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# One worker per farm. The data centre is a SHARED machine -- the crawler and other people's
+# containers run on it -- and a fleet sized for throughput would take it over. One worker is
+# enough to prove the loop runs end to end, which is all dev is for.
+services:
+  worker:
+    deploy:
+      replicas: 1
+  worker-pune:
+    deploy:
+      replicas: 1
+  worker-big:
+    deploy:
+      replicas: 0
