@@ -28,6 +28,32 @@ ENV_FILE="$APP/deploy/envs/$KSSL_ENV_NAME.env"
 [ -f "$ENV_FILE" ] || { echo "!! no such environment: $KSSL_ENV_NAME (expected $ENV_FILE)"; exit 2; }
 # shellcheck disable=SC1090
 set -a; . "$ENV_FILE"; set +a
+# HOST GUARD. The GitHub Environments named staging and dev fall back to the REPOSITORY
+# secrets when they carry none of their own -- and those point at production. Without this
+# check a push to `dev` deploys onto VPS-B under kssl-dev- names, orphaning production's
+# frontend and backend while reporting success. It nearly happened on 2026-09-03; only a
+# missing env file stopped it.
+#
+# The marker is written by provision_env.sh, so it is present exactly on the machines that
+# were deliberately set up as staging or dev. Production has none, which is why a missing
+# marker is allowed for prod and refused for everything else: an unprovisioned host must
+# never receive a non-production deploy.
+MARKER="$APP/.KSSL_ENV"
+if [ -f "$MARKER" ]; then
+  HOST_ENV="$(tr -d '[:space:]' < "$MARKER")"
+  if [ "$HOST_ENV" != "$KSSL_ENV_NAME" ]; then
+    echo "!! REFUSING: this machine is provisioned as '$HOST_ENV' but the deploy asked for '$KSSL_ENV_NAME'."
+    echo "   Set VPS_HOST/VPS_USER/VPS_SSH_KEY on the '$KSSL_ENV_NAME' GitHub Environment."
+    exit 5
+  fi
+elif [ "$KSSL_ENV_NAME" != "prod" ]; then
+  echo "!! REFUSING: asked to deploy '$KSSL_ENV_NAME' to a host with no $MARKER."
+  echo "   That means the '$KSSL_ENV_NAME' environment has no host secrets and fell back to"
+  echo "   the repository ones, which point at PRODUCTION. Run deploy/provision_env.sh on the"
+  echo "   intended machine first, and give the GitHub Environment its own VPS_HOST."
+  exit 5
+fi
+
 echo ">> environment: $KSSL_ENV_NAME  prefix=$KSSL_PREFIX  overlay=$COMPOSE_OVERLAY"
 
 COMPOSE=(docker compose -f docker-compose.vps.yml -f "$COMPOSE_OVERLAY")

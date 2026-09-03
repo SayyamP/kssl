@@ -22,6 +22,11 @@ set -a; . "$ENV_FILE"; set +a
 
 echo ">> provisioning $ENVN  prefix=$KSSL_PREFIX  db port=$KSSL_DB_PORT"
 
+# Stamp the machine. deploy.sh reads this and refuses any deploy that names a different
+# environment -- the guard against a staging or dev GitHub Environment falling back to the
+# repository secrets and landing on production.
+echo "$ENVN" > "$APP/.KSSL_ENV"
+
 # 1. The environment file. Generated here, never copied from production -- a staging or dev
 #    leak must not open prod. Compose interpolates the WHOLE file even when only one service
 #    is being started, which is why the traefik and llm variables below have to be present

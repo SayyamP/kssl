@@ -26,3 +26,10 @@ extraction/sel_3000.json
 # os
 .DS_Store
 sc/
+
+# ...but the ENVIRONMENT DEFINITIONS are not secrets and must ship. They carry only a
+# name, a container prefix, three port numbers and a data role -- no credentials, which
+# stay in the per-host .env that is still ignored above. Without this negation `git add`
+# skips them SILENTLY, the commit succeeds, and every deploy on every host dies with
+# "no such environment". That is exactly what happened on 2026-09-03, to prod included.
+!deploy/envs/*.env
