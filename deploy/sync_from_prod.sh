@@ -70,7 +70,12 @@ echo ">> [$(date -u +%H:%M:%S)] dump is $SZ, restoring into $LOCAL_DB"
 # itself healthy is worse than one that is plainly a version behind.
 docker exec -i "$LOCAL_DB" psql -U postgres -d postgres -q \
   -c "DROP DATABASE IF EXISTS kssl_incoming;" -c "CREATE DATABASE kssl_incoming;"
-docker exec -i "$LOCAL_DB" pg_restore -U postgres -d kssl_incoming --no-owner --no-acl -j 4 < "$DUMP"
+# pg_restore cannot run a PARALLEL restore from a stream -- "parallel restore from standard
+# input is not supported" -- and a 973MB dump is exactly where -j earns its keep. So the
+# dump goes INTO the container as a file first, and is removed afterwards.
+docker cp "$DUMP" "$LOCAL_DB:/tmp/restore.dump"
+docker exec -i "$LOCAL_DB" pg_restore -U postgres -d kssl_incoming --no-owner --no-acl -j 4 /tmp/restore.dump
+docker exec -i "$LOCAL_DB" rm -f /tmp/restore.dump
 
 docker exec -i "$LOCAL_DB" psql -U postgres -d postgres -q <<'SQL'
 -- Swap under one lock. Sessions on the old database are terminated first, or the rename
