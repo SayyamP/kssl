@@ -1478,11 +1478,21 @@ def _demo():
 
     # A node whose model server is down must not be handed work, and a server that is UP but
     # holding the wrong model must not either -- that is the case a port check would wave through.
+    # Built FROM MODEL_MUST_MATCH, not from a literal: the required model is configurable
+    # (C_MODEL_MUST_MATCH is "text-model" on the farm deployments), and a hardcoded "qwen2.5:7b"
+    # made `route.py --demo` fail on every box that sets it -- a self-check that only passes
+    # where the thing it checks is unconfigured.
+    _right = '{"models":["%s"]}' % MODEL_MUST_MATCH
+    # NOT derived from MODEL_MUST_MATCH by prefixing it: the check is a substring test, so
+    # "definitely-not-text-model" CONTAINS "text-model" and passes. The wrong name has to share
+    # nothing with the right one.
+    _wrong = '{"models":["zzz-no-such-model"]}'
+    assert MODEL_MUST_MATCH not in _wrong, "the negative fixture must not contain the model"
     _SVC_CACHE.clear()
-    ok, why = service_ok("t1", url="http://x", fetch=lambda u, t: '{"models":["qwen2.5:7b"]}')
+    ok, why = service_ok("t1", url="http://x", fetch=lambda u, t: _right)
     assert ok, why
     _SVC_CACHE.clear()
-    ok, why = service_ok("t2", url="http://x", fetch=lambda u, t: '{"models":["llama3:8b"]}')
+    ok, why = service_ok("t2", url="http://x", fetch=lambda u, t: _wrong)
     assert not ok and "not present" in why, "wrong model must fail the check: %s" % why
     _SVC_CACHE.clear()
 
@@ -1656,7 +1666,12 @@ def main():
             print("  %-12s %s" % (k, summary[k]))
         return
 
-    if not (a.init or a.enqueue or a.claim or a.reap or a.status):
+    # Every action that needs the QUEUE has to be listed here, or the flag silently runs
+    # the self-check instead and reports success having touched nothing. --promote had
+    # this defect from the start and --backfill inherited it: `route.py --backfill` ran
+    # _demo() against the live feeder for a full cycle.
+    if not (a.init or a.enqueue or a.claim or a.reap or a.status
+            or a.promote or a.backfill):
         _demo()
         return
 
