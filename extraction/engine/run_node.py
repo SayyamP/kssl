@@ -199,8 +199,21 @@ def drain(node, conn, process, lin=None):
             _failed = sum(1 for a in (rec.get("audit") or [])
                           if a.get("kind") == "llm_call_failed")
             if _failed and not any((sp.get("source") == "llm") for sp in (rec.get("spans") or [])):
-                route.release(q, doc_id, epoch, "every LLM chunk failed", charge=True)
-                print(f"{node}: every LLM chunk failed for {doc_id}; not stored, lease released",
+                # WAS IT THIS DOCUMENT, OR WAS IT THE FARM? Charging an attempt answers "this
+                # document is poison"; MAX_ATTEMPTS is 5 and a park is TERMINAL, so five power
+                # cuts at one site silently destroy a perfectly good document. The Pune farm
+                # loses power routinely -- 5-10 minutes, occasionally 30 -- and every outage was
+                # spending one of every in-flight document's five lives.
+                #
+                # route.py states the rule this violates, in its own words: park "must mean
+                # `impossible`, never `nobody is up right now`". So ask the server. If it is
+                # down, the document was never tried and the claim's +1 is refunded (charge=
+                # False subtracts it back to net zero); if it is up, the failure really was
+                # about this document and the charge stands.
+                up, up_why = route.service_ok(node)
+                route.release(q, doc_id, epoch, "every LLM chunk failed", charge=up)
+                print(f"{node}: every LLM chunk failed for {doc_id}; not stored, lease released"
+                      + ("" if up else f" WITHOUT charging an attempt -- server is down ({up_why})"),
                       flush=True)
                 time.sleep(route.MIN_GAP_S)
                 continue

@@ -1539,6 +1539,42 @@ def _demo():
     ok, why = service_ok("t3", url="http://x", fetch=_boom)
     assert not ok and "OSError" in why
     # A dead node is re-probed sooner than a healthy one, so recovery is noticed quickly.
+    # AN OUTAGE MUST BE NET-ZERO AGAINST A DOCUMENT'S FIVE LIVES. CLAIM charges +1 and a park at
+    # MAX_ATTEMPTS is terminal, so if a release after a total model outage also charges, a site
+    # that loses power five times destroys every document that was in flight -- silently, and in
+    # exactly the way route.py forbids ("park must mean `impossible`, never `nobody is up right
+    # now`"). Checked against the SQL parameters, because that mapping is the whole mechanism.
+    assert "attempts=q.attempts+1" in CLAIM.replace(" ", ""), "CLAIM no longer charges an attempt"
+
+    class _RelCur:
+        def __init__(self, log):
+            self.log = log
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def execute(self, sql, args=None):
+            self.log.append(args)
+        def fetchone(self):
+            return ("d1", "ready")
+
+    class _RelQ:
+        def __init__(self):
+            self.log = []
+        def cursor(self):
+            return _RelCur(self.log)
+        def commit(self):
+            pass
+
+    _q = _RelQ()
+    release(_q, "d1", 1, "every LLM chunk failed", charge=False)
+    release(_q, "d1", 1, "bad document", charge=True)
+    assert _q.log[0]["refund"] == 1, "a farm outage must refund the claim's charge"
+    assert _q.log[1]["refund"] == 0, "a genuine document failure must still cost an attempt"
+    # ...and the refund has to reach BOTH the stored count and the park decision, or a row can be
+    # parked on an attempt total it does not actually hold.
+    assert RELEASE.count("%(refund)s") == 2, \
+        "refund must apply to the attempts column AND the park test, not one of them"
     assert SVC_TTL_BAD < SVC_TTL_OK
     # A busy gateway must be re-asked in seconds, not minutes. This is the whole fix for the farm
     # sitting at 6/12: the ceiling for "server not answering" is an order of magnitude below the
