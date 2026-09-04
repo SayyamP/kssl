@@ -402,3 +402,23 @@
   overflow-wrap: break-word;
 }
 
+
+/* Countries the pipeline serves but the map cannot pin. Sits over the bottom of the
+   canvas rather than beside it: the point is that a reader counting dots sees why the
+   count is short, and a note in a side panel would not be read at that moment. */
+.geo-map-unplotted {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 500;
+  pointer-events: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: #9aa0a8;
+  background: rgba(9, 11, 13, 0.88);
+  border: 1px solid #24262b;
+  border-radius: 4px;
+  padding: 6px 9px;
+}

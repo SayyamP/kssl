@@ -2,81 +2,129 @@ import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+/* WHERE A COUNTRY IS -- looked up, never guessed.
+
+   This table used to have a fallback that hashed the country name into a lat/lng:
+     lat = 10 + (abs(hash % 50) - 25); lng = 20 + (abs((hash >> 3) % 120) - 60)
+   Sixteen of the fifty-two countries the pipeline serves missed the table and were
+   drawn at those made-up coordinates -- a band covering the Atlantic and Africa, so
+   Russia, Norway, Finland and Taiwan appeared in the Gulf of Guinea. The hash also
+   hid the staleness it caused: a country the table did not know still produced a
+   confident-looking dot, so nobody ever learned the table needed extending.
+
+   There is no fallback now. A country with no entry is NOT drawn; it is counted and
+   named on the map instead (see geoPlotPlan). Add coordinates here when the corpus
+   reaches somewhere new -- the notice tells you when that has happened. */
 const COUNTRY_COORDS = {
-  Africa: [1.6508, 17.6791],
+  Afghanistan: [33.9391, 67.7100],
   Argentina: [-38.4161, -63.6167],
   Armenia: [40.0691, 45.0382],
+  Australia: [-25.2744, 133.7751],
+  Austria: [47.5162, 14.5501],
+  Bahrain: [26.0667, 50.5577],
+  Bangladesh: [23.6850, 90.3563],
+  Belgium: [50.5039, 4.4699],
+  Brazil: [-14.2350, -51.9253],
   Canada: [56.1304, -106.3468],
-  Israel: [31.0461, 34.8516],
-  Pakistan: [30.3753, 69.3451],
-  Poland: [51.9194, 19.1451],
-  Ukraine: [48.3794, 31.1656],
+  China: [35.8617, 104.1954],
+  Czechia: [49.8175, 15.4730],
+  "Czech Republic": [49.8175, 15.4730],
+  Denmark: [56.2639, 9.5018],
+  Egypt: [26.8206, 30.8025],
+  Estonia: [58.5953, 25.0136],
+  Ethiopia: [9.1450, 40.4897],
+  Finland: [61.9241, 25.7482],
+  France: [46.2276, 2.2137],
+  Germany: [51.1657, 10.4515],
+  Ghana: [7.9465, -1.0232],
+  Greece: [39.0742, 21.8243],
+  Hungary: [47.1625, 19.5033],
   India: [20.5937, 78.9629],
+  Indonesia: [-0.7893, 113.9213],
+  Iraq: [33.2232, 43.6793],
+  Israel: [31.0461, 34.8516],
+  Italy: [41.8719, 12.5674],
+  Japan: [36.2048, 138.2529],
+  Kazakhstan: [48.0196, 66.9237],
+  Kenya: [-1.2921, 36.8219],
+  Korea: [35.9078, 127.7669],
+  "South Korea": [35.9078, 127.7669],
+  "Republic of Korea": [35.9078, 127.7669],
+  KSA: [23.8859, 45.0792],
+  Kuwait: [29.3117, 47.4818],
+  Malaysia: [4.2105, 101.9758],
+  Mexico: [23.6345, -102.5528],
+  Morocco: [31.7917, -7.0926],
+  Netherlands: [52.1326, 5.2913],
+  "The Netherlands": [52.1326, 5.2913],
+  "New Zealand": [-40.9006, 174.8860],
+  Nigeria: [9.0820, 8.6753],
+  Norway: [60.4720, 8.4689],
+  Oman: [21.5126, 55.9233],
+  Pakistan: [30.3753, 69.3451],
+  Philippines: [12.8797, 121.7740],
+  Poland: [51.9194, 19.1451],
+  Qatar: [25.3548, 51.1839],
+  Romania: [45.9432, 24.9668],
+  Russia: [61.5240, 105.3188],
+  "Russian Federation": [61.5240, 105.3188],
+  "Saudi Arabia": [23.8859, 45.0792],
+  Singapore: [1.3521, 103.8198],
+  "South Africa": [-30.5595, 22.9375],
+  Spain: [40.4637, -3.7492],
+  "Sri Lanka": [7.8731, 80.7718],
+  Sweden: [60.1282, 18.6435],
+  Taiwan: [23.6978, 120.9605],
+  Tanzania: [-6.3690, 34.8888],
+  Thailand: [15.8700, 100.9925],
+  Turkey: [38.9637, 35.2433],
+  Uganda: [1.3733, 32.2903],
   UAE: [23.4241, 53.8478],
   "United Arab Emirates": [23.4241, 53.8478],
-  "Saudi Arabia": [23.8859, 45.0792],
-  KSA: [23.8859, 45.0792],
-  Nigeria: [9.0820, 8.6753],
-  "South Africa": [-30.5595, 22.9375],
-  Kenya: [-1.2921, 36.8219],
-  Vietnam: [14.0583, 108.2772],
-  Indonesia: [-0.7893, 113.9213],
-  "United Kingdom": [55.3781, -3.4360],
   UK: [55.3781, -3.4360],
+  "United Kingdom": [55.3781, -3.4360],
+  Ukraine: [48.3794, 31.1656],
+  USA: [37.0902, -95.7129],
   "United States": [37.0902, -95.7129],
   "United States of America": [37.0902, -95.7129],
-  USA: [37.0902, -95.7129],
-  Germany: [51.1657, 10.4515],
-  Sweden: [60.1282, 18.6435],
-  Europe: [54.5260, 15.2551],
-  Brazil: [-14.2350, -51.9253],
-  Egypt: [26.8206, 30.8025],
-  Singapore: [1.3521, 103.8198],
-  Bangladesh: [23.6850, 90.3563],
-  "Sri Lanka": [7.8731, 80.7718],
-  Qatar: [25.3548, 51.1839],
-  Oman: [21.5126, 55.9233],
-  Kuwait: [29.3117, 47.4818],
-  Bahrain: [26.0667, 50.5577],
-  Iraq: [33.2232, 43.6793],
-  Thailand: [15.8700, 100.9925],
-  Malaysia: [4.2105, 101.9758],
-  Philippines: [12.8797, 121.7740],
-  Australia: [-25.2744, 133.7751],
-  Japan: [36.2048, 138.2529],
-  "South Korea": [35.9078, 127.7669],
-  Korea: [35.9078, 127.7669],
-  France: [46.2276, 2.2137],
-  Italy: [41.8719, 12.5674],
-  Spain: [40.4637, -3.7492],
-  China: [35.8617, 104.1954],
-  Turkey: [38.9637, 35.2433],
-  Mexico: [23.6345, -102.5528],
-  Ghana: [7.9465, -1.0232],
-  Ethiopia: [9.1450, 40.4897],
-  Tanzania: [-6.3690, 34.8888],
-  Uganda: [1.3733, 32.2903],
-  Morocco: [31.7917, -7.0926],
+  Vietnam: [14.0583, 108.2772],
   Algeria: [28.0339, 1.6596],
 };
 
-function getDeterministicCoords(countryName) {
-  if (!countryName) return [20, 10];
+/* Not countries. The footprint table carries continent-level rows, and a continent
+   has no honest point: "Europe" was pinned at 54.5N 15.2E, which is inside Poland --
+   a country that is separately its own row, so one place got two dots and the reader
+   had no way to tell which was which. These are reported beside the map instead. */
+const REGION_ROWS = new Set(["Africa", "Europe", "Asia", "Middle East",
+  "Latin America", "South America", "North America", "Global", "Worldwide"]);
+
+export function geoCountryCoords(countryName) {
+  if (!countryName) return null;
   if (COUNTRY_COORDS[countryName]) return COUNTRY_COORDS[countryName];
-
-  const normKey = Object.keys(COUNTRY_COORDS).find(
-    (k) => k.toLowerCase() === countryName.toLowerCase()
+  const hit = Object.keys(COUNTRY_COORDS).find(
+    (k) => k.toLowerCase() === String(countryName).toLowerCase(),
   );
-  if (normKey) return COUNTRY_COORDS[normKey];
+  return hit ? COUNTRY_COORDS[hit] : null;
+}
 
-  let hash = 0;
-  for (let i = 0; i < countryName.length; i++) {
-    hash = (hash << 5) - hash + countryName.charCodeAt(i);
-    hash |= 0;
-  }
-  const lat = 10 + (Math.abs(hash % 50) - 25);
-  const lng = 20 + (Math.abs((hash >> 3) % 120) - 60);
-  return [lat, lng];
+/* Split the served countries into what can be drawn and what cannot.
+
+   Pure, and exported, so the rule can be tested without a map: the old fallback was
+   unreachable from any test because it lived inside a Leaflet render effect. */
+export function geoPlotPlan(countries) {
+  const plotted = [];
+  const regions = [];
+  const unlocated = [];
+  (countries || []).forEach((ct) => {
+    if (REGION_ROWS.has(ct)) {
+      regions.push(ct);
+      return;
+    }
+    const coords = geoCountryCoords(ct);
+    if (coords) plotted.push({ ct, coords });
+    else unlocated.push(ct);
+  });
+  return { plotted, regions, unlocated };
 }
 
 // Emptied deliberately. This map held hand-researched export/import strings per company --
@@ -120,6 +168,23 @@ const TILE_URL =
 const TILE_ATTR =
   import.meta.env.VITE_MAP_TILE_ATTR ||
   '&copy; <a href="https://www.esri.com/">Esri</a> &copy; OpenStreetMap contributors';
+
+/* Countries the pipeline serves that the map did not draw, named rather than hidden.
+   Silence here would be indistinguishable from "we have no rows there", which is the
+   confusion the hashed coordinates created in the first place. */
+function GeoUnplotted({ countries }) {
+  const { regions, unlocated } = geoPlotPlan(countries);
+  if (!regions.length && !unlocated.length) return null;
+  const parts = [];
+  if (unlocated.length)
+    parts.push(`${unlocated.length} without map coordinates: ${unlocated.join(", ")}`);
+  if (regions.length) parts.push(`regional rows, not pinned: ${regions.join(", ")}`);
+  return (
+    <div className="geo-map-unplotted">
+      {parts.join(" \u00b7 ")}
+    </div>
+  );
+}
 
 export default function GeoMap({ data, geo, selectedCountry, onSelectCountry }) {
   const mapContainerRef = useRef(null);
@@ -173,8 +238,8 @@ export default function GeoMap({ data, geo, selectedCountry, onSelectCountry }) 
       }
     });
 
-    countries.forEach((ct) => {
-      const coords = getDeterministicCoords(ct);
+    const plan = geoPlotPlan(countries);
+    plan.plotted.forEach(({ ct, coords }) => {
       const comps = geo.compsInCountry(ct);
       const rivals = comps.filter((c) => !c.isBf);
       /* The client's footprint is keyed by its COMPANY ID, not by its display short
@@ -282,6 +347,7 @@ export default function GeoMap({ data, geo, selectedCountry, onSelectCountry }) 
   return (
     <div className="geo-map-wrapper" style={{ position: "relative" }}>
       <div className="geo-map-container" ref={mapContainerRef} />
+      <GeoUnplotted countries={countries} />
       {!countries.length ? (
         <div
           style={{

@@ -11,6 +11,13 @@ import { srcChips, attr, escAll } from "../../lib/html";
    country, or the products for a pair — and every product opens a detail column.
    The dropdown dots mark OVERLAP WITH KSSL, not threat level, so the contested
    rivals are findable without opening each one. */
+/* Only http(s) becomes a link. The urls come from the pipeline rather than from a
+   person, but this markup is injected as a string, so a `javascript:` value would
+   otherwise become a working link. */
+function safeHref(u) {
+  return typeof u === "string" && /^https?:\/\//i.test(u) ? u : null;
+}
+
 export default function Geo() {
   const { data, geo } = useData();
   const { setScope } = useAppState();
@@ -305,7 +312,11 @@ export default function Geo() {
                   <span style="font-size: 10.5px; color: #64748b;">${escAll(article.ago)}</span>
                 </div>
                 <div style="font-size: 12px; font-weight: 700; color: #0f172a; line-height: 1.3;">${escAll(article.title)}</div>
-                <div style="font-size: 10.5px; color: #64748b;">Source: <span style="color: #b5341f; font-weight: 600;">${escAll(article.source)} ✓</span></div>
+                <div style="font-size: 10.5px; color: #64748b;">Source: ${
+                    safeHref(article.url)
+                      ? `<a href="${attr(article.url)}" target="_blank" rel="noopener noreferrer" style="color:#b5341f;font-weight:600;text-decoration:underline">${escAll(article.source)} &#8599;</a>`
+                      : `<span style="color:#b5341f;font-weight:600">${escAll(article.source)}</span>`
+                  }</div>
               </div>
             </div>
           `).join("")}
@@ -816,7 +827,12 @@ export default function Geo() {
                     </div>
                     <HtmlBlock
                       handlers={{
-                        ".geo-news-card-item[data-news-id]": (el) => {
+                        ".geo-news-card-item[data-news-id]": (el, ev) => {
+                          /* The publisher name is a real link to the article now. A
+                             click there must go to the publisher and nowhere else --
+                             without this guard the delegated handler also opened the
+                             drawer, so one click did two things. */
+                          if (ev && ev.target && ev.target.closest("a")) return;
                           const id = Number(el.getAttribute("data-news-id"));
                           const found = geoNewsArticles.find((a) => a.id === id);
                           if (found) setActiveGeoNewsArticle(found);
