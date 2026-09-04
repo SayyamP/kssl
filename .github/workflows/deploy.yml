@@ -64,6 +64,36 @@ jobs:
             *)       echo "env=none"    >> "$GITHUB_OUTPUT" ;;
           esac
 
+  # The self-checks gate the DEPLOY, not just a pull request. ci.yml runs on pull_request
+  # only, and this repository is pushed to directly -- so until this job existed, every
+  # commit that reached production had been built but never tested. The same hermetic
+  # checks run here as in ci.yml; a PR is gated by that one, a direct push by this one,
+  # and neither route reaches a machine without them.
+  selfcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.sha || github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Extraction + serving self-checks
+        run: |
+          pip install -r extraction/requirements.txt
+          python extraction/engine/presignal.py --demo
+          C_DS_JSON=extraction/engine/ds.json \
+          C_TIERS_PATH=extraction/engine/source_tiers.py \
+            python extraction/engine/route.py --demo
+          (cd extraction && python test_fixes.py)
+          cd extraction/signals
+          python serving_fill.py --demo
+          python enrich_serving.py --demo
+          for t in test_*.py; do
+            echo "== $t"
+            python "$t"
+          done
+
   build:
     needs: resolve
     runs-on: ubuntu-latest
@@ -102,7 +132,7 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    needs: [resolve, build]
+    needs: [resolve, build, selfcheck]
     runs-on: ubuntu-latest
     # Production stays gated behind DEPLOY_ENABLED. Staging and dev deploy on every push --
     # that is what they are for, and neither can reach production's data.
