@@ -54,6 +54,9 @@ jobs:
       sha: ${{ steps.pick.outputs.sha }}
       env: ${{ steps.pick.outputs.env }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # the ancestry check below needs history, not one commit
       - id: pick
         run: |
           echo "sha=${{ github.event.inputs.sha || github.sha }}" >> "$GITHUB_OUTPUT"
@@ -63,6 +66,35 @@ jobs:
             dev)     echo "env=dev"     >> "$GITHUB_OUTPUT" ;;
             *)       echo "env=none"    >> "$GITHUB_OUTPUT" ;;
           esac
+
+      # A DISPATCHED SHA MUST BE ON THE BRANCH IT DEPLOYS.
+      #
+      # `sha` is the rollback path -- redeploy a past build without a revert commit -- and
+      # it was accepted as typed. Any commit object the repository can reach qualified: a
+      # commit from another branch, from an unmerged pull request, or from a fork whose
+      # objects GitHub keeps. Dispatch on `main` with one of those and code that was never
+      # reviewed, never merged and never on main is built, pushed to GHCR and rsynced onto
+      # VPS-B, under a run that reports as a production deploy of main.
+      #
+      # Rollback is unaffected: an earlier commit ON this branch is an ancestor of its tip.
+      # This is the enforceable half of the production gate -- required reviewers on the
+      # prod Environment need a paid plan, an ancestry check needs nothing.
+      - name: A dispatched SHA must be an ancestor of this branch
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.sha != ''
+        env:
+          WANT: ${{ github.event.inputs.sha }}
+        run: |
+          if ! git cat-file -e "$WANT^{commit}" 2>/dev/null; then
+            echo "::error::$WANT is not a commit in this repository."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$WANT" HEAD; then
+            echo "::error::$WANT is not an ancestor of ${{ github.ref_name }} ($(git rev-parse --short HEAD))."
+            echo "::error::Only commits already on this branch may be deployed to it. Merge it first."
+            exit 1
+          fi
+          echo "$WANT is on ${{ github.ref_name }} — redeploying it"
+
 
   # The self-checks gate the DEPLOY, not just a pull request. ci.yml runs on pull_request
   # only, and this repository is pushed to directly -- so until this job existed, every

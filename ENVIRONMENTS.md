@@ -17,8 +17,9 @@ feature branch ──PR──▶ dev ──PR──▶ staging ──PR──▶
 
 ## What "same data, different phase" means here
 
-Every environment serves **the same corpus and the same serving tables**, so a page that
-looks wrong on staging looks wrong for a reason in the code, not because the data differs.
+Staging and dev serve **production's corpus and serving tables, minus two things they are
+not allowed to hold** (below), so a page that looks wrong on staging looks wrong for a
+reason in the code, not because the data differs.
 
 Production owns that data. `deploy/sync_from_prod.sh <staging|dev>` pulls a dump from
 VPS-B and swaps it into the target's database. It is **one way, always** — the script
@@ -30,6 +31,44 @@ copy, the next refresh overwrites it and production never saw it.
 The restore lands in `kssl_incoming` and is renamed into place only after `pg_restore`
 succeeds, keeping the old copy as `kssl_previous`. A half-restored environment that still
 reports itself healthy is worse than one that is plainly a version behind.
+
+### The five stages of a sync
+
+| | | Fails the sync? |
+|---|---|---|
+| restore | into `kssl_incoming`, never over the live database | no — `pg_restore` warns for things that do not matter |
+| verify | row counts, **and** that `serving_live` arrived | yes, before the swap |
+| sanitise | `db/sanitise_replica.sql` | yes, before the swap |
+| slice | optional, `KSSL_SLICE_DOCS` | yes, before the swap |
+| swap | rename under one lock | — |
+| migrate | the `migrate` role, same ledger the deploy uses | yes |
+
+**`serving_live` is checked by name.** `backend/app.py` rewrites every `serving.` to
+`serving_live.` unless `KSSL_SERVE_ORIGIN=all`, and `serving_live` is a set of *views* — so
+no row count can miss it. A dump without `-n serving_live` produced a replica that reported
+every count healthy and 500'd on every page.
+
+**Sanitise runs before the swap, not after.** The client's own pages (`bharatforge.com`,
+`kalyanistrategic.com`, `kssl.in`) and their extraction output leave, and production's
+`metrics.*` timings are truncated — the schema is kept, because `/api/bench` reads it, but
+prod's numbers measured a 198-worker fleet on VPS-B and would be read as this
+environment's. The file re-counts what it removed and raises if anything survived; `psql`
+exits non-zero and the script dies **before** the rename. A replica host is a QA box other
+people can reach, so an unsanitised database must never become reachable.
+
+`db/test_sanitise_replica.sh` runs in CI beside the schema job: it plants rows the sanitise
+must remove, rows it must keep, and one only its own guard can catch. A `DELETE` whose
+predicate is a regex rots the moment a column moves, and a regex that matches nothing looks
+exactly like a clean database.
+
+**Migrate runs after the swap.** The restored schema is production's *as of the dump*, and
+staging is by definition ahead of it — that is what staging is for. Without this step every
+sync silently reverts the replica's schema and the next deploy runs new code against an old
+one. It needs `extraction/.env`, which `provision_env.sh` writes.
+
+**Slice** (`KSSL_SLICE_DOCS`, set to 20000 in `dev.env`) keeps only the newest N corpus
+documents; `serving.*` is left whole, since a card carries its own url and quote. It trims
+after the transfer, so it bounds the replica's disk, not what crossed the wire.
 
 ## How one compose file runs on three machines
 
@@ -73,7 +112,24 @@ workflow does not branch on the target; it just requests the environment the bra
 `DEPLOY_ENABLED` still gates **production only**. Staging and dev deploy on every push,
 which is the point of having them.
 
+**Give each Environment its own host secrets.** A GitHub Environment with no secrets of its
+own falls back to the *repository* secrets, and those point at production — so a push to
+`staging` would deploy onto VPS-B under `kssl-stg-` names, orphaning production's frontend
+and backend while reporting success. Two things stop that now:
+
+- `provision_env.sh` stamps `.KSSL_ENV` on staging and dev hosts, and `deploy.sh` stamps
+  `prod` on VPS-B the first time a production deploy runs there. A deploy naming a
+  different environment than the marker is refused.
+- A host with **no** marker accepts only `prod`, so an unprovisioned machine can never
+  receive a staging or dev deploy.
+
 ## Rollback
 
 `workflow_dispatch` with a `sha` input redeploys any past build to the branch's
 environment. Images are SHA-pinned in GHCR, so the rollback is a pull, not a rebuild.
+
+The SHA must be an **ancestor of the branch it deploys**. Rolling back is unaffected — an
+earlier commit on `main` is an ancestor of `main` — but a commit from another branch, an
+unmerged pull request or a fork is refused. Without that check, dispatching on `main` with
+any commit the repository can reach put unreviewed code on VPS-B under a run that reported
+itself as a production deploy of `main`.

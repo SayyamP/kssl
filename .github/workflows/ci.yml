@@ -8,6 +8,13 @@ on:
   #   feature -> dev -> staging -> main
   pull_request:
     branches: [main, staging, dev]
+  # ...and on the push itself, because this repository is ALSO pushed to directly. Until
+  # this trigger existed, ci.yml ran on no commit that ever reached a machine -- including
+  # the schema job, which is exactly the check that catches a migration whose result does
+  # not match db/schema_snapshot.txt. Being required by branch protection needs it to have
+  # run; it cannot be required while it never runs.
+  push:
+    branches: [main, staging, dev]
 
 permissions:
   contents: read
@@ -66,8 +73,12 @@ jobs:
         # ponytail: this does not replay migrations against the previous schema, so a
         # broken migration is caught by the runner's transaction at deploy time rather
         # than here. Worth building if one ever lands badly.
+        #
+        # The glob is [0-9][0-9]_*.sql, the SAME one extraction/entrypoint.sh applies, not
+        # db/*.sql. db/ also holds sanitise_replica.sql, which is a DELETE run against a
+        # restored replica -- a bare *.sql glob would apply it here as if it were schema.
         run: |
-          for f in db/*.sql; do
+          for f in db/[0-9][0-9]_*.sql; do
             echo "-- $f"
             psql "$DSN" -v ON_ERROR_STOP=1 -q -f "$f"
           done
@@ -77,6 +88,14 @@ jobs:
           # A schema change is fine; a schema change that was not snapshotted is not.
           # Regenerate with:  db/schema_snapshot.sh "$KSSL_DSN" > db/schema_snapshot.txt
           diff -u db/schema_snapshot.txt /tmp/actual.txt
+
+      - name: The replica sanitise must still match that schema
+        # db/sanitise_replica.sql is what keeps the client's own pages off a QA box. It is
+        # a DELETE whose predicate is a regex against columns this schema defines, so it
+        # rots the moment a column moves -- and a regex that silently matches nothing
+        # looks exactly like a clean database. The test plants rows it must remove, rows
+        # it must keep, and one only its own guard can catch.
+        run: ./db/test_sanitise_replica.sh "$DSN"
 
   lint-and-test:
     runs-on: ubuntu-latest

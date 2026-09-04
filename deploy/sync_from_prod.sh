@@ -27,10 +27,29 @@
 #   public.documents      the corpus bodies -- without them a worker has nothing to extract
 #   public.extract_queue  so a non-prod environment can watch a real queue drain
 #   extracted.*           the extraction output, so serving projections have inputs
-#   serving.*             what the frontend reads; the point of having an environment at all
+#   serving.*             the projections the pipeline writes
+#   serving_live.*        WHAT THE BACKEND ACTUALLY QUERIES. backend/app.py rewrites every
+#                         `serving.` to `serving_live.` unless KSSL_SERVE_ORIGIN=all, and
+#                         serving_live is a set of views, not tables -- so a dump without
+#                         it produced a database the frontend 500s against on every page
+#                         while every count below reported healthy.
+#   metrics.*             for its STRUCTURE: /api/bench reads metrics.stage_run and
+#                         metrics.adhoc_summary. Its ROWS are production's per-host
+#                         timings and are truncated by the sanitise stage -- carrying the
+#                         schema and dropping the numbers, rather than the old choice of
+#                         dropping both and breaking the endpoints.
 #
 # NOT copied: prio/oversize_backup/prio_demote_backup (operational scratch from one specific
-# work order) and the metrics schema (per-host timings that would be misleading elsewhere).
+# work order).
+#
+# TWO STAGES BETWEEN RESTORE AND SWAP, both of which abort before the rename if they fail:
+#   sanitise  db/sanitise_replica.sql -- the client's own pages and prod's timings leave
+#             before the database becomes reachable. A replica host is a QA box.
+#   slice     optional (KSSL_SLICE_DOCS), keeps only the newest N documents.
+# And one after it:
+#   migrate   the restored schema is production's as of the dump; this checkout may be
+#             ahead of it. Same ledger runner the deploy uses, so a replica is never
+#             running new code against an old schema.
 set -euo pipefail
 
 ENVN="${1:?usage: sync_from_prod.sh <staging|dev>}"
@@ -67,7 +86,7 @@ echo ">> [$(date -u +%H:%M:%S)] dumping production ($PROD_SSH)"
 # --no-owner/--no-acl because the roles on prod need not exist here.
 ssh -o BatchMode=yes -o ConnectTimeout=30 "$PROD_SSH" \
   "docker exec -i kssl-db pg_dump -U postgres -d kssl -Fc --no-owner --no-acl \
-     -n public -n extracted -n serving \
+     -n public -n extracted -n serving -n serving_live -n metrics \
      -T public.prio -T public.prio_demote_backup -T public.oversize_backup" > "$DUMP"
 fi
 
@@ -114,6 +133,60 @@ if [ "${N_DOCS:-0}" -lt 1 ] || [ "${N_CARD:-0}" -lt 1 ]; then
   exit 6
 fi
 
+# serving_live is views, not tables, so no row count can miss it -- and its absence is
+# invisible until the frontend loads. Checked by name, before the swap, because that is
+# the failure this sync actually had: every count above healthy, every page 500.
+N_VIEWS=$(docker exec -i "$LOCAL_DB" psql -U postgres -d kssl_incoming -Atc \
+  "select count(*) from information_schema.views where table_schema='serving_live'" 2>/dev/null || echo 0)
+if [ "${N_VIEWS:-0}" -lt 1 ]; then
+  echo "!! the dump carried no serving_live views -- backend/app.py queries that schema and"
+  echo "   would 500 on every page. Leaving $ENVN untouched; re-dump with -n serving_live."
+  exit 7
+fi
+echo "   serving_live: $N_VIEWS view(s)"
+
+# --- SANITISE. Before the swap, so an unsanitised database is never reachable. ------
+# ON_ERROR_STOP and `set -e` together: the file raises if what it removed is still there,
+# psql exits non-zero, and this script dies BEFORE the rename. That ordering is the whole
+# guarantee -- staging keeps serving its previous database rather than a fresh copy of the
+# client's material.
+echo ">> [$(date -u +%H:%M:%S)] sanitising"
+docker exec -i "$LOCAL_DB" psql -U postgres -d kssl_incoming -q -v ON_ERROR_STOP=1 \
+  < "$APP/db/sanitise_replica.sql"
+
+# --- SLICE (optional). ---------------------------------------------------------------
+# KSSL_SLICE_DOCS=20000 keeps only the newest N corpus documents. For the data centre,
+# which is a shared box and does not need 35k bodies to prove a change runs.
+#
+# ponytail: this trims AFTER the transfer, so it bounds the replica's disk, not the
+# 7.9 GB that crossed the wire. A real slice has to be built on production -- an
+# export step there, reading only -- and that is the upgrade when transfer time hurts.
+if [ -n "${KSSL_SLICE_DOCS:-}" ]; then
+  # psql -v substitutes the value as raw SQL text, so it is checked as a number here
+  # rather than trusted from an env file.
+  case "$KSSL_SLICE_DOCS" in
+    ''|*[!0-9]*) echo "!! KSSL_SLICE_DOCS must be a positive integer, got '$KSSL_SLICE_DOCS'"; exit 9 ;;
+  esac
+  echo ">> [$(date -u +%H:%M:%S)] slicing to the newest $KSSL_SLICE_DOCS document(s)"
+  docker exec -i "$LOCAL_DB" psql -U postgres -d kssl_incoming -q -v ON_ERROR_STOP=1 \
+    -v n="$KSSL_SLICE_DOCS" <<'SQL'
+BEGIN;
+CREATE TEMP TABLE _keep ON COMMIT DROP AS
+  SELECT document_id FROM public.documents ORDER BY fetched_at DESC LIMIT :n;
+-- Both tables, independently: extracted.document has no FK to public.documents (the
+-- corpus subset rolls over, the extraction output is kept), so deleting one leaves the
+-- other. Spans, propositions and their arguments cascade from extracted.document.
+DELETE FROM extracted.document WHERE document_id NOT IN (SELECT document_id FROM _keep);
+DELETE FROM public.documents   WHERE document_id NOT IN (SELECT document_id FROM _keep);
+COMMIT;
+SQL
+  # serving.* is left whole. It is small next to the bodies, and a card whose source
+  # document was sliced away still renders -- it carries its own url and quote.
+  docker exec -i "$LOCAL_DB" psql -U postgres -d kssl_incoming -Atc \
+    "select '   sliced to documents='||(select count(*) from public.documents)
+          ||' extracted='||(select count(*) from extracted.document)"
+fi
+
 docker exec -i "$LOCAL_DB" psql -U postgres -d postgres -q <<'SQL'
 -- Swap under one lock. Sessions on the old database are terminated first, or the rename
 -- blocks behind them and the script appears to hang.
@@ -123,6 +196,21 @@ DROP DATABASE IF EXISTS kssl_previous;
 ALTER DATABASE kssl RENAME TO kssl_previous;
 ALTER DATABASE kssl_incoming RENAME TO kssl;
 SQL
+
+# --- MIGRATE. The restored schema is production's AT THE MOMENT OF THE DUMP, and this
+# checkout is by definition ahead of it -- staging exists to run code prod has not seen.
+# Without this, every sync silently reverts the replica's schema and the next deploy runs
+# new code against an old one. Same ledger runner the deploy uses (each file applied once,
+# recorded in schema_version), not a second copy of its logic.
+if [ -f "$APP/extraction/.env" ]; then
+  echo ">> [$(date -u +%H:%M:%S)] applying pending migrations"
+  ( cd "$APP/extraction" && docker compose -f docker-compose.yml run --rm migrate )
+else
+  echo "!! extraction/.env is missing, so the migrate role cannot run: this database is on"
+  echo "   PRODUCTION's schema, which may be behind the code deployed here."
+  echo "   Run deploy/provision_env.sh $ENVN to generate it, then re-run this sync."
+  exit 8
+fi
 
 [ -z "${DUMP_FILE:-}" ] && rm -f "$DUMP"   # a delivered dump belongs to the caller
 echo ">> [$(date -u +%H:%M:%S)] $ENVN now carries production's data (previous kept as kssl_previous)"
