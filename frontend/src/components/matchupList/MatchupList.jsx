@@ -152,7 +152,7 @@ export default function MatchupList({ data, selected, onSelect }) {
         </div>
         <div className="mu-filters">
           <select className="mu-fsel" onChange={select(setCo)} value={co}>
-            <option value="">All companies</option>
+            <option value="">All Companies</option>
             {options.co.map((v) => (
               <option key={v} value={v}>
                 {labels.coLabel[v] || v}
@@ -160,7 +160,7 @@ export default function MatchupList({ data, selected, onSelect }) {
             ))}
           </select>
           <select className="mu-fsel" onChange={select(setCat)} value={cat}>
-            <option value="">All categories</option>
+            <option value="">All Categories</option>
             {options.cat.map((v) => (
               <option key={v} value={v}>
                 {labels.catLabel[v] || v}
@@ -168,7 +168,7 @@ export default function MatchupList({ data, selected, onSelect }) {
             ))}
           </select>
           <select className="mu-fsel" onChange={select(setKoel)} value={koel}>
-            <option value="">All {data.client?.short || "KSSL"} products</option>
+            <option value="">All {data.client?.short || "KSSL"} Products</option>
             {options.koel.map((v) => (
               <option key={v} value={v}>
                 {labels.koelLabel[v] || v}
@@ -176,7 +176,7 @@ export default function MatchupList({ data, selected, onSelect }) {
             ))}
           </select>
           <select className="mu-fsel" onChange={select(setCountry)} value={country}>
-            <option value="">All countries</option>
+            <option value="">All Countries</option>
             {options.country.map((v) => (
               <option key={v} value={v}>
                 {labels.ctLabel[v] || v}

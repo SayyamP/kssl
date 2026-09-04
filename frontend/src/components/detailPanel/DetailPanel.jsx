@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import AskBox from "../askBox/AskBox";
 import { srcChips, attr } from "../../lib/html";
+import { formatLabel } from "../../lib/profile";
 import { useData } from "../../state/DataProvider";
 
 const DIR_WORD = { threat: "Threat", watch: "Watch", fav: "Favourable" };
@@ -84,7 +85,14 @@ export default function DetailPanel({ detail, onClose }) {
                 key={`${f[0]}-${i}`}
                 title={f[2] || undefined}
               >
-                <span className="cd-fk">{f[0]}</span>
+                {/* The KEY is a label and wears the house capitalisation; the VALUE
+                    is data and is never touched. These keys are written by the
+                    pipeline ("Primary lens") and by Tenders.jsx ("Estimated value",
+                    "Closing date"), and .cd-fk sets no text-transform, so whatever
+                    a writer typed reached the screen -- sentence case sitting
+                    beside Company, Category and Date. Doing it here fixes both
+                    writers' labels, and every row already stored, at once. */}
+                <span className="cd-fk">{formatLabel(f[0])}</span>
                 <span className="cd-fv" dangerouslySetInnerHTML={{ __html: f[1] }} />
                 {f[2] ? <span aria-hidden="true" className="cd-fq">❝</span> : null}
               </div>

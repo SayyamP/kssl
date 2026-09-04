@@ -5,6 +5,7 @@ import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { gapCorrelateStrip } from "../../lib/gapModel";
 import { srcChips } from "../../lib/html";
+import { formatLabel } from "../../lib/profile";
 
 const fitClass = (p) => {
   const n = parseInt(p, 10);
@@ -443,7 +444,8 @@ export default function Tenders({ mode = "tender" }) {
                 <div className="tp-facts">
                   {factRows(t).map(([k, v]) => (
                     <div className="kv" key={k}>
-                      <span className="k">{k}</span>
+                      {/* the label wears the house capitalisation, the value never does */}
+                      <span className="k">{formatLabel(k)}</span>
                       <span className="v">{v}</span>
                     </div>
                   ))}

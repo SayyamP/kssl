@@ -15,10 +15,10 @@ export function positioningReportHtml(m, tenders, today = formatDate()) {
       '<div class="tr-verdict parity"><b>KSSL spec undisclosed — no measured edge.</b></div>' +
       `<div class="tr-sec"><div class="tr-sec-h">Assessment</div><div class="tr-body">${escAll(m.comp || "")} is a real, sourced competitor mapped to KSSL's ${escAll((m.bf || "counterpart").replace(/^KSSL · /, ""))} by role and spec class. KSSL has not publicly disclosed specifications for this counterpart, so no spec-level edge or verdict is computed. The comparison holds at the role and capability-class level.</div></div>` +
       (m.advBf && m.advBf.length
-        ? `<div class="tr-sec"><div class="tr-sec-h">KSSL advantages to press</div><div class="tr-body">${m.advBf.map((a) => `• ${stripTags(a)}`).join("<br>")}</div></div>`
+        ? `<div class="tr-sec"><div class="tr-sec-h">KSSL Advantages To Press</div><div class="tr-body">${m.advBf.map((a) => `• ${stripTags(a)}`).join("<br>")}</div></div>`
         : "") +
       (m.advComp && m.advComp.length
-        ? `<div class="tr-sec"><div class="tr-sec-h">Competitor strengths to counter</div><div class="tr-body">${m.advComp.map((a) => `• ${stripTags(a)}`).join("<br>")}</div></div>`
+        ? `<div class="tr-sec"><div class="tr-sec-h">Competitor Strengths To Counter</div><div class="tr-body">${m.advComp.map((a) => `• ${stripTags(a)}`).join("<br>")}</div></div>`
         : "") +
       '<div class="tr-foot">Descriptive · sourced · no fabricated specs</div></div>'
     );

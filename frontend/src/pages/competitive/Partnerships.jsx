@@ -196,7 +196,7 @@ export default function Partnerships() {
             style={{ width: "100%", marginTop: "8px" }}
             value={hq}
           >
-            <option value="">All HQ countries</option>
+            <option value="">All HQ Countries</option>
             {hqOptions.map((ct) => (
               <option key={ct} value={ct.toLowerCase()}>
                 {ct}
