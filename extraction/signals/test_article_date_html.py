@@ -168,6 +168,41 @@ check("agreeing markup keeps its finer precision",
 # parse_iso_date must not read an id or a range as a date.
 check("no end anchor bug: 2023-01-234", parse_iso_date("2023-01-234"), None)
 
+# --- tier 4: a listing page whose permalink already fixed the month ---------
+# analisidifesa.it's Centauro II story states no metadata at all and carries NINE
+# <time pubdate> tags -- eight are the sidebar's August recent-posts, one is the
+# article's own 2026-09-01. Tiers 2 and 3 refuse a listing on purpose, and that
+# refusal was costing a day the page plainly states. The permalink says /2026/09/,
+# so only the DAY is still open, and exactly one tag falls in that month.
+SIDEBAR = "".join('<time pubdate datetime="2026-08-%02d">x</time>' % d
+                  for d in (18, 19, 20, 21, 22, 24, 27))
+check("permalink's month picks the article's day out of a listing",
+      pick_date(SIDEBAR + '<time pubdate datetime="2026-09-01T00:59:15+02:00">1 Settembre 2026</time>',
+                today=TODAY, url_ymd=(2026, 9, None)), (2026, 9, 1))
+
+# The guards. Each must REFUSE -- pick_date returns None and article_date then
+# falls back to the permalink, which is the month-precision answer we had before.
+check("two candidates in the permalink's month: refuse",
+      pick_date(SIDEBAR + '<time pubdate datetime="2026-09-01">a</time>'
+                        + '<time pubdate datetime="2026-09-04">b</time>',
+                today=TODAY, url_ymd=(2026, 9, None)), None)
+check("no candidate in the permalink's month: refuse",
+      pick_date(SIDEBAR, today=TODAY, url_ymd=(2026, 9, None)), None)
+check("no permalink date: tier 4 cannot fire",
+      pick_date(SIDEBAR + '<time pubdate datetime="2026-09-01">x</time>', today=TODAY), None)
+
+# THE property that makes tier 4 safe: it only ever adds a day to the month the
+# permalink already stated. The January 2023 article whose sidebar's newest entry
+# was July 2026 -- the case tier 2 exists to refuse -- must still be refused, and
+# must NOT come back as some 2026 date.
+check("tier 4 can sharpen a month but never move one",
+      pick_date('<time pubdate datetime="2026-07-29">newest sidebar entry</time>'
+                '<time pubdate datetime="2026-06-11">another</time>',
+                today=TODAY, url_ymd=(2023, 1, None)), None)
+check("a day already in the permalink is not second-guessed",
+      pick_date(SIDEBAR + '<time pubdate datetime="2026-09-01">x</time>',
+                today=TODAY, url_ymd=(2026, 9, 3)), None)
+
 print()
 print("all html-date checks passed" if not fails else "FAILED: %s" % ", ".join(fails))
 sys.exit(1 if fails else 0)

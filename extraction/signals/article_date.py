@@ -182,10 +182,10 @@ _TIME_IS_MODIFIED = re.compile(
     r"|updated[-_]?(?:date|time|on)|last[-_]?updated|revised", re.I)
 
 
-def date_candidates(html, url="", debug=False):
+def date_candidates(html, url="", debug=False, url_ymd=None):
     """Every publication date the markup states, best source first.
 
-    TWO TIERS, and the difference is what makes this trustworthy.
+    FOUR TIERS, and the difference is what makes this trustworthy.
 
     Tier 1 -- SELF-DESCRIBING metadata: `article:published_time`, JSON-LD
     `datePublished`, Dublin Core. These appear once per page and describe THE
@@ -199,6 +199,12 @@ def date_candidates(html, url="", debug=False):
     sidebar entry. Taking it dated a 2023 article "29 Jul 2026". So more than
     one distinct date here means the page cannot tell us which is its own, and
     this tier yields nothing rather than guessing.
+
+    Tier 3 -- a single bare `<time>`, for the sites that mark nothing.
+
+    Tier 4 -- when the page is a listing and tiers 2 and 3 therefore refuse, but
+    the PERMALINK already states year and month, the one `<time>` falling in
+    that month supplies the day. It cannot move the date, only sharpen it.
 
     Exposed separately from `pick_date` so an audit can see what was on offer
     and which source won.
@@ -291,6 +297,32 @@ def date_candidates(html, url="", debug=False):
         out.append((bare[0], "time[single]") if debug else bare[0])
         return out
 
+    # --- tier 4: the permalink already fixed the month; take the day -------
+    # A listing page defeats tiers 2 and 3 by design, and that refusal costs a
+    # day the page plainly states. The Leonardo Centauro II story carries NINE
+    # <time pubdate> tags: eight are the sidebar's August recent-posts, and one
+    # is the article's own, 2026-09-01. The permalink -- /2026/09/ -- already
+    # decided the month, so there is no ambiguity left to resolve except which
+    # tag belongs to this article, and exactly one of the nine falls in that
+    # month.
+    #
+    # This can only ever ADD A DAY to a month the URL already stated: the
+    # candidate is required to match url_ymd, so it cannot move the date the way
+    # a mis-picked sidebar entry moved that January 2023 article to July 2026.
+    # The bounded residual risk is a wrong DAY inside the right month, and it
+    # takes a page that states no time of its own while its sidebar lists
+    # exactly one same-month story. A month-precision date is what we had
+    # before, so that trade is worth the day.
+    if url_ymd and url_ymd[1] and url_ymd[2] is None:
+        in_month = {y for y in bare
+                    if y[2] is not None and (y[0], y[1]) == (url_ymd[0], url_ymd[1])}
+        if len(in_month) == 1:
+            ymd = in_month.pop()
+            if ymd not in seen:
+                seen.add(ymd)
+                out.append((ymd, "time[url-month]") if debug else ymd)
+                return out
+
     # --- last resort ------------------------------------------------------
     for m in _LD_CREATED.finditer(head):
         add(m.group(1), "json-ld:dateCreated")
@@ -315,7 +347,7 @@ def pick_date(html, url="", today=None, url_ymd=None):
         import datetime
         t = datetime.date.today()
         today = (t.year, t.month, t.day)
-    for ymd in date_candidates(html, url):
+    for ymd in date_candidates(html, url, url_ymd=url_ymd):
         if (ymd[0], ymd[1] or 1, ymd[2] or 1) > today:
             continue
         if url_ymd and (ymd[0], ymd[1]) != (url_ymd[0], url_ymd[1]):
