@@ -270,6 +270,38 @@ def fmt_deadline(dt):
     return f"{dt.day} {dt.strftime('%b %Y')}"
 
 
+# The dashboard SIZES a tender by parsing this string (frontend gapModel.parseCr),
+# and that parser reads a bare figure as MILLIONS -- "44999000 EUR" would have been
+# forty-five million million euro, and LIVE BID VALUE is a sum of these. So the
+# amount is stated in millions, with a symbol the parser already knows.
+_CUR_SYMBOL = {"EUR": "€", "GBP": "£", "USD": "$", "CAD": "$"}
+
+
+def money(amount, currency):
+    """(44999000, 'EUR') -> '€45.0 M'. None when there is nothing to state.
+
+    A currency the dashboard cannot convert -- PLN, SEK, CZK, NOK, DKK and HUF are
+    31 of the 139 recent defence notices that state a value -- is still worth
+    SHOWING on the row, so it is emitted as a plain figure and contributes nothing
+    to the crore total. Converting it at a rate nobody documented would be worse
+    than the gap.
+    """
+    try:
+        a = float(amount)
+    except (TypeError, ValueError):
+        return None
+    if a <= 0:
+        return None
+    cur = (currency or "").strip().upper()
+    sym = _CUR_SYMBOL.get(cur)
+    if sym:
+        m = a / 1000000.0
+        return f"{sym}{m:,.2f} M" if m < 10 else f"{sym}{m:,.1f} M"
+    if not cur:
+        return None
+    return f"{a:,.0f} {cur}"
+
+
 def recent_enough(posted_dt, deadline_dt, today=None):
     today = today or date.today()
     if deadline_dt and deadline_dt.date() >= today:
@@ -448,8 +480,12 @@ def sam_row(o):
         return None, "stale"
     status = "open" if str(o.get("active", "")).lower() == "yes" else "closed"
     url = o.get("uiLink") or f"https://sam.gov/opp/{nid}/view"
+    # SAM publishes no estimate for a live solicitation; `award.amount` appears only
+    # once the notice IS an award, and that is the one figure it does state.
+    award = o.get("award") or {}
     return make_row(f"sam_{nid}", title, issuer, "United States", cat, url, "SAM.gov",
-                    status, deadline_dt=deadline, posted_dt=posted), None
+                    status, deadline_dt=deadline, posted_dt=posted,
+                    value=money(award.get("amount"), "USD")), None
 
 
 def fetch_sam(cap, tally, client_factory):
@@ -502,7 +538,13 @@ def fetch_sam(cap, tally, client_factory):
 TED_BASE = "https://api.ted.europa.eu/v3/notices/search"
 TED_FIELDS = ["publication-number", "notice-title", "publication-date", "buyer-name",
               "buyer-country", "classification-cpv", "main-classification-proc",
-              "deadline-receipt-tender-date-lot", "notice-type", "links"]
+              "deadline-receipt-tender-date-lot", "notice-type", "links",
+              # what the notice says it is worth. Measured 2026-09-04 over the 250
+              # most recent notices under the four defence CPV divisions: 139 state
+              # a value, 82 at procedure level, 66 per lot, 131 a final total.
+              "estimated-value-proc", "estimated-value-cur-proc",
+              "estimated-value-lot", "estimated-value-cur-lot",
+              "total-value", "total-value-cur"]
 ISO3 = {"AUT": "Austria", "BEL": "Belgium", "BGR": "Bulgaria", "HRV": "Croatia",
         "CYP": "Cyprus", "CZE": "Czech Republic", "DNK": "Denmark", "EST": "Estonia",
         "FIN": "Finland", "FRA": "France", "DEU": "Germany", "GRC": "Greece",
@@ -540,6 +582,42 @@ def link_of(links, pub):
     return f"https://ted.europa.eu/en/notice/-/detail/{pub}"
 
 
+def _one(v):
+    """TED returns most fields as a list, some as a scalar, some not at all."""
+    if isinstance(v, list):
+        return v[0] if v else None
+    return v
+
+
+def ted_value(n, status):
+    """What the notice states it is worth, as a display string.
+
+    A live procedure states an ESTIMATE and a concluded one states what it actually
+    went for, and those are different claims: printing `total-value` beside an open
+    tender would put an award figure in the LIVE BID VALUE sum. So the award total
+    is used only once the notice IS an award.
+
+    Multi-lot notices carry one figure per lot and the procedure total is their sum
+    -- measured over 250 recent defence notices, no notice mixed currencies across
+    its lots, so summing them cannot add euros to zloty.
+    """
+    if status == "awarded":
+        total = money(n.get("total-value"), _one(n.get("total-value-cur")))
+        if total:
+            return total
+    proc = money(n.get("estimated-value-proc"), _one(n.get("estimated-value-cur-proc")))
+    if proc:
+        return proc
+    lots = n.get("estimated-value-lot") or []
+    curs = n.get("estimated-value-cur-lot") or []
+    if lots and len(set(curs)) <= 1:
+        try:
+            return money(sum(float(x) for x in lots), _one(curs))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 def ted_row(n):
     pub = str(n.get("publication-number") or "")
     title = i18n(n.get("notice-title"))
@@ -571,7 +649,8 @@ def ted_row(n):
     country = ISO3.get((i18n(n.get("buyer-country")) or "")[:3].upper())
     return make_row(f"ted_{pub}", title, i18n(n.get("buyer-name")), country, cat,
                     link_of(n.get("links"), pub), "TED (EU)", status,
-                    deadline_dt=deadline, posted_dt=posted), None
+                    deadline_dt=deadline, posted_dt=posted,
+                    value=ted_value(n, status)), None
 
 
 def fetch_ted(cap, tally, client_factory):
@@ -927,8 +1006,7 @@ def prozorro_row(t):
                     f"https://prozorro.gov.ua/tender/{tid_pub}",
                     "ProZorro (Ukraine)", "open",
                     deadline_dt=deadline, posted_dt=posted,
-                    value=(f"{amount:,.0f} {val.get('currency')}"
-                           if isinstance(amount, (int, float)) and amount else None)), None
+                    value=money(amount, val.get("currency"))), None
 
 
 def fetch_prozorro(cap, tally, client_factory):
@@ -1013,11 +1091,15 @@ def uk_row(rel):
     ocid = rel.get("ocid") or rel.get("id")
     if not ocid:
         return None, "no ocid"
+    # OCDS states the procurement's value in the release itself, the same shape
+    # ProZorro uses. It was being dropped on the floor.
+    val = tender.get("value") or {}
     return make_row("uk_" + re.sub(r"[^A-Za-z0-9_.-]", "_", str(ocid))[:60],
                     title, buyer, "United Kingdom", cat,
                     f"https://www.find-tender.service.gov.uk/Notice/{ocid}",
                     "Find a Tender (UK)", "open",
-                    deadline_dt=deadline, posted_dt=posted), None
+                    deadline_dt=deadline, posted_dt=posted,
+                    value=money(val.get("amount"), val.get("currency"))), None
 
 
 def fetch_uk(cap, tally, client_factory):
@@ -1349,6 +1431,34 @@ def demo():
     assert row["value"] and "UAH" in row["value"], row["value"]
     # no CPV and a non-English title -> unmappable, not a false positive
     assert prozorro_row(dict(ua, items=[], title="Послуги з прибирання"))[1] == "unmappable"
+
+    # ---- money(): the dashboard reads a bare figure as MILLIONS ----
+    # parseCr in the frontend matches `<symbol><number>[ B|M]` and, with no scale
+    # word, treats the number as millions. Emitting the raw amount would have made
+    # a EUR 45 m tender read as forty-five million million in the LIVE BID VALUE sum.
+    assert money(44999000, "EUR") == "€45.0 M", money(44999000, "EUR")
+    assert money(766557.4, "EUR") == "€0.77 M", money(766557.4, "EUR")
+    assert money(2500000, "GBP") == "£2.50 M", money(2500000, "GBP")
+    # a currency the dashboard cannot convert is shown, not converted, and not summed
+    assert money(2769013, "CZK") == "2,769,013 CZK", money(2769013, "CZK")
+    for empty in ((None, "EUR"), (0, "EUR"), ("", "EUR"), (-5, "EUR"), (1000, None)):
+        assert money(*empty) is None, empty
+
+    # ---- TED: an estimate for a live procedure, the total only once awarded ----
+    # 139 of the 250 most recent defence notices state a value (measured 2026-09-04);
+    # the pipeline was requesting none of those fields and every row wrote NULL.
+    assert ted_value({"estimated-value-proc": "44999000.00",
+                      "estimated-value-cur-proc": "EUR"}, "open") == "€45.0 M"
+    # lots sum to the procedure value; TED never mixed currencies across the lots
+    assert ted_value({"estimated-value-lot": ["1000000", "1500000"],
+                      "estimated-value-cur-lot": ["EUR", "EUR"]}, "open") == "€2.50 M"
+    assert ted_value({"estimated-value-lot": ["1000000", "1500000"],
+                      "estimated-value-cur-lot": ["EUR", "PLN"]}, "open") is None
+    # an OPEN tender must never show the award total -- that is a different claim
+    assert ted_value({"total-value": 2024900, "total-value-cur": ["EUR"]}, "open") is None
+    assert ted_value({"total-value": 2024900, "total-value-cur": ["EUR"]},
+                     "awarded") == "€2.02 M"
+    assert ted_value({}, "open") is None
 
     # ---- UK Find a Tender: CPV lives on the tender OR its items ----
     uk = {"ocid": "ocds-h6vhtk-0123", "date": date.today().isoformat(),

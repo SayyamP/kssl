@@ -220,6 +220,12 @@ export function metricsFor(cfg, pillar, d) {
       // must not look the same.
       const priced = open.filter((x) => parseCr(x.value) > 0);
       const liveCr = priced.reduce((t, x) => t + parseCr(x.value), 0);
+      /* Stating a value and being SIZEABLE are two different things. TED publishes
+         defence values in zloty, krone and koruna as well as euro, and parseCr
+         converts only the currencies whose rate this build documents; those rows
+         print their amount and stay out of the sum, so the subtitle names them
+         rather than promising a total that quietly omits them. */
+      const unconverted = open.filter((x) => x.value && parseCr(x.value) <= 0).length;
       const countries = new Set(tenders.map((t) => t.country).filter(Boolean));
       const cats = new Set(tenders.map((t) => t.cat).filter(Boolean));
       byLabel = {
@@ -231,7 +237,8 @@ export function metricsFor(cfg, pillar, d) {
       };
       subByLabel["Already concluded"] = `of ${tenders.length} tracked — awarded or closed, not biddable`;
       subByLabel["Live bid value"] = priced.length
-        ? `open tenders · ${priced.length} of ${open.length} publish a value`
+        ? `open tenders · ${priced.length} of ${open.length} publish a value` +
+          (unconverted ? ` · ${unconverted} more in a currency not converted here` : "")
         : "no open tender publishes a value";
       subByLabel["Markets tracked"] = `countries · ${cats.size} categor${cats.size === 1 ? "y" : "ies"}`;
     } else if (pillar === "technology") {

@@ -122,6 +122,12 @@ export function marketMetrics(tenders) {
   const portals = new Set(list.map((t) => hostOf(t.url)).filter(Boolean));
   const priced = list.filter((t) => parseCr(t.value) > 0);
   const crore = priced.reduce((n, t) => n + parseCr(t.value), 0);
+  /* Stating an amount and being SIZEABLE are two different things. TED publishes
+     defence values in zloty, krone and koruna as well as euro, and parseCr converts
+     only the currencies whose rate this build documents. Those rows print their
+     amount and stay out of the total, so the subtitle has to say so -- counting them
+     as "publish an amount" would promise a total that silently omits them. */
+  const unconverted = list.filter((t) => t.value && parseCr(t.value) <= 0).length;
   return [
     {
       l: "Active tenders",
@@ -143,14 +149,15 @@ export function marketMetrics(tenders) {
       sub: `distinct portals feeding this slice`,
     },
     {
-      /* 0 of 89 tenders publish a value. An unmeasured total is "—", never 0 —
-         a zero here would read as "these contracts are worth nothing". */
+      /* An unmeasured total is "—", never 0 — a zero here would read as "these
+         contracts are worth nothing". */
       l: "Value disclosed",
       act: "value",
       v: priced.length ? Math.round(crore).toLocaleString("en-IN") : "—",
       unit: priced.length ? "cr" : "",
       sub: priced.length
-        ? `${priced.length} of ${list.length} publish an amount`
+        ? `${priced.length} of ${list.length} publish an amount` +
+          (unconverted ? ` · ${unconverted} more in a currency not converted here` : "")
         : "no tender on record publishes an amount",
     },
   ];
