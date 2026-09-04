@@ -69,10 +69,15 @@ def main():
     a = ap.parse_args()
 
     import psycopg2
+    # The container this runs in gets its DSN from --env-file, which sets the
+    # ENVIRONMENT and does not put the file inside the image. Reading only the file
+    # meant every containerised run died on "no DSN" and the alternative was passing
+    # --dsn on a command line, which puts the password in shell history.
     env = load_env(a.env)
-    dsn = a.dsn or env.get("KSSL_DSN") or env.get("KSSL_CORPUS_DSN")
+    dsn = (a.dsn or os.environ.get("KSSL_DSN") or os.environ.get("KSSL_CORPUS_DSN")
+           or env.get("KSSL_DSN") or env.get("KSSL_CORPUS_DSN"))
     if not dsn:
-        sys.exit("no DSN")
+        sys.exit("no DSN: set KSSL_DSN, or point --env at a file that does")
     con = psycopg2.connect(dsn)
     cur = con.cursor()
 
