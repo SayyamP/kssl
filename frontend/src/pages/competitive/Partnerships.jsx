@@ -40,6 +40,8 @@ export default function Partnerships() {
   const [tie, setTie] = useState(savedCid ? savedPart.tie || null : null); // a partner row id, or null for the competitor read
   const [mode, setMode] = useState(savedPart.mode || "syn"); // 'syn' | 'field'
   const [relCardIndex, setRelCardIndex] = useState(null);
+  const [viewMode, setViewMode] = useState("network"); // "network" | "heatmap"
+  const [zoomLevel, setZoomLevel] = useState(1);
 
   const svgRef = useRef(null);
   const drawerRef = useRef(null);
@@ -82,12 +84,13 @@ export default function Partnerships() {
       const co = data.competitors[k];
       if (!co) return false;
       const nsh = partners.pgSharedFor(co).length;
-      const pNames = (co.partners || []).map((x) => x.name).join(" ");
+      const pNames = (co.partners || []).map((x) => x.name || x.label || "").join(" ");
       const search = `${(co.name || "").toLowerCase()} ${sectorText(co).toLowerCase()} ${(co.hq || "").toLowerCase()} ${pNames.toLowerCase()}${nsh ? " overlap" : ""}`;
       if (tokens.length > 0 && !tokens.every((tok) => search.includes(tok))) return false;
       if (hq && (co.hq || "").toLowerCase() !== hq) return false;
       return true;
     });
+
 
   const selectCompetitor = (nextCid) => {
     const co = data.competitors[nextCid];
@@ -113,29 +116,57 @@ export default function Partnerships() {
     });
   };
 
-  /* Highlighting is a class sweep over the rendered SVG rather than a re-render:
-     the graph markup is a static string, and touching classes is cheaper and keeps
-     the CSS transitions the original relied on. */
+  /* Highcharts network graph feature: clicking any bubble isolates that bubble and its
+     connected network ties, while smoothly dimming all remaining unrelated bubbles.
+     Clicking background or the selected bubble clears dimming back to full brightness. */
   const applyHighlight = (selectedNodeId, tracedNodeIds) => {
     const svg = svgRef.current;
     if (!svg) return;
-    svg.querySelectorAll(".pg-node").forEach((n) => n.classList.remove("sel", "dim", "trace"));
+    svg.querySelectorAll(".pg-node").forEach((n) => n.classList.remove("sel", "dim", "trace", "connected"));
     svg.querySelectorAll(".pg-edge").forEach((e) => e.classList.remove("hl", "dim", "trace"));
+
     if (selectedNodeId) {
+      // Dim all nodes and edges by default
       svg.querySelectorAll(".pg-node").forEach((n) => n.classList.add("dim"));
       svg.querySelectorAll(".pg-edge").forEach((e) => e.classList.add("dim"));
+
+      // 1. Keep selected node bright with glowing highlight
       const node = svg.querySelector(`.pg-node[data-id="${CSS.escape(selectedNodeId)}"]`);
       if (node) {
         node.classList.add("sel");
         node.classList.remove("dim");
       }
+
+      // 2. Keep center root OEM node visible
       const centre = svg.querySelector(".pg-node.center-root");
       if (centre) centre.classList.remove("dim");
-      svg.querySelectorAll(`.pg-edge[data-b="${CSS.escape(selectedNodeId)}"]`).forEach((e) => {
+
+      // 3. Highlight connected edges and keep connected neighbor nodes bright
+      svg.querySelectorAll(
+        `.pg-edge[data-a="${CSS.escape(selectedNodeId)}"], .pg-edge[data-b="${CSS.escape(selectedNodeId)}"], .pg-edge[data-parent="${CSS.escape(selectedNodeId)}"]`
+      ).forEach((e) => {
         e.classList.add("hl");
         e.classList.remove("dim");
+
+        const a = e.getAttribute("data-a");
+        const b = e.getAttribute("data-b");
+        const otherId = a === selectedNodeId ? b : a;
+        if (otherId) {
+          const otherNode = svg.querySelector(`.pg-node[data-id="${CSS.escape(otherId)}"]`);
+          if (otherNode) {
+            otherNode.classList.remove("dim");
+            otherNode.classList.add("connected");
+          }
+        }
+      });
+
+      // 4. Keep connected satellite nodes bright
+      svg.querySelectorAll(`.pg-node[data-parent="${CSS.escape(selectedNodeId)}"]`).forEach((sat) => {
+        sat.classList.remove("dim");
+        sat.classList.add("connected");
       });
     }
+
     (tracedNodeIds || []).forEach((id) => {
       const node = svg.querySelector(`.pg-node[data-id="${CSS.escape(id)}"]`);
       if (node) node.classList.add("trace");
@@ -248,30 +279,90 @@ export default function Partnerships() {
             ) : null}
           </div>
         </div>
-        <div className="pg-graph-wrap">
+        <div className="pg-graph-wrap" style={{ position: "relative" }}>
           {!c ? (
             <div className="pg-empty">
               <div className="pg-empty-ic">◆</div>
               <div className="pg-empty-t">Select a competitor</div>
               <div className="pg-empty-s">Choose from the list to map their alliance network</div>
             </div>
-          ) : null}
+          ) : (
+            <div className="pg-canvas-toolbar">
+              <div className="pg-view-toggles">
+                <button
+                  type="button"
+                  className={`pg-tb-pill ${viewMode === "network" ? "active" : ""}`}
+                  onClick={() => setViewMode("network")}
+                >
+                  Network
+                </button>
+                <button
+                  type="button"
+                  className={`pg-tb-pill ${viewMode === "heatmap" ? "active" : ""}`}
+                  onClick={() => setViewMode("heatmap")}
+                >
+                  Heatmap
+                </button>
+              </div>
+              <div className="pg-zoom-box">
+                <button
+                  type="button"
+                  className="pg-tb-btn"
+                  onClick={() => setZoomLevel((z) => Math.min(1.6, Number((z + 0.15).toFixed(2))))}
+                  title="Zoom In"
+                >
+                  +
+                </button>
+                <button
+                  type="button"
+                  className="pg-tb-btn"
+                  onClick={() => setZoomLevel((z) => Math.max(0.7, Number((z - 0.15).toFixed(2))))}
+                  title="Zoom Out"
+                >
+                  -
+                </button>
+                <button
+                  type="button"
+                  className="pg-tb-btn"
+                  onClick={() => {
+                    setZoomLevel(1);
+                    setTie(null);
+                  }}
+                  title="Reset View"
+                >
+                  ⟲
+                </button>
+              </div>
+            </div>
+          )}
           <svg
             id="pg-svg"
             preserveAspectRatio="xMidYMid meet"
             ref={svgRef}
-            viewBox="0 0 900 500"
+            viewBox={`${480 - 480 / zoomLevel} ${270 - 270 / zoomLevel} ${960 / zoomLevel} ${540 / zoomLevel}`}
             dangerouslySetInnerHTML={{ __html: c ? partners.graphSvg(c) : "" }}
             onClick={(e) => {
               const g = e.target.closest(".pg-node");
-              if (!g) return;
+              if (!g) {
+                // Clicked on empty canvas -> clear dimming and un-dim all bubbles
+                setTie(null);
+                setMode("syn");
+                return;
+              }
               if (g.classList.contains("comp") || g.classList.contains("center-root")) {
+                // Clicked central root OEM -> reset dimming
                 setTie(null);
                 setMode("syn");
               } else {
-                // the node stands for a company; open its strongest row
-                const nodeId = g.getAttribute("data-id");
-                selectPartner(nodeId);
+                const nodeId = g.getAttribute("data-id") || g.getAttribute("data-parent");
+                if (!nodeId) return;
+                if (tie === nodeId) {
+                  // Toggle off when clicking already selected bubble -> un-dim all
+                  setTie(null);
+                  setMode("syn");
+                } else {
+                  selectPartner(nodeId);
+                }
               }
             }}
           />
@@ -288,20 +379,29 @@ export default function Partnerships() {
         <div className="pg-graph-foot">
           <div className="pg-legend">
             <span className="lg">
-              <span className="nd" style={{ background: "#ffffff", boxShadow: "0 0 6px #ffffff" }} />
-              {c ? c.name : "Current Company"} (White Node)
+              <span className="nd" style={{ background: "#ffffff", boxShadow: "0 0 8px #38bdf8" }} />
+              {c ? c.name : "Current Company"} (Beacon Core)
             </span>
             <span className="lg">
-              <span className="nd" style={{ background: "#22c55e", boxShadow: "0 0 6px #22c55e" }} />
-              Direct Partner (Green Node)
+              <span className="nd" style={{ background: "#f59e0b", boxShadow: "0 0 8px #f59e0b" }} />
+              Foreign OEM / International (Amber)
             </span>
             <span className="lg">
-              <span className="nd" style={{ background: "#ef4444", boxShadow: "0 0 6px #ef4444" }} />
-              Overlapping Partner (Red Node)
+              <span className="nd" style={{ background: "#a855f7", boxShadow: "0 0 8px #a855f7" }} />
+              Defence Tech & Systems (Purple)
+            </span>
+            <span className="lg">
+              <span className="nd" style={{ background: "#14b8a6", boxShadow: "0 0 8px #14b8a6" }} />
+              Domestic & Strategic (Teal)
+            </span>
+            <span className="lg">
+              <span className="nd" style={{ background: "#ef4444", boxShadow: "0 0 8px #ef4444" }} />
+              Overlapping Partner (Red)
             </span>
           </div>
         </div>
       </div>
+
 
       {/* RIGHT: reactive intelligence drawer */}
       <div className={`pg-drawer${cid ? " open" : ""}`} id="pg-drawer">
