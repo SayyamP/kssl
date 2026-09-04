@@ -319,9 +319,19 @@ Otherwise reply with ONLY this JSON (no prose around it):
  "threat": "<high|medium|low -- its competitive threat to KSSL, judged only from the
             statements, else null. Kalyani/KSSL/Bharat Forge is the CLIENT GROUP itself:
             for it, threat is always null>",
- "products": ["<product/system names the statements explicitly name as this company's>"],
- "dir": "<client if it IS Kalyani/KSSL/Bharat Forge (one group); rival if it competes in
-         KSSL's categories; else other>"}
+ "products": ["<product/system names the statements explicitly name as THIS company's OWN --
+             never a partner's or a customer's product that merely appears alongside it>"],
+ "dir": "<client if it IS Kalyani/KSSL/Bharat Forge (one group);
+         rival ONLY if the statements show this company DESIGNS, MANUFACTURES or SUPPLIES
+           physical defence products of its own that compete in KSSL's categories
+           (artillery, ammunition, armoured/protected vehicles, small arms, drones and
+           loitering munitions, missiles and air defence, naval platforms, forgings);
+         otherwise other -- and 'other' is the RIGHT answer for a consultancy, an IT,
+           software, cyber or digital-forensics firm, a systems integrator, a logistics,
+           staffing or test-and-evaluation services provider, a materials or component
+           supplier, a research organisation, a government procurement agency, and for any
+           company whose only connection to a product is a partnership to market or
+           integrate somebody else's>"}
 
 Rules: use ONLY the statements; never add facts you know from elsewhere; unstated
 fields are null; an empty product list is fine. Write all text fields in ENGLISH.
@@ -433,6 +443,68 @@ def rate_threat(products, n_docs):
     return threat, note
 
 
+# A company that only SELLS SERVICES around defence is not a rival to a maker of guns and
+# vehicles, however much defence work it does. Every phrase below was taken from the assess
+# text of a row that is in serving.competitors today and should never have been: Accenture
+# ("digital enablement ... for defense logistics and information systems"), SAIC ("a
+# technology integrator that collaborates with other defense companies"), Amentum ("a wide
+# range of services including research and development, test and evaluation, and supply
+# chain management"), Applied Intuition ("software-defined vehicle capabilities").
+#
+# The list is deliberately BUSINESS-MODEL words, not technology areas. `cybersecurity`,
+# `electronics` and `information systems` are NOT here: Bharat Electronics and Elbit carry
+# them as product lines, and a technology area a real manufacturer also works in cannot be
+# the thing that disqualifies it.
+_SERVICES_RX = re.compile(
+    r"(?<!\w)(consultanc\w*|advisory (?:firm|services)|systems? integrat\w*|"
+    r"technology integrat\w*|integrator|outsourc\w*|staffing|professional services|"
+    r"managed services|range of services|digital (?:enablement|transformation)|"
+    r"digital forensics|software[- ]defined|supply chain management|"
+    r"test and evaluation)(?!\w)", re.I)
+# ...unless the same evidence shows it actually MAKES something. Short and unambiguous on
+# purpose: `delivers` and `develops` are absent, because a consultancy delivers and develops
+# too -- they were the words that let the services rows in.
+_MAKES_RX = re.compile(
+    r"(?<!\w)(manufactur\w*|produces|producing|production of|builds|"
+    r"forges|forging|shipyard|foundry|arsenal)(?!\w)", re.I)
+
+
+def competes_with_kssl(prof):
+    """-> (admit, reason). Is this profile a DIRECT DEFENCE COMPETITOR, or merely a company
+    the corpus mentions near defence?
+
+    This gate exists because there was none. `step_companies` wrote every profile it managed
+    to parse straight into serving.competitors, so the table answered the question "who did
+    the corpus talk about?" when the dashboard asks "who do we compete against?". Accenture
+    sat in it with dir='other', threat NULL and an empty product list -- the model had
+    already answered correctly and the code inserted the row anyway.
+
+    Three pieces of evidence are required, which is the definition of a competitor spelled
+    out as code:
+
+      manufacturer  -- the model, asked properly, judged it a maker of defence products
+                       competing in KSSL's categories (dir == 'rival')
+      capability    -- the statements name at least one product of its OWN; a company the
+                       corpus never credits with a product has shown no competing capability
+      not services  -- its own description is not a services business with no making in it
+
+    A refusal is not a deletion: the profile is still built and still counted, it simply does
+    not become a competitor row. `client` is passed through untouched -- KSSL is not its own
+    rival, and step_companies has always handled that separately.
+    """
+    d = (prof or {}).get("dir")
+    if d == "client":
+        return True, "client"
+    if d != "rival":
+        return False, "not a rival (dir=%s)" % (d or "none")
+    if not (prof.get("products") or []):
+        return False, "no product of its own in the statements"
+    hay = "%s %s" % (prof.get("assess") or "", prof.get("sector") or "")
+    if _SERVICES_RX.search(hay) and not _MAKES_RX.search(hay):
+        return False, "services business, no manufacturing evidence"
+    return True, "rival"
+
+
 def load_profiles(cur):
     """Profiled pipeline companies, from the DB (so --only steps stay independent)."""
     cur.execute("""SELECT comp_id, ord, name, dir, hq, products
@@ -470,6 +542,7 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
     patterns, _comp = load_terms()
     cutoff, cur_year = recent_cutoff()
     rows, refused, no_props, over_limit, calls, not_company = [], 0, 0, 0, 0, 0
+    not_competitor, why_counts = 0, {}
     for name, aliases in sorted(merged.items()):
         if is_force(name) or not is_one_org(name):
             not_company += 1     # a country/government/ministry/armed force, or two orgs
@@ -507,6 +580,14 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
             prof["dir"] = "client"
             prof["threat"] = None        # the client group is never a threat to itself
             prof["threat_note"] = None
+        # THE COMPETITOR TEST. Everything above profiles the company; this decides whether a
+        # competitor is what it is. Checked before the update lines below, which are the
+        # expensive part and are wasted on a row that is not going to be written.
+        admit, why = competes_with_kssl(prof)
+        if not admit:
+            not_competitor += 1
+            why_counts[why.split(" (")[0]] = why_counts.get(why.split(" (")[0], 0) + 1
+            continue
         # dated recent docs -> update lines (recency rule: updates are CLAIMS)
         updates = []
         for did in dids:
@@ -572,10 +653,16 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
                      hq0, cid))
     con.commit()
     print("companies: %d written, %d refused, %d skipped no-props, %d not a company, "
-          "%d over limit"
-          % (len(rows), refused, no_props, not_company, over_limit), flush=True)
+          "%d not a competitor, %d over limit"
+          % (len(rows), refused, no_props, not_company, not_competitor, over_limit),
+          flush=True)
+    # Say WHY the gate refused, per reason. A silent filter that halves the table is
+    # indistinguishable from a broken query the next time someone asks where a rival went.
+    for why, n in sorted(why_counts.items(), key=lambda kv: -kv[1]):
+        print("  not a competitor -- %s: %d" % (why, n), flush=True)
     return {"written": len(rows), "refused": refused, "no_props": no_props,
-            "not_company": not_company, "over_limit": over_limit}
+            "not_company": not_company, "not_competitor": not_competitor,
+            "why": why_counts, "over_limit": over_limit}
 
 
 # --------------------------------------------------------------- step 2: partnerships
@@ -1899,6 +1986,69 @@ def _demo():
     assert sp and sp[0]["l"] == "Range" and sp[0]["cn"] == 40.0
     assert sp[0]["kv"] is None and sp[0]["hi"] is None, "KSSL side stays undisclosed"
     assert extract_specs("no numbers stated here") == []
+    # ---------------------------------------------------- the competitor test (audit 2026-09)
+    # Every profile below is a REAL row from serving.competitors, quoted from the live table,
+    # so these assert what the pipeline actually produced -- not what it might produce.
+    def _p(dir_, products, assess, sector=""):
+        return {"dir": dir_, "products": products, "assess": assess, "sector": sector}
+
+    # 1. THE NAMED CASE. Accenture sat in serving.competitors with dir='other', threat NULL
+    #    and no products at all. The model had answered correctly; step_companies wrote the
+    #    row regardless, because nothing ever asked whether a competitor is what this is.
+    ok, why = competes_with_kssl(_p("other", [], "Accenture is involved in delivering digital "
+        "enablement and integrated decision support capabilities for defense logistics and "
+        "information systems.", "defense services and solutions"))
+    assert not ok and "not a rival" in why, "Accenture is not a competitor: %s" % why
+
+    # 2. SERVICES BUSINESSES THE MODEL CALLED 'rival'. A tightened prompt should stop these
+    #    at the source; the guard is what makes that not merely a hope.
+    saic = _p("rival", ["Mobile Protected Firepower (MPF) light tank"],
+              "SAIC is a technology integrator that collaborates with other defense "
+              "companies to offer advanced solutions for military vehicles and systems.")
+    ok, why = competes_with_kssl(saic)
+    assert not ok and "services" in why, "an integrator is not a manufacturer: %s" % why
+    amentum = _p("rival", ["Unmanned Aerial Systems (UAS)"],
+                 "Amentum provides a wide range of services including research and "
+                 "development, test and evaluation, and supply chain management.")
+    assert not competes_with_kssl(amentum)[0], "a services provider is not a rival"
+    appint = _p("rival", ["Warship OS"], "Applied Intuition is bringing commercial autonomy "
+                "and software-defined vehicle capabilities to the defense sector.")
+    assert not competes_with_kssl(appint)[0], "an autonomy-software vendor is not a rival"
+
+    # 3. NO COMPETING CAPABILITY. A company the corpus never credits with a product of its
+    #    own has shown nothing to compete with, however defence-related it plainly is.
+    #    Denel and EUROSAM are both real defence firms and both stored with zero products.
+    ok, why = competes_with_kssl(_p("rival", [], "EUROSAM is involved in missile defence."))
+    assert not ok and "no product" in why, "no stated product is no evidence: %s" % why
+
+    # 4. REAL COMPETITORS ARE PRESERVED -- including ones whose evidence mentions services.
+    knds = _p("rival", ["CAESAR", "Boxer", "155mm ammunition"],
+              "KNDS produces artillery systems, armoured vehicles and ammunition for "
+              "European armies.", "ammunition, artillery, armoured vehicles")
+    assert competes_with_kssl(knds)[0], "KNDS must stay a competitor"
+    for prof in (_p("rival", ["K9 Thunder"], "Hanwha manufactures self-propelled howitzers."),
+                 _p("rival", ["Archer"], "BAE Systems builds artillery systems."),
+                 _p("rival", ["Hermes 900"], "Elbit Systems produces unmanned systems.")):
+        assert competes_with_kssl(prof)[0], "a plain manufacturer must pass: %s" % prof
+    # A manufacturer that ALSO sells integration work is still a manufacturer: the services
+    # rule only bites when there is no making anywhere in the evidence.
+    both = _p("rival", ["Type 26 frigate"], "Babcock is a systems integrator that also "
+              "builds warships at its own shipyard.")
+    assert competes_with_kssl(both)[0], "manufacturing evidence must outrank a services word"
+    # Technology areas are not services. Bharat Electronics carries cybersecurity as a
+    # product line and must not be disqualified for the word.
+    bel = _p("rival", ["Akash weapon system"], "Bharat Electronics supplies radar and "
+             "electronic warfare systems.", "Electronics, Cybersecurity, Defence Systems")
+    assert competes_with_kssl(bel)[0], "a technology area is not a services business"
+
+    # 5. THE CLIENT IS NOT A RIVAL, and passes through as it always did.
+    assert competes_with_kssl(_p("client", [], "KSSL is the client group."))[0]
+
+    # 6. AMBIGUOUS OUTPUT IS REFUSED, never coerced. parse_profile already maps an invented
+    #    dir to 'other'; the gate must then keep it out rather than let 'other' mean rival.
+    assert not competes_with_kssl(_p("other", ["Something"], "A defence-related firm."))[0]
+    assert not competes_with_kssl({})[0] and not competes_with_kssl(None)[0]
+
     print("ok")
 
 
