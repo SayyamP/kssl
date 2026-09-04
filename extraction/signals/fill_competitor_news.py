@@ -17,7 +17,7 @@ produced, wrote a date for from the article's own markup, and cited:
     source       the publisher                parsed from meta / the url host
     url          the article                  serving.signal_card.url
     image        the article's own picture    serving.signal_card.image
-    category     the portfolio band           serving.signal_card.tags
+    category     the news topic               news_category(): see NEWS_CATEGORIES
     published_date  the article's date        serving_fill.article_date (markup first)
 
 Two fields are deliberately NOT written. `is_trending` stays false: nothing in the
@@ -84,6 +84,115 @@ def as_date(ymd):
         return None
 
 
+# ------------------------------------------------------------------ category
+#
+# `category` is what the Profile page's filter pills read, and those pills are a
+# fixed NEWS-TOPIC vocabulary -- Defence, Financial, Government, Workforce, Markets --
+# matched by substring. The first version of this writer copied signal_card.tags
+# into it, and tags is the PORTFOLIO BAND ("Artillery", "UAVs & Drones", "Marine /
+# Naval", ...). No band contains the word "workforce" or "markets", so those two
+# pills were empty for every company by construction, and "Defence" matched only
+# the one band that happens to contain it ("Missiles & Air Defence").
+#
+# The topic is derived from evidence the pipeline already wrote for the card --
+# its title, one-line read, and the detail's what/why -- plus the lane the signal
+# filler put it in. Nothing is inferred from a company name or a source host: a
+# publisher covers every topic, and "Senator" is Roshel's armoured vehicle.
+#
+# Each lexicon is deliberately narrow, and the exclusions are measured, not
+# theoretical. On the 1,127 production cards the broad first draft put "Corsair
+# maritime drones used in combat" under Workforce (strike), "Australia to acquire
+# AIM-260A missiles" under Financial (acquisition), "Ukraine receives 2,500 Senator
+# vehicles" under Government (senator) and 408 cards under Markets because every
+# analyst sentence says "market" or "demand". A row with no topic evidence but a
+# portfolio band is "Defence": the band is the pipeline's own finding that the story
+# is defence-industry news. A row with neither is left uncategorised (None), and
+# the UI shows its own placeholder rather than a label nothing supports.
+
+NEWS_CATEGORIES = ("Defence", "Financial", "Government", "Workforce", "Markets")
+
+_WORKFORCE = re.compile(
+    r"\b(jobs|hiring|hires|hired|employees|workforce|headcount|layoffs?|laid off"
+    r"|redundanc\w+|recruit(s|ed|ing|ment)|apprentice\w*|appoint(s|ed|ment)"
+    r"|named (as )?(ceo|chief executive|president|chairman|managing director)"
+    r"|new ceo|chief executive officer|steps? down as|resigns? as)\b", re.I)
+# "employment" is excluded: in defence text it is the employment OF a weapon.
+
+_FINANCIAL = re.compile(
+    r"\b(merger|merges with|takeover|stake in|buyout|ipo|share price|shares"
+    r"|shareholders?|dividends?|ebitda|net (profit|income|loss)|operating (profit|income)"
+    r"|(revenue|profit|earnings|order intake) growth"
+    r"|(reports?|reported|posts?|posted|record|annual|quarterly|half-year|full-year"
+    r"|h[12]|q[1-4]|fy ?\d{2,4}) (\w+ ){0,3}(revenues?|profits?|earnings|order intake|results)"
+    r"|(raise[sd]?|upgrade[sd]?|exceed(s|ed)?|cut|cuts|lower(s|ed)?|maintain(s|ed)?"
+    r"|reaffirm(s|ed)?|fy ?\d{2,4}|full-year|annual|profit|revenue|earnings) guidance"
+    r"|quarterly results|financial results|order backlog|backlog"
+    r"|invest(s|ed)? (\$|€|£|₹|us\$|[0-9])|investment of"
+    r"|funding round|raises? (\$|€|£|₹)|series [a-d] (round|funding)|valuation"
+    r"|bond issue|credit facility)\b", re.I)
+# Bare "revenue"/"profit" and bare "guidance" are excluded: the analyst's
+# why-sentence says "adds to X's revenue" on ordinary contract wins, and a TACAN
+# is a navigation GUIDANCE system. Results need a reporting word next to them.
+# "acquire/acquisition" alone is procurement language ("acquire 200 missiles",
+# "Defence Acquisition Council"). It is corporate finance only next to a corporate
+# noun: "acquires Iveco Defence BUSINESS", "acquisition of the COMPANY".
+_ACQUIRE = re.compile(r"\bacqui(res|red|re|sition|sitions)\b", re.I)
+_CORPORATE = re.compile(
+    r"\b(business(es)?|company|companies|firm|subsidiary|division|unit|holdings?"
+    r"|stake|deal|takeover|merger|shareholders?)\b", re.I)
+
+_GOVERNMENT = re.compile(
+    r"\b(parliament(ary)?|congress(ional)?|lawmakers?|legislat\w+|regulat(ory|ion|ions)"
+    r"|budgets?|budgetary|allocat(es|ed|ion)|appropriat(es|ed|ion|ions)"
+    r"|polic(y|ies)|sanction(s|ed)?|approv(es|ed|al)|clears|cleared|clearance"
+    r"|tender(s|ed)?|rfp|rfi|request for (proposal|information)"
+    r"|tariffs?|subsid(y|ies|ised|ized)|bans?|banned|foreign military sales?|fms"
+    r"|defence acquisition council|military aid"
+    r"|export (control|ban|licen[cs]e)|licen[cs]e (approval|granted))\b", re.I)
+# A bare "ministry", "government" or "Pentagon" is excluded: it is the CUSTOMER in
+# most contract stories, and the story is then the contract, not a government act.
+# "senator" is excluded because it is a Roshel product line, and a bare "licence"
+# because licensed PRODUCTION is an industrial arrangement, not a government act.
+
+_MARKETS = re.compile(
+    r"\b(exports?|exported|exporters?|market (entry|expansion|share|size|growth"
+    r"|forecast|opportunity)|forecasts?|projected (to|at)|expan(ds|ded|sion) (into|to)"
+    r"|enters? the [\w -]{0,30}market|new markets?|overseas|global market"
+    r"|international (sales|customers|orders|market)"
+    r"|foreign (buyers?|customers?|sales|market))\b", re.I)
+# Bare "market" and "demand" are excluded: the analyst's why-sentence says one of
+# them on a third of all cards ("signals growing demand for ...").
+
+
+def news_category(card):
+    """-> one of NEWS_CATEGORIES, or None when nothing on the card supports a label.
+
+    `card` is the signal_card row as a dict, optionally carrying the detail's
+    "what" and "why". The order is specificity: a story that names jobs or an
+    acquisition is filed there even if it also mentions a budget; the pipeline's
+    MARKET lane is a weaker, structural piece of evidence used only when the text
+    itself names no topic; the portfolio band is the last resort and yields only
+    the generic label. A band never becomes a category name of its own, and never
+    becomes a specific topic.
+    """
+    text = " ".join(str(card.get(k) or "") for k in ("title", "sowhat", "what", "why"))
+    if _WORKFORCE.search(text):
+        return "Workforce"
+    if _FINANCIAL.search(text) or (_ACQUIRE.search(text) and _CORPORATE.search(text)):
+        return "Financial"
+    if _GOVERNMENT.search(text):
+        return "Government"
+    if _MARKETS.search(text):
+        return "Markets"
+    if (card.get("lane") or "").lower() == "market":
+        # The signal filler's own verdict: "a procurement or demand event with no
+        # single winning maker". That is market news by the pipeline's definition.
+        return "Markets"
+    if (card.get("tags") or "").strip():
+        return "Defence"
+    return None
+
+
 def build(cards, comp_index, date_of):
     """-> (rows, stats). Pure: no DB, no network. `cards` are dicts, `comp_index`
     maps a folded company name to comp_id, `date_of` resolves a document id."""
@@ -111,7 +220,7 @@ def build(cards, comp_index, date_of):
             "description": c.get("sowhat") or None,
             "source": source_of(c.get("meta"), c["url"]),
             "published_date": when,
-            "category": c.get("tags") or None,
+            "category": news_category(c),
             "url": c["url"],
             "image": c.get("image") or None,
         })
@@ -151,10 +260,15 @@ def run(dsn=DSN, apply=False):
     con = psycopg2.connect(dsn, connect_timeout=10, keepalives=1,
                            keepalives_idle=30, keepalives_interval=10)
     cur = con.cursor()
-    cur.execute("""SELECT id, title, sowhat, meta, company, tags, url, image
-                     FROM serving.signal_card
-                    WHERE origin='pipeline' ORDER BY ord""")
-    cols = ("id", "title", "sowhat", "meta", "company", "tags", "url", "image")
+    # The detail's what/why are the card's own long-form read of the article; they
+    # are the evidence news_category() classifies on, alongside title and sowhat.
+    cur.execute("""SELECT c.id, c.title, c.sowhat, c.meta, c.company, c.tags, c.url,
+                          c.image, c.lane, d.what, d.why
+                     FROM serving.signal_card c
+                     LEFT JOIN serving.signal_detail d ON d.id = c.id
+                    WHERE c.origin='pipeline' ORDER BY c.ord""")
+    cols = ("id", "title", "sowhat", "meta", "company", "tags", "url", "image",
+            "lane", "what", "why")
     cards = [dict(zip(cols, r)) for r in cur.fetchall()]
 
     idx = _comp_index(cur)
@@ -179,6 +293,20 @@ def run(dsn=DSN, apply=False):
           "%d no company, %d not a tracked competitor, %d no link, %d no provable date"
           % (len(cards), len(rows), per_company, stats["no_company"],
              stats["unmatched"], stats["no_url"], stats["undated"]), flush=True)
+    # Per pill, so an empty one is visible here before it is visible on the page.
+    by_cat = {}
+    for r in rows:
+        by_cat[r["category"]] = by_cat.get(r["category"], 0) + 1
+    print("categories: " + ", ".join("%s %d" % (c, by_cat.get(c, 0))
+                                     for c in NEWS_CATEGORIES + (None,)), flush=True)
+    # Per company too: "news is missing for X" is answered here, by name, before
+    # anyone opens X's profile. A tracked competitor absent from this list has no
+    # dated, linked signal card -- which is a fact about the corpus, not a bug here.
+    by_comp = {}
+    for r in rows:
+        by_comp[r["comp_id"]] = by_comp.get(r["comp_id"], 0) + 1
+    print("per company: " + ", ".join("%s %d" % kv for kv in sorted(by_comp.items())),
+          flush=True)
 
     if not apply:
         print("dry run: nothing written (pass --apply)", flush=True)
