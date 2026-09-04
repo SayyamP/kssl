@@ -70,7 +70,7 @@ export function DataProvider({ children }) {
       /* Both run against value.data — the WIRED dataset. That matters for the market
          one: computeTenderRealDays rewrites dl and deadline, and the served rows carry
          dl: null, for which `dl <= 0` is true and every tender buckets as closed. */
-      marketSelfCheck(value.data.tenders);
+      marketSelfCheck(value.data.tenders, value.data.marketCards);
       profileSelfCheck(value.data);
       logger.info("self-checks complete", {
         globals: Object.keys(value.data).length,
