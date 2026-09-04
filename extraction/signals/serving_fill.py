@@ -922,10 +922,122 @@ def strip_kssl_tail(sowhat):
     return " ".join(out).strip()
 
 
+# ---------------------------------------------------------------------------------
+# OFF-PORTFOLIO SUBJECT GATE
+#
+# The client's report: "there are some camera signals that KSSL doesn't work in".
+# Measured on the live rows, it was not just cameras -- about a third of every served
+# surface was about a product class KSSL has no line in, and 33 of 103 THREAT badges
+# were off-portfolio. The one that names the problem:
+#
+#   "Leonardo DRS Secures Contract for Over 50,000 Thermal Imaging Cameras"
+#       category: UAVs & Drones      dir: threat
+#
+# WHY IT GOT THROUGH. parse_card's only subject test was `if cat not in cats` -- that
+# the LLM's label is one of the nine, never that the ARTICLE is about that category.
+# The prompt says "if it fits none, reply NONE - never stretch", and a prompt is not a
+# gate: this file's own mantra, earned four times already. CAT_META[..]["kw"] has held a
+# keyword list per category all along and nothing in the card path ever read it.
+#
+# WHY A NEGATIVE LIST, NOT A POSITIVE ONE. Requiring a CAT_META keyword in the title is
+# the obvious fix and it is wrong: measured, it refuses ~70% of RELEVANT cards, because
+# the keyword lists have no Centauro, Archer, NLAW, Carl-Gustaf or Lynx. Naming what
+# KSSL does not make is a short, closed list; naming everything it does make is not.
+#
+# THE OVERRIDE IS THE LOAD-BEARING PART. A negative word alone would refuse
+# "BrahMos fired from a Su-30" (aircraft) and "Archer howitzer with a radar-guided
+# shell" (radar) -- both real missile/artillery signals. So a hit is IGNORED when the
+# card's own category keyword is also present: the article is then about KSSL's line,
+# mentioning the other thing. Off-portfolio means the SUBJECT is elsewhere, not that a
+# foreign word appears.
+_OFF_PORTFOLIO_RX = re.compile(
+    r"\b("
+    # optics / sensors -- the client's own example
+    r"camera|cameras|thermal imag\w*|night[- ]vision|image intensif\w*|optronic\w*|"
+    r"electro[- ]optical|eo/ir|periscope|binocular\w*|"
+    # sights: the client's complaint is optics, so name the forms they appear in.
+    # NOT a bare "sight" -- "line of sight" and "sighted in" are ordinary prose.
+    r"sight system|(?:weapon|thermal|smart|optical|aiming|reflex|holographic)[- ]sights?|"
+    r"aiming device|telescope|"
+    # radar / sonar / EW / signals
+    r"radar|sonar|electronic warfare|jammer|jamming|signals intelligence|"
+    # space
+    r"satellite\w*|spacecraft|orbital|in[- ]orbit|lunar|launch vehicle|constellation|"
+    # software / IT / comms
+    r"software|cyber ?security|cyber range|data platform|battle[- ]management|"
+    r"air[- ]traffic|cloud comput\w*|semiconductor\w*|wafer\w*|"
+    # manned aircraft and engines
+    r"helicopter\w*|rotorcraft|rotary[- ]wing|fighter jet|fighter aircraft|trainer jet|"
+    r"transport aircraft|airliner|aero[- ]?engine|turbofan|eVTOL|"
+    r"aw1\d\d|aw2\d\d|nh90|m-346|gripen|f-35|c-130|kc-46|a400m|su-30|"
+    # directed energy
+    r"laser|directed[- ]energy|high[- ]power microwave|"
+    # medical / training / civil / corporate
+    r"medical|hospital|field hospital|ambulance|"
+    r"training contract|simulation|simulator\w*|"
+    r"order intake|revenue guidance|annual results|sustainability report"
+    r")\b", re.I)
+
+_CAT_KW = None
+
+
+def _cat_keywords():
+    """CAT_META keyword lists, keyed by the display category name.
+
+    Loaded once. These are the words that say an article IS about a KSSL line, and they
+    exist only to CANCEL an off-portfolio hit -- never to demand one.
+    """
+    global _CAT_KW
+    if _CAT_KW is None:
+        _CAT_KW = {}
+        try:
+            ref = json.loads((HERE.parent / "reference_dataset.json").read_text(
+                encoding="utf-8"))
+            meta = ref.get("CAT_META", {})
+            for key, m in meta.items():
+                label = (m.get("label") or "").lower()
+                kws = [str(w).lower() for w in (m.get("kw") or []) if str(w).strip()]
+                if label:
+                    _CAT_KW[label] = kws
+        except Exception as e:                                        # noqa: BLE001
+            print("off_portfolio: CAT_META unavailable (%s) -- override disabled" % e,
+                  flush=True)
+            _CAT_KW = {}
+    return _CAT_KW
+
+
+def off_portfolio(cat, text):
+    """True when the SUBJECT is a product class KSSL has no line in.
+
+    Advisory in the same way the roster gate is: with no CAT_META the override is
+    disabled and this becomes a plain negative list, never a crash.
+    """
+    if not text:
+        return False
+    hit = _OFF_PORTFOLIO_RX.search(text)
+    if not hit:
+        return False
+    # the card's own category, named in the same text -> the article is about KSSL's
+    # line and merely mentions the other thing
+    for kw in _cat_keywords().get((cat or "").lower(), ()):
+        if len(kw) < 3:
+            # a 2-char keyword ("k9", "155") is matched whole so it cannot fire inside
+            # an unrelated word
+            if re.search(r"\b%s\b" % re.escape(kw), text, re.I):
+                return False
+        elif re.search(r"\b%s" % re.escape(kw), text, re.I):
+            return False
+    return True
+
+
 def category_conflict(cat, text):
     """fix4: True when the article's own words contradict the LLM's category pick."""
     c = (cat or "").lower()
-    if _HELI_RX.search(text) and ("vehicle" in c or "small arms" in c):
+    # Fires for EVERY category. It used to require "vehicle" or "small arms" in the
+    # label, so a helicopter filed under UAVs & Drones walked straight through --
+    # "Leonardo wins 15 helicopter order from Avincis" was served as a drone signal.
+    # A helicopter is not any of the nine, whatever the model called it.
+    if _HELI_RX.search(text):
         return True
     if _LASER_RX.search(text) and ("drone" in c or "uav" in c):
         return True
@@ -992,6 +1104,8 @@ def parse_card(raw, cats, props=None, comp_patterns=None, known_rx=None):
         return None                      # the model failed to output English -> unusable in UI
     if category_conflict(cat, ev):
         return None                      # fix4: helicopter-in-armoured, laser-in-drones, etc.
+    if off_portfolio(cat, ev):
+        return None                      # fix6: cameras, satellites, software, field hospitals
     # fix2: recover the MAKER when the LLM named a force (buyer/customer) as the actor, and
     # make an award/partnership/expansion COMPETITIVE. Search the TITLE too -- the winner is
     # usually in the headline ('Elbit awarded ...') even when the company field holds the buyer.
@@ -1028,7 +1142,10 @@ def parse_card(raw, cats, props=None, comp_patterns=None, known_rx=None):
     # fix3: threat only for a concrete GAIN by a rival IN A CORE KSSL LINE; a rival gaining in
     # missiles or naval (which KSSL does not make) is watch, and so is a demo/announcement.
     gain = bool(_GAIN_RX.search(ev))
-    in_core = cat.lower() in _CORE_CATS
+    # A label is not a subject. "Leonardo DRS ... 50,000 Thermal Imaging Cameras"
+    # carried cat="UAVs & Drones", so in_core was True, _GAIN_RX matched "contract"
+    # and Leonardo is on the roster -- three greens and a red badge for a camera deal.
+    in_core = cat.lower() in _CORE_CATS and not off_portfolio(cat, ev)
     if direction == "threat" and not (gain and pillar == "competitive" and in_core):
         direction = "watch"
     elif gain and pillar == "competitive" and in_core:
