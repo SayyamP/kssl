@@ -55,3 +55,33 @@ jobs:
         run: |
           pip install httpx psycopg2-binary
           python pipeline/fetch_tenders.py --demo
+
+      # The extraction and serving self-checks. These existed and were NOT run here, which
+      # is how `serving_fill.py --demo` came to be failing on every invocation while looking
+      # like a passing suite: it hid three separate faults, each masked by the one before it,
+      # and nothing noticed for as long as nobody ran it by hand. A self-check nobody runs is
+      # not a test, it is a comment that can rot.
+      #
+      # Every command here is hermetic -- no database, no network, no GPU, no model call --
+      # so they belong in CI rather than in a runbook. They gate, in order: the presignal
+      # relevance gate (competitor roster, alias list, code stoplist), the queue router, the
+      # audit regressions, the card writer, and the enrichment step that decides who counts
+      # as a competitor.
+      - name: Extraction + serving self-checks
+        run: |
+          pip install -r extraction/requirements.txt
+          python extraction/engine/presignal.py --demo
+          C_DS_JSON=extraction/engine/ds.json \
+          C_TIERS_PATH=extraction/engine/source_tiers.py \
+            python extraction/engine/route.py --demo
+          (cd extraction && python test_fixes.py)
+          # The signals modules import each other by bare filename, so they run from their
+          # own directory. The test_*.py loop is deliberate: a new regression test is picked
+          # up by being written, without also having to remember to edit this file.
+          cd extraction/signals
+          python serving_fill.py --demo
+          python enrich_serving.py --demo
+          for t in test_*.py; do
+            echo "== $t"
+            python "$t"
+          done
