@@ -194,6 +194,19 @@ case "${1:-worker}" in
     cd "$HERE/signals"
     while true; do
       python3 enrich_serving.py || log "enrich pass failed (continuing)"
+      # AND REFILL THE NEWS, IN THE SAME CYCLE THAT EMPTIES IT.
+      # serving.competitor_news.comp_id is `REFERENCES serving.competitors(comp_id) ON
+      # DELETE CASCADE`, and the pass above deletes and rebuilds every origin='pipeline'
+      # competitor -- so each pass silently takes the whole news table with it. This
+      # script is its only writer and was wired to nothing, so the four news panels on
+      # the dashboard sat empty from the first rebuild until someone ran it by hand.
+      # Measured on production 2026-09-04: 123 rows before a pass, 0 after.
+      #
+      # It reads serving.signal_card, which the `signals` role writes, so it needs no
+      # model call and costs seconds. Failure is logged and the loop continues: an empty
+      # news panel is bad, an enrich loop that stops rebuilding everything else is worse.
+      log "news: refill serving.competitor_news (cascaded away by the rebuild above)"
+      python3 fill_competitor_news.py --apply || log "news fill failed (continuing)"
       sleep "${ENRICH_EVERY_S:-7200}"
     done
     ;;
