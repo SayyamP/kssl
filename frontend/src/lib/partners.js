@@ -125,6 +125,318 @@ const PG_RX = 200;
 const PG_RY = 158;
 const PG_LBL_MAX = 22; // characters before an ellipsis; full name in <title>
 
+/* LABEL COLLISION RESOLUTION.
+   Two text rows per label (name + kind), ~11px and ~9px on a 12px rhythm, so a label
+   occupies about 24px of height and charW*len of width from its anchor. Labels are
+   planned for every node first, then nudged apart, then drawn -- a label cannot avoid
+   a neighbour that has not been placed yet, which is why the fixed-offset version
+   collided at exactly the points where the graph is most crowded.
+
+   Vertical nudging only. Moving a label sideways detaches it from its node (the anchor
+   side encodes which node it belongs to); moving it down keeps the association and is
+   what a person does by hand. */
+function pgResolveLabelCollisions(plan) {
+  const CHAR_W = 6.2;          // 11px mono
+  const H = 24;                // title + kind row
+  const PAD = 3;
+  const box = (p) => {
+    const w = Math.max(String(p.text || "").length, String(p.sub || "").length) * CHAR_W;
+    const x = p.anchor === "start" ? p.x : p.anchor === "end" ? p.x - w : p.x - w / 2;
+    return { x1: x - PAD, x2: x + w + PAD, y1: p.y - 11 - PAD, y2: p.y + H - 11 + PAD };
+  };
+  // top-to-bottom: a label only ever moves DOWN, so one ordered pass settles the run
+  const order = plan.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+  for (let i = 0; i < order.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const a = box(order[i]);
+      const b = box(order[j]);
+      const hit = a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+      if (hit) {
+        order[i].y += b.y2 - a.y1 + 2;
+        j = -1;                // re-check against everything already placed
+      }
+    }
+  }
+  return plan;
+}
+
+/* ===================================================================
+   RADIAL LAYOUT FOR THE ALLIANCE GRAPH
+
+   Reported with a screenshot: "utillize the space artound the graph everthing
+   clsutered and overlapped fix it". The layout was a table of fixed slot
+   coordinates per cluster, hand-placed for one picture: seven partners landed on
+   the same upper-left positions thirty would have, the fifth member of a cluster
+   was "nudged" 20px diagonally onto the first, and nothing could ever reach the
+   bottom half or the right third of the 960x540 canvas. The guide rings, drawn at
+   fixed radii, then outlined exactly how much of the canvas was going unused.
+
+   Now: one ellipse, sized from the canvas and from the widths of the labels that
+   are actually on it. Partners sit on it at equal angular slices; a cluster is a
+   contiguous sector, clockwise from the top in a fixed order, so cluster identity
+   survives any count. A label sits outboard of its node -- start-anchored on the
+   right half, end-anchored on the left, above or below at the poles -- so it runs
+   out into the margin instead of across the graph. The plan is then checked as
+   geometry (disc on disc, label on label, label on disc, edge through disc); if
+   anything touches, the lowest-ranked node of the fullest sector drops to an inner
+   ring inside its own sector and the plan is checked again. Nothing is ever moved
+   by a constant. The label resolver below runs last, on whatever the ring search
+   could not settle, which on this canvas is nothing up to the 16-node cap.
+
+   The functions are pure and exported so test_graph_layout.mjs can drive them at
+   canvas sizes the app never uses.
+   =================================================================== */
+const PG_VIEW = { w: 960, h: 540, top: 46, bottom: 34, side: 12 }; // toolbar strip, hint strip
+const PG_CLUSTER_ORDER = ["amber", "purple", "teal", "coral"];
+const PG_LBL_CHAR_W = 6.2; // 11px mono, the figure the resolver uses too
+const PG_LBL_H = 24; // title row + kind row
+const PG_LBL_PAD = 3;
+const PG_LBL_GAP = 7; // disc edge to label
+const PG_HALO = 6; // halo ring outside the disc
+const PG_CENTER_R = 24;
+const PG_CENTER_HALO = 40;
+const PG_INNER = 0.58; // inner ring, as a fraction of the outer
+
+function pgLabelBoxOf(p) {
+  const w = Math.max(String(p.text || "").length, String(p.sub || "").length) * PG_LBL_CHAR_W;
+  const x = p.anchor === "start" ? p.x : p.anchor === "end" ? p.x - w : p.x - w / 2;
+  return { x1: x - PG_LBL_PAD, x2: x + w + PG_LBL_PAD, y1: p.y - 11 - PG_LBL_PAD, y2: p.y + PG_LBL_H - 11 + PG_LBL_PAD };
+}
+function pgBoxesHit(a, b) {
+  return a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+}
+function pgBoxHitsDisc(b, x, y, r) {
+  const px = Math.max(b.x1, Math.min(x, b.x2));
+  const py = Math.max(b.y1, Math.min(y, b.y2));
+  return Math.hypot(x - px, y - py) < r;
+}
+function pgSegDist(ax, ay, bx, by, px, py) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const len2 = dx * dx + dy * dy || 1;
+  const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/* Where a node's label goes: hung off the point just outboard of the disc along
+   the node's own ray, start-anchored on the right half and end-anchored on the
+   left, so it runs out into the margin. Hanging it off the RAY rather than off
+   the disc's side is what keeps two neighbours near a pole apart: their anchor
+   points climb with the ring, so their rows stagger instead of sharing a line.
+   At the pole itself (|cos| < 0.15) a horizontal label would run along the ring
+   into the next node, so it goes above or below, centred.
+   Returns the label origin and its box, both relative to the node centre. */
+const PG_POLE = 0.15;
+function pgLabelRel(ang, r, w) {
+  const cos = Math.cos(ang);
+  const sin = Math.sin(ang);
+  const d = r + PG_LBL_GAP;
+  if (Math.abs(cos) < PG_POLE) {
+    return sin < 0
+      ? { dx: 0, dy: -d - 1 - 12, anchor: "middle", x1: -w / 2 - PG_LBL_PAD, x2: w / 2 + PG_LBL_PAD, y1: -d - 27, y2: -d + 3 }
+      : { dx: 0, dy: d + 1 + 11, anchor: "middle", x1: -w / 2 - PG_LBL_PAD, x2: w / 2 + PG_LBL_PAD, y1: d - 2, y2: d + 28 };
+  }
+  const dx = d * cos;
+  const dy = d * sin;
+  return cos > 0
+    ? { dx, dy: dy - 2, anchor: "start", x1: dx - PG_LBL_PAD, x2: dx + w + PG_LBL_PAD, y1: dy - 16, y2: dy + 14 }
+    : { dx, dy: dy - 2, anchor: "end", x1: dx - w - PG_LBL_PAD, x2: dx + PG_LBL_PAD, y1: dy - 16, y2: dy + 14 };
+}
+function pgPlanLabel(nd, w) {
+  const rel = pgLabelRel(nd.ang, nd.r, w);
+  return { x: nd.x + rel.dx, y: nd.y + rel.dy, anchor: rel.anchor };
+}
+
+/* Everything that may not touch, as a list of faults. Empty means the plan is clean. */
+export function pgLayoutFaults(lay) {
+  const f = [];
+  const nodes = lay.nodes;
+  const c = lay.center;
+  const all = nodes.concat([c]);
+  for (let i = 0; i < all.length; i++)
+    for (let j = i + 1; j < all.length; j++) {
+      const a = all[i];
+      const b = all[j];
+      if (Math.hypot(a.x - b.x, a.y - b.y) < a.halo + b.halo + 2) f.push(`disc ${a.id} on disc ${b.id}`);
+    }
+  const boxes = nodes.map((n) => ({ n, b: pgLabelBoxOf(n.lbl) }));
+  if (c.box) boxes.push({ n: c, b: c.box });
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++)
+      if (pgBoxesHit(boxes[i].b, boxes[j].b)) f.push(`label ${boxes[i].n.id} on label ${boxes[j].n.id}`);
+    all.forEach((o) => {
+      if (o !== boxes[i].n && pgBoxHitsDisc(boxes[i].b, o.x, o.y, o.halo)) f.push(`label ${boxes[i].n.id} on disc ${o.id}`);
+    });
+  }
+  nodes.forEach((e) =>
+    nodes.forEach((o) => {
+      if (o !== e && pgSegDist(c.x, c.y, e.x, e.y, o.x, o.y) < o.halo + 2) f.push(`edge to ${e.id} through disc ${o.id}`);
+    }),
+  );
+  return f;
+}
+
+/* items: [{id, label, sub, r, cluster}] in cluster-rank order.
+   Returns the centre, the ring radii and every node with x, y, ring, ang and its
+   label plan {x, y, anchor, text, sub}. */
+export function pgRadialLayout(items, view, centerLabel) {
+  const V = Object.assign({}, PG_VIEW, view || {});
+  const cx = V.w / 2;
+  const cy = V.h / 2;
+  const cName = String(centerLabel || "");
+  const center = {
+    id: "center",
+    x: cx,
+    y: cy,
+    r: PG_CENTER_R,
+    halo: PG_CENTER_HALO,
+    // the OEM name (13px) and the SELECTED OEM row under the disc
+    box: {
+      x1: cx - Math.max(cName.length * 7.6, 12 * 5.6) / 2 - PG_LBL_PAD,
+      x2: cx + Math.max(cName.length * 7.6, 12 * 5.6) / 2 + PG_LBL_PAD,
+      y1: cy + PG_CENTER_HALO - 13,
+      y2: cy + PG_CENTER_HALO + 14 + PG_LBL_PAD,
+    },
+  };
+  const m = items.length;
+  if (!m) return { cx, cy, rx: 0, ry: 0, rings: 1, nodes: [], center, faults: [] };
+
+  // clusters as contiguous sectors, clockwise from the top; unknown clusters last
+  const known = {};
+  PG_CLUSTER_ORDER.forEach((k) => (known[k] = 1));
+  const groups = PG_CLUSTER_ORDER.map((k) => items.filter((it) => it.cluster === k));
+  groups.push(items.filter((it) => !known[it.cluster]));
+  const slice = (2 * Math.PI) / m;
+  let a0 = m === 1 ? -Math.PI : -Math.PI / 2;
+  const sectors = [];
+  groups.forEach((g) => {
+    if (!g.length) return;
+    sectors.push({ items: g, a0, width: g.length * slice });
+    a0 += g.length * slice;
+  });
+  const widthOf = (it) => {
+    const t = String(it.text || it.label || "");
+    return Math.max(t.length, String(it.sub || "").length) * PG_LBL_CHAR_W;
+  };
+
+  const attempt = (inner) => {
+    // outer ring first: equal slices of each sector
+    const placed = [];
+    sectors.forEach((s, si) => {
+      const outer = s.items.filter((it) => !inner[it.id]);
+      outer.forEach((it, j) =>
+        placed.push(Object.assign({}, it, { ring: 0, sec: si, ang: s.a0 + ((j + 0.5) * s.width) / outer.length })),
+      );
+    });
+    // the ring is as large as the canvas allows: every outer disc, its halo and its
+    // label must fit inside the margins along its own ray
+    let rx = cx - V.side - 30;
+    let ry = Math.min(cy - V.top, V.h - V.bottom - cy) - 30;
+    placed.forEach((n) => {
+      const cos = Math.cos(n.ang);
+      const sin = Math.sin(n.ang);
+      const h = n.r + PG_HALO;
+      const rel = pgLabelRel(n.ang, n.r, widthOf(n));
+      // the node's full footprint relative to its centre: halo and label together
+      const x1 = Math.min(-h, rel.x1);
+      const x2 = Math.max(h, rel.x2);
+      const y1 = Math.min(-h, rel.y1);
+      const y2 = Math.max(h, rel.y2);
+      if (cos > 1e-6) rx = Math.min(rx, (V.w - V.side - cx - x2) / cos);
+      if (cos < -1e-6) rx = Math.min(rx, (cx - V.side + x1) / -cos);
+      if (sin > 1e-6) ry = Math.min(ry, (V.h - V.bottom - cy - y2) / sin);
+      if (sin < -1e-6) ry = Math.min(ry, (cy - V.top + y1) / -sin);
+    });
+    rx = Math.max(rx, 0);
+    ry = Math.max(ry, 0);
+    // the inner ring is a fraction of the outer, but never so small that a disc on
+    // it lands on the centre disc or its two-row label
+    const rxi = Math.min(rx * 0.8, Math.max(rx * PG_INNER, PG_CENTER_HALO + 19 + PG_HALO + 4));
+    const ryi = Math.min(ry * 0.8, Math.max(ry * PG_INNER, PG_CENTER_HALO + 20 + 19 + PG_HALO + 4));
+
+    /* Inner ring. Every edge runs from the centre to an outer node, straight
+       through the inner ring, so an inner node has to sit between two outer RAYS.
+       On a 2:1 ellipse the rays are not where the parametric angles say: equal
+       slices bunch up at the sides in polar terms. So the gaps are bisected in
+       polar angle and only then mapped onto the inner ellipse. */
+    const polar = (ang) => Math.atan2(ry * Math.sin(ang), rx * Math.cos(ang));
+    const outerSorted = placed.slice().sort((p, q) => p.ang - q.ang);
+    const gaps = []; // {sec, mid(parametric), phi(polar bisector)}
+    for (let k = 0; k < outerSorted.length; k++) {
+      const p = outerSorted[k];
+      const q = outerSorted[(k + 1) % outerSorted.length];
+      const qAng = k + 1 < outerSorted.length ? q.ang : q.ang + 2 * Math.PI;
+      let pp = polar(p.ang);
+      let pq = polar(q.ang);
+      if (pq < pp) pq += 2 * Math.PI;
+      const mid = (p.ang + qAng) / 2;
+      gaps.push({ mid, phi: (pp + pq) / 2 });
+    }
+    // a gap belongs to the sector its parametric midpoint falls in
+    const inSector = (s, mid) => {
+      const rel = ((mid - s.a0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+      return rel < s.width - 1e-9;
+    };
+    sectors.forEach((s) => {
+      const inn = s.items.filter((it) => inner[it.id]);
+      if (!inn.length) return;
+      const cands = gaps.filter((g) => inSector(s, g.mid));
+      inn.forEach((it, j) => {
+        let ang;
+        if (cands.length) {
+          const k = Math.min(cands.length - 1, Math.floor(((j + 0.5) * cands.length) / inn.length));
+          const phi = cands[k].phi;
+          ang = Math.atan2(rxi * Math.sin(phi), ryi * Math.cos(phi));
+        } else {
+          ang = s.a0 + ((j + 0.5) * s.width) / inn.length;
+        }
+        placed.push(Object.assign({}, it, { ring: 1, ang }));
+      });
+    });
+
+    const nodes = placed.map((n) => {
+      const x = cx + (n.ring ? rxi : rx) * Math.cos(n.ang);
+      const y = cy + (n.ring ? ryi : ry) * Math.sin(n.ang);
+      const nd = Object.assign({}, n, { x, y, halo: n.r + PG_HALO });
+      nd.lbl = Object.assign(pgPlanLabel(nd, widthOf(n)), { text: n.text || n.label || "", sub: n.sub || "" });
+      return nd;
+    });
+    const lay = { cx, cy, rx, ry, rxi, ryi, rings: Object.keys(inner).length ? 2 : 1, nodes, center };
+    lay.faults = pgLayoutFaults(lay);
+    return lay;
+  };
+
+  // overflow: while something touches, drop the lowest-ranked outer node of the
+  // fullest sector to the inner ring; keep the cleanest plan seen
+  const inner = {};
+  let best = attempt(inner);
+  let moved = 0;
+  while (best.faults.length && moved < Math.floor(m / 2)) {
+    let pick = null;
+    let pickCount = 0;
+    sectors.forEach((s) => {
+      const outer = s.items.filter((it) => !inner[it.id]);
+      if (outer.length > pickCount) {
+        pickCount = outer.length;
+        pick = outer[outer.length - 1];
+      }
+    });
+    if (!pick || pickCount < 2) break;
+    inner[pick.id] = 1;
+    moved++;
+    const next = attempt(inner);
+    // one move rarely clears a run of collisions on its own, so the moves are
+    // cumulative and the cleanest plan seen is what is kept
+    if (next.faults.length < best.faults.length) best = next;
+  }
+  // last resort, and only for what the rings could not settle
+  if (best.faults.some((s) => s.indexOf("label") === 0)) {
+    pgResolveLabelCollisions(best.nodes.map((n) => n.lbl));
+    best.faults = pgLayoutFaults(best);
+  }
+  return best;
+}
+
 export function createPartners(d) {
   const { competitors, KSSL_PARTNERS, REL_LABEL, FIELDSYN, COMPSYN, TRACEIDS, sourceRegistry } = d;
   const CLIENT_CID = (d.client && d.client.id) || "KSSL";
@@ -290,40 +602,6 @@ const PG_IMG_ONERROR =
   + "font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#8a8880&quot;&gt;"
   + "Image could not be loaded&lt;/span&gt;&lt;/div&gt;'";
 
-/* LABEL COLLISION RESOLUTION.
-   Two text rows per label (name + kind), ~11px and ~9px on a 12px rhythm, so a label
-   occupies about 24px of height and charW*len of width from its anchor. Labels are
-   planned for every node first, then nudged apart, then drawn -- a label cannot avoid
-   a neighbour that has not been placed yet, which is why the fixed-offset version
-   collided at exactly the points where the graph is most crowded.
-
-   Vertical nudging only. Moving a label sideways detaches it from its node (the anchor
-   side encodes which node it belongs to); moving it down keeps the association and is
-   what a person does by hand. */
-function pgResolveLabelCollisions(plan) {
-  const CHAR_W = 6.2;          // 11px mono
-  const H = 24;                // title + kind row
-  const PAD = 3;
-  const box = (p) => {
-    const w = Math.max(String(p.text || "").length, String(p.sub || "").length) * CHAR_W;
-    const x = p.anchor === "start" ? p.x : p.anchor === "end" ? p.x - w : p.x - w / 2;
-    return { x1: x - PAD, x2: x + w + PAD, y1: p.y - 11 - PAD, y2: p.y + H - 11 + PAD };
-  };
-  // top-to-bottom: a label only ever moves DOWN, so one ordered pass settles the run
-  const order = plan.slice().sort((a, b) => a.y - b.y || a.x - b.x);
-  for (let i = 0; i < order.length; i++) {
-    for (let j = 0; j < i; j++) {
-      const a = box(order[i]);
-      const b = box(order[j]);
-      const hit = a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
-      if (hit) {
-        order[i].y += b.y2 - a.y1 + 2;
-        j = -1;                // re-check against everything already placed
-      }
-    }
-  }
-  return plan;
-}
 
   /* Labels radiate outward and are anchored by hemisphere, so neighbours diverge
      instead of stacking on the same centre line. text-anchor has to travel as a
@@ -359,10 +637,6 @@ function pgResolveLabelCollisions(plan) {
     if (!c) return "";
     const centerName = esc(c.name || c.label || "Main Company");
     const centerId = c.id || "main";
-
-    // Constellation Canvas Dimensions
-    const cx = 465;
-    const cy = 285;
 
     // Direct partners for selected company
     const parts = pgNodes(c).sort((a, b) => pgRowRank(b) - pgRowRank(a));
@@ -413,24 +687,13 @@ function pgResolveLabelCollisions(plan) {
       </defs>
     `;
 
-    // 1. CANVAS SPOTLIGHT AURA
     let svg = defsHtml;
 
     /* The star-dust layer is gone. Twelve bright specks scattered over the canvas
        were the last of the lit-space look, and at 0.25-0.4 opacity in five hues they
        carried no information at all -- decoration competing with the nodes. */
 
-    // 3. CONCENTRIC ORBITAL RINGS & COORDINATE AXES (Matching graph wanted.jpeg)
-    svg += `<g class="pg-bg-guides">`;
-    svg += `  <circle cx="${cx}" cy="${cy}" r="95" fill="none" stroke="rgba(56, 189, 248, 0.14)" stroke-width="1.2" stroke-dasharray="3 6" />`;
-    svg += `  <circle cx="${cx}" cy="${cy}" r="175" fill="none" stroke="rgba(56, 189, 248, 0.09)" stroke-width="1.2" stroke-dasharray="4 8" />`;
-    svg += `  <circle cx="${cx}" cy="${cy}" r="260" fill="none" stroke="rgba(56, 189, 248, 0.06)" stroke-width="1" stroke-dasharray="2 10" />`;
-    svg += `  <circle cx="${cx}" cy="${cy}" r="340" fill="none" stroke="rgba(56, 189, 248, 0.04)" stroke-width="1" />`;
-    svg += `  <line x1="120" y1="${cy}" x2="820" y2="${cy}" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="2 6" />`;
-    svg += `  <line x1="${cx}" y1="40" x2="${cx}" y2="530" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="2 6" />`;
-    svg += `</g>`;
-
-    // 4. MULTI-CLUSTER CATEGORIZATION
+    // MULTI-CLUSTER CATEGORIZATION
     const clusters = {
       amber: [],  // Foreign OEMs / Global Aerospace
       purple: [], // Tech, Radar, Systems, Electronics, JVs
@@ -459,194 +722,103 @@ function pgResolveLabelCollisions(plan) {
       }
     });
 
-    // Cluster Layout Definitions
+    /* Cluster colours only. The slot tables that used to live here are gone: a
+       fixed coordinate per slot is a layout for one node count, and it crammed
+       every graph into the same upper-left band regardless of how many partners
+       it had. Positions now come from pgRadialLayout, which sizes the ring from
+       the canvas and the labels and keeps each cluster to its own sector. */
     const clusterConfig = {
-      amber: {
-        color: "#ab7016",
-        grad: "grad-amber",
-        slots: [
-          { x: 475, y: 125, r: 21, haloR: 35, isHub: true, lx: 475, ly: 165, anchor: "middle" },
-          { x: 565, y: 158, r: 17, haloR: 28, lx: 585, ly: 154, anchor: "start" },
-          { x: 390, y: 138, r: 16, haloR: 26, lx: 370, ly: 135, anchor: "end" },
-          { x: 515, y: 65,  r: 15, haloR: 24, lx: 535, ly: 63, anchor: "start" },
-          { x: 335, y: 92,  r: 14, haloR: 23, lx: 315, ly: 90, anchor: "end" }
-        ],
-        satellites: [
-          { dx: -40, dy: -52, r: 7 },
-          { dx: 30, dy: -58, r: 7.5 },
-          { dx: 52, dy: -32, r: 7 },
-          { dx: 55, dy: 28, r: 6 }
-        ]
-      },
-      purple: {
-        color: "#8340b8",
-        grad: "grad-purple",
-        slots: [
-          { x: 670, y: 255, r: 21, haloR: 35, isHub: true, lx: 670, ly: 297, anchor: "middle" },
-          { x: 745, y: 225, r: 17, haloR: 27, lx: 765, ly: 222, anchor: "start" },
-          { x: 720, y: 340, r: 16, haloR: 26, lx: 740, ly: 338, anchor: "start" },
-          { x: 790, y: 300, r: 15, haloR: 24, lx: 810, ly: 298, anchor: "start" }
-        ],
-        satellites: [
-          { dx: -45, dy: -50, r: 8 },
-          { dx: 40, dy: -70, r: 6.5 },
-          { dx: 55, dy: -25, r: 7.5 },
-          { dx: 30, dy: 52, r: 8 }
-        ]
-      },
-      coral: {
-        color: "#992424",
-        grad: "grad-coral",
-        slots: [
-          { x: 260, y: 335, r: 21, haloR: 35, isHub: true, lx: 260, ly: 377, anchor: "middle" },
-          { x: 215, y: 405, r: 17, haloR: 27, lx: 195, ly: 405, anchor: "end" },
-          { x: 195, y: 270, r: 16, haloR: 25, lx: 175, ly: 268, anchor: "end" },
-          { x: 315, y: 420, r: 15, haloR: 24, lx: 335, ly: 420, anchor: "start" }
-        ],
-        satellites: [
-          { dx: -55, dy: -35, r: 8 },
-          { dx: 35, dy: 65, r: 7.5 },
-          { dx: -55, dy: -20, r: 7 },
-          { dx: -35, dy: 55, r: 7.5 }
-        ]
-      },
-      teal: {
-        color: "#0a8f70",
-        grad: "grad-teal",
-        slots: [
-          { x: 390, y: 245, r: 18, haloR: 30, isHub: true, lx: 370, ly: 243, anchor: "end" },
-          { x: 535, y: 270, r: 18, haloR: 30, isHub: true, lx: 555, ly: 268, anchor: "start" },
-          { x: 345, y: 310, r: 15, haloR: 25, lx: 325, ly: 308, anchor: "end" },
-          { x: 545, y: 345, r: 15, haloR: 25, lx: 565, ly: 343, anchor: "start" }
-        ],
-        satellites: [
-          { dx: -55, dy: -35, r: 7.5 },
-          { dx: -25, dy: -65, r: 6.5 },
-          { dx: 40, dy: -40, r: 7.5 },
-          { dx: 45, dy: 45, r: 7 }
-        ]
-      }
+      amber: { color: "#ab7016" },
+      purple: { color: "#8340b8" },
+      coral: { color: "#992424" },
+      teal: { color: "#0a8f70" },
     };
 
-    let edgeHtml = "";
-    let satEdgeHtml = "";
-    let nodeHtml = "";
-    let satNodeHtml = "";
-
-    // Track placed node coordinates
-    const placedNodes = [];
-
-    /* Plan every label BEFORE drawing anything, then resolve overlaps. Slot positions
-       are deterministic, so this second walk costs nothing and is the only way a label
-       can know about the neighbour it would otherwise have landed on. */
-    const labelPlan = {};
-    Object.keys(clusters).forEach((cKey) => {
-      const cfg0 = clusterConfig[cKey];
+    // one layout item per partner, in cluster-sector order and rank order within
+    // the cluster; the strongest row of each cluster is drawn a size larger
+    const items = [];
+    PG_CLUSTER_ORDER.forEach((cKey) => {
       clusters[cKey].forEach((p, idx) => {
-        const slot = cfg0.slots[idx % cfg0.slots.length];
-        const om = Math.floor(idx / cfg0.slots.length);
-        const full0 = String(p.label || "");
-        labelPlan[p.id] = {
+        const full = String(p.label || "");
+        items.push({
           id: p.id,
-          x: (slot.lx ? slot.lx : slot.x) + om * 20,
-          y: (slot.ly ? slot.ly : slot.y + slot.r + 16) + om * 20,
-          anchor: slot.anchor || "middle",
-          text: full0.length > PG_LBL_MAX ? full0.slice(0, PG_LBL_MAX - 1) : full0,
+          p,
+          label: full,
+          text: full.length > PG_LBL_MAX ? full.slice(0, PG_LBL_MAX - 1) : full,
           sub: p.isOverlap ? "Overlapping Partner" : String(p.kind || "Partner"),
-        };
+          r: idx === 0 ? 19 : 15,
+          lead: idx === 0,
+          cluster: cKey,
+        });
       });
     });
-    pgResolveLabelCollisions(Object.keys(labelPlan).map((k) => labelPlan[k]));
+    const lay = pgRadialLayout(items, null, c.name || c.label || "");
+    const cx = lay.cx;
+    const cy = lay.cy;
+    const f1 = (v) => (Math.round(v * 10) / 10).toString();
 
-    // Place and render nodes for each cluster
-    Object.keys(clusters).forEach((cKey) => {
-      const cList = clusters[cKey];
-      const cfg = clusterConfig[cKey];
-
-      cList.forEach((p, idx) => {
-        const slot = cfg.slots[idx % cfg.slots.length];
-        // Add tiny variance if multiple items share slot
-        const offsetMultiplier = Math.floor(idx / cfg.slots.length);
-        const nx = slot.x + (offsetMultiplier * 20);
-        const ny = slot.y + (offsetMultiplier * 20);
-        const rNode = slot.r;
-        const haloR = slot.haloR;
-        const strokeColor = p.isOverlap ? "#8c2f2f" : cfg.color;
-        const fillColor = p.isOverlap ? "#8c2f2f" : cfg.color;
-        const gradId = p.isOverlap ? "grad-coral" : cfg.grad;
-
-        placedNodes.push({ id: p.id, x: nx, y: ny, cluster: cKey, isHub: slot.isHub, color: strokeColor });
-
-        // Edge from Center OEM to Cluster Hub or Partner
-        edgeHtml += `<line class="pg-edge" data-a="${centerId}" data-b="${p.id}" x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}" stroke="${strokeColor}" stroke-width="${slot.isHub ? "1.8px" : "1.4px"}" opacity="${slot.isHub ? "0.65" : "0.50"}" />`;
-
-        // Satellites for this partner node
-        const satConfig = cfg.satellites;
-        const numSats = Math.min(satConfig.length, 2 + (idx % 2));
-        for (let s = 0; s < numSats; s++) {
-          const satDef = satConfig[s];
-          const sx = nx + satDef.dx;
-          const sy = ny + satDef.dy;
-          satEdgeHtml += `<line class="pg-edge sat-edge" data-parent="${p.id}" x1="${nx}" y1="${ny}" x2="${sx}" y2="${sy}" stroke="${strokeColor}" stroke-width="1px" opacity="0.32" />`;
-          satNodeHtml += `<g class="pg-node sat" data-parent="${p.id}">` +
-            `<circle cx="${sx}" cy="${sy}" r="${satDef.r}" fill="${fillColor}" opacity="0.8" />` +
-            `<circle cx="${sx}" cy="${sy}" r="${satDef.r + 5}" fill="none" stroke="${strokeColor}" stroke-width="0.8" opacity="0.3" />` +
-            `</g>`;
-        }
-
-        // Labels
-        const fullLabel = String(p.label || "");
-        const labelText = esc(
-          fullLabel.length > PG_LBL_MAX
-            ? `${fullLabel.slice(0, PG_LBL_MAX - 1).replace(/[\s,(./-]+$/, "")}…`
-            : fullLabel,
-        );
-        const kindText = p.isOverlap ? "Overlapping Partner" : esc(p.kind || "Partner");
-        const lp = labelPlan[p.id] || {};
-        const lx = lp.x != null ? lp.x : nx;
-        const ly = lp.y != null ? lp.y : ny + rNode + 16;
-        const textAnchor = lp.anchor || slot.anchor || "middle";
-
-        // Partner Node Group with clean flat network graph circle
-        nodeHtml +=
-          `<g class="pg-node ptr ${p.isOverlap ? "overlap" : "direct"}" data-id="${p.id}" data-cluster="${cKey}">` +
-          `<title>${labelText} — ${p.isOverlap ? "Overlapping Partner" : kindText}</title>` +
-          `<circle class="halo" cx="${nx}" cy="${ny}" r="${haloR}" fill="${cfg.haloFill}" stroke="${strokeColor}" stroke-width="1.3" opacity="0.35" />` +
-          `<circle class="net-circle" cx="${nx}" cy="${ny}" r="${rNode}" fill="${fillColor}" stroke="#cfd3da" stroke-width="1.2" stroke-opacity="0.42" />` +
-          `<text class="lbl-ptr-title" x="${lx}" y="${ly}" text-anchor="${textAnchor}">${labelText}</text>` +
-          (kindText ? `<text class="lbl-ptr-sub" x="${lx}" y="${ly + 12}" text-anchor="${textAnchor}">${kindText}</text>` : "") +
-          `</g>`;
-      });
-    });
-
-    // Cross-Cluster and Intra-Cluster Mesh Links
-    for (let i = 0; i < placedNodes.length; i++) {
-      for (let j = i + 1; j < placedNodes.length; j++) {
-        const n1 = placedNodes[i];
-        const n2 = placedNodes[j];
-        const dist = Math.hypot(n1.x - n2.x, n1.y - n2.y);
-        const sameCluster = n1.cluster === n2.cluster;
-        const bothHubs = n1.isHub && n2.isHub;
-
-        if ((sameCluster && dist < 140) || (bothHubs && dist < 320)) {
-          const strokeCol = sameCluster ? clusterConfig[n1.cluster].color : "rgba(168, 85, 247, 0.45)";
-          const strokeW = bothHubs ? "1.4px" : "0.9px";
-          const strokeDash = bothHubs ? "4, 5" : "2, 3";
-          edgeHtml += `<line class="pg-edge mesh-edge" data-a="${n1.id}" data-b="${n2.id}" x1="${n1.x}" y1="${n1.y}" x2="${n2.x}" y2="${n2.y}" stroke="${strokeCol}" stroke-width="${strokeW}" stroke-dasharray="${strokeDash}" opacity="0.32" />`;
-        }
-      }
+    /* GUIDE RINGS, sized to the layout. Each ellipse drawn here is one the nodes
+       actually sit on -- a ring larger than the graph only outlines the space the
+       graph is failing to use. The axes span the outer ring and no further. */
+    svg += `<g class="pg-bg-guides">`;
+    if (lay.rings > 1) {
+      svg += `  <ellipse cx="${f1(cx)}" cy="${f1(cy)}" rx="${f1(lay.rxi)}" ry="${f1(lay.ryi)}" fill="none" stroke="rgba(56, 189, 248, 0.12)" stroke-width="1.2" stroke-dasharray="3 6" />`;
     }
+    svg += `  <ellipse cx="${f1(cx)}" cy="${f1(cy)}" rx="${f1(lay.rx)}" ry="${f1(lay.ry)}" fill="none" stroke="rgba(56, 189, 248, 0.09)" stroke-width="1.2" stroke-dasharray="4 8" />`;
+    svg += `  <line x1="${f1(cx - lay.rx)}" y1="${f1(cy)}" x2="${f1(cx + lay.rx)}" y2="${f1(cy)}" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="2 6" />`;
+    svg += `  <line x1="${f1(cx)}" y1="${f1(cy - lay.ry)}" x2="${f1(cx)}" y2="${f1(cy + lay.ry)}" stroke="rgba(255,255,255,0.03)" stroke-width="1" stroke-dasharray="2 6" />`;
+    svg += `</g>`;
 
-    // 5. CENTER OEM BEACON NODE (Flat network graph circle)
+    let edgeHtml = "";
+    let nodeHtml = "";
+
+    /* One disc and one edge per relationship on file, nothing else. The satellite
+       dots and the proximity "mesh" lines that used to hang off every node stood
+       for no record in the dataset -- a dashed line between two partners that
+       merely landed near each other reads as a tie that does not exist -- and they
+       were a third of the clutter in the reported picture. */
+    lay.nodes.forEach((nd) => {
+      const p = nd.p;
+      const cfg = clusterConfig[nd.cluster];
+      const nx = f1(nd.x);
+      const ny = f1(nd.y);
+      const strokeColor = p.isOverlap ? "#8c2f2f" : cfg.color;
+      const fillColor = p.isOverlap ? "#8c2f2f" : cfg.color;
+
+      edgeHtml += `<line class="pg-edge" data-a="${centerId}" data-b="${p.id}" x1="${f1(cx)}" y1="${f1(cy)}" x2="${nx}" y2="${ny}" stroke="${strokeColor}" stroke-width="${nd.lead ? "1.8px" : "1.4px"}" opacity="${nd.lead ? "0.65" : "0.50"}" />`;
+
+      const fullLabel = String(p.label || "");
+      const labelText = esc(
+        fullLabel.length > PG_LBL_MAX
+          ? `${fullLabel.slice(0, PG_LBL_MAX - 1).replace(/[\s,(./-]+$/, "")}…`
+          : fullLabel,
+      );
+      const kindText = p.isOverlap ? "Overlapping Partner" : esc(p.kind || "Partner");
+      const lx = f1(nd.lbl.x);
+      const ly = nd.lbl.y;
+      const textAnchor = nd.lbl.anchor;
+
+      // the label stays inside the node's own group: hover, dim and select key on it
+      nodeHtml +=
+        `<g class="pg-node ptr ${p.isOverlap ? "overlap" : "direct"}" data-id="${p.id}" data-cluster="${nd.cluster}">` +
+        `<title>${labelText} — ${p.isOverlap ? "Overlapping Partner" : kindText}</title>` +
+        `<circle class="halo" cx="${nx}" cy="${ny}" r="${f1(nd.halo)}" fill="none" stroke="${strokeColor}" stroke-width="1.3" opacity="0.35" />` +
+        `<circle class="net-circle" cx="${nx}" cy="${ny}" r="${f1(nd.r)}" fill="${fillColor}" stroke="#cfd3da" stroke-width="1.2" stroke-opacity="0.42" />` +
+        `<text class="lbl-ptr-title" x="${lx}" y="${f1(ly)}" text-anchor="${textAnchor}">${labelText}</text>` +
+        (kindText ? `<text class="lbl-ptr-sub" x="${lx}" y="${f1(ly + 12)}" text-anchor="${textAnchor}">${kindText}</text>` : "") +
+        `</g>`;
+    });
+
+    // CENTER OEM NODE (flat network graph circle)
     const centerHtml =
       `<g class="pg-node center-root" data-id="${centerId}">` +
-      `<circle class="halo halo-oem" cx="${cx}" cy="${cy}" r="40" fill="none" stroke="rgba(160, 172, 184, 0.28)" stroke-width="1.2" stroke-dasharray="4, 6" />` +
-      `<circle class="net-circle" cx="${cx}" cy="${cy}" r="24" fill="#0f6f7d" stroke="#cfd3da" stroke-width="1.6" stroke-opacity="0.55" />` +
-      `<text class="lbl-ptr-title center-title" x="${cx}" y="${cy + 40}" text-anchor="middle">${centerName}</text>` +
-      `<text class="lbl-ptr-sub center-sub" x="${cx}" y="${cy + 54}" text-anchor="middle">SELECTED OEM</text>` +
+      `<circle class="halo halo-oem" cx="${f1(cx)}" cy="${f1(cy)}" r="${PG_CENTER_HALO}" fill="none" stroke="rgba(160, 172, 184, 0.28)" stroke-width="1.2" stroke-dasharray="4, 6" />` +
+      `<circle class="net-circle" cx="${f1(cx)}" cy="${f1(cy)}" r="${PG_CENTER_R}" fill="#0f6f7d" stroke="#cfd3da" stroke-width="1.6" stroke-opacity="0.55" />` +
+      `<text class="lbl-ptr-title center-title" x="${f1(cx)}" y="${f1(cy + 40)}" text-anchor="middle">${centerName}</text>` +
+      `<text class="lbl-ptr-sub center-sub" x="${f1(cx)}" y="${f1(cy + 54)}" text-anchor="middle">SELECTED OEM</text>` +
       `</g>`;
 
-    return svg + edgeHtml + satEdgeHtml + satNodeHtml + nodeHtml + centerHtml;
+    return svg + edgeHtml + nodeHtml + centerHtml;
   }
 
 
