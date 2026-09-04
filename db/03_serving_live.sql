@@ -8,6 +8,10 @@ CREATE OR REPLACE VIEW serving_live.competitor_news AS
   SELECT id, comp_id, title, description, source, published_date, category,
          is_trending, url, updated_at, image
     FROM serving.competitor_news WHERE origin = 'pipeline';
+CREATE OR REPLACE VIEW serving_live.competitor_structure AS
+  SELECT id, comp_id, entity_id, entity_name, relationship_type, ownership_pct,
+         description, source_url, source_note, updated_at
+    FROM serving.competitor_structure WHERE origin = 'pipeline';
 CREATE OR REPLACE VIEW serving_live.geo_comp AS SELECT * FROM serving.geo_comp WHERE origin = 'pipeline';
 CREATE OR REPLACE VIEW serving_live.geo_presence AS SELECT * FROM serving.geo_presence WHERE origin = 'pipeline';
 CREATE OR REPLACE VIEW serving_live.innovation AS SELECT * FROM serving.innovation WHERE origin = 'pipeline';

@@ -16,6 +16,17 @@ serving.competitor_news.source text
 serving.competitor_news.title text NOT NULL
 serving.competitor_news.updated_at timestamp with time zone NOT NULL DEFAULT now()
 serving.competitor_news.url text
+serving.competitor_structure.comp_id text NOT NULL
+serving.competitor_structure.description text
+serving.competitor_structure.entity_id text
+serving.competitor_structure.entity_name text NOT NULL
+serving.competitor_structure.id bigint NOT NULL DEFAULT nextval('serving.competitor_structure_id_seq'::regclass)
+serving.competitor_structure.origin text NOT NULL DEFAULT 'pipeline'::text
+serving.competitor_structure.ownership_pct numeric
+serving.competitor_structure.relationship_type text NOT NULL
+serving.competitor_structure.source_note text
+serving.competitor_structure.source_url text NOT NULL
+serving.competitor_structure.updated_at timestamp with time zone NOT NULL DEFAULT now()
 serving.competitors.assess text
 serving.competitors.center jsonb
 serving.competitors.comp_id text NOT NULL
@@ -229,6 +240,16 @@ serving_live.competitor_news.source text
 serving_live.competitor_news.title text
 serving_live.competitor_news.updated_at timestamp with time zone
 serving_live.competitor_news.url text
+serving_live.competitor_structure.comp_id text
+serving_live.competitor_structure.description text
+serving_live.competitor_structure.entity_id text
+serving_live.competitor_structure.entity_name text
+serving_live.competitor_structure.id bigint
+serving_live.competitor_structure.ownership_pct numeric
+serving_live.competitor_structure.relationship_type text
+serving_live.competitor_structure.source_note text
+serving_live.competitor_structure.source_url text
+serving_live.competitor_structure.updated_at timestamp with time zone
 serving_live.competitors.assess text
 serving_live.competitors.center jsonb
 serving_live.competitors.comp_id text

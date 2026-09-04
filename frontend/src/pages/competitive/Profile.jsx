@@ -130,7 +130,52 @@ export const partnerTree = (p, cap = 8) => {
   };
 };
 
-const getCorporateStructureMap = (p) => partnerTree(p);
+/* Ownership, when the corpus states any. serving.competitor_structure holds parent and
+ * subsidiary edges mined by enrich_serving.step_structure, each carrying the article it
+ * was read from -- so the graph above can finally be what it was built to be. When a
+ * company has no stated ownership it falls back to the partner network, which is real
+ * too and says so in the heading. The two are never mixed: a partner drawn under a
+ * "Corporate Structure" heading is the hand-typed hierarchy this page already removed
+ * once, arriving by a different route. */
+const REL_WORD = { parent: "Parent", subsidiary: "Subsidiary", sister: "Sister",
+                   division: "Division" };
+const REL_RANK = { parent: 0, division: 1, subsidiary: 2, sister: 3 };
+
+export const ownershipTree = (p, edges, cap = 8) => {
+  const rows = (edges || []).filter((e) => e && e.entity_name);
+  if (!rows.length) return null;
+  const seen = new Set();
+  const nodes = rows
+    .filter((e) => {
+      const k = `${e.relationship_type}:${(e.entity_name || "").toLowerCase()}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort(
+      (a, b) =>
+        (REL_RANK[a.relationship_type] ?? 9) - (REL_RANK[b.relationship_type] ?? 9) ||
+        a.entity_name.localeCompare(b.entity_name),
+    );
+  const shown = nodes.slice(0, cap);
+  return {
+    current: p.name || "Company",
+    kind: "ownership",
+    sisters: shown.map((e) => {
+      const word = REL_WORD[e.relationship_type] || e.relationship_type;
+      // The percentage is printed only when a source stated one; step_structure drops
+      // any figure its quote does not carry, so a number here was always in an article.
+      const pct = e.ownership_pct ? ` ${e.ownership_pct}%` : "";
+      return `${e.entity_name} · ${word}${pct}`;
+    }),
+    subsidiaries: [],
+    shown: shown.length,
+    total: nodes.length,
+  };
+};
+
+const getCorporateStructureMap = (p, edges) =>
+  ownershipTree(p, edges) || partnerTree(p);
 
 // Generate Company-Specific Interactive News Articles Dataset
 
@@ -193,7 +238,8 @@ function CorporateHierarchySvgMap({ structMap }) {
               textTransform: "uppercase",
             }}
           >
-            Partner Network · {structMap.current}
+            {structMap.kind === "ownership" ? "Corporate Structure" : "Partner Network"} ·{" "}
+            {structMap.current}
             {structMap.total > structMap.shown
               ? " · " + structMap.shown + " of " + structMap.total + " ties"
               : ""}
@@ -656,7 +702,9 @@ export default function Profile() {
 
   const displayName = p ? cleanCompanyName(p.name) : "";
   const companyMeta = p ? getCompanyDetailsMeta(p) : null;
-  const structMap = p ? getCorporateStructureMap(p) : null;
+  const structMap = p
+    ? getCorporateStructureMap(p, (data.competitorStructure || {})[cid])
+    : null;
   const companyArticles = useMemo(
     () => (p && p.cid ? companyNews(data, p.cid) : []),
     [data, p],

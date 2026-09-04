@@ -915,6 +915,199 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
             "dropped_unprofiled": len(orphans)}
 
 
+# ----------------------------------------------------- step 2b: corporate structure
+
+# Ownership language only. Deliberately NOT here: `partner`, `joint venture`, `alliance`
+# and `agreement`, which PART_RX owns -- a joint venture between two firms is a tie, not
+# a parent. `acquir*` IS here and also in PART_RX, because an acquisition is both: the
+# two steps ask different questions of the same sentence and may both answer.
+OWN_RX = re.compile(
+    r"(?<!\w)(subsidiar\w*|parent (?:compan|firm|group)\w*|wholly[- ]owned|"
+    r"majority[- ]owned|(?:majority|minority|controlling) (?:stake|shareholding)|"
+    r"owns|owned by|acquir\w+|takeover|division of|unit of|arm of|"
+    r"holding company|spun off|demerged|merged into)(?!\w)", re.I)
+
+OWN_PROMPT = """Below is ONE extracted statement from a defence-news article, with its
+supporting quote. Decide: does it state that one NAMED organization OWNS or IS OWNED BY
+another -- a parent, a subsidiary, a division, a controlling stake, an acquisition?
+
+A partnership, joint venture, MoU, supply contract or teaming agreement is NOT ownership,
+however close the firms are. A joint venture is jointly owned by its parents and is not a
+subsidiary of either unless the statement says one holds a controlling stake. If the
+statement does not assert ownership between two named organizations, reply exactly: NONE
+
+Otherwise reply with ONLY this JSON, in ENGLISH:
+{"owner": "<the OWNING organization -- ONE name, never 'X and Y'>",
+ "owned": "<the OWNED organization -- ONE name, never 'X and Y'>",
+ "rel":   "<exactly one of: subsidiary | division>",
+ "pct":   <ownership percentage ONLY if the quote states a number, else null>,
+ "note":  "<one line stating the ownership exactly as the quote says -- a stake is not
+           full ownership, an agreed acquisition is not a completed one>"}
+
+`owner` and `owned` are not interchangeable: put them the way round the quote states.
+If the statement names three or more organizations, pick the one pair whose ownership the
+quote actually asserts; if no single pair is asserted, reply NONE.
+
+Article: %s
+Statement: %s %s %s
+Quote: "%s"
+"""
+
+
+def parse_structure(raw, hay=None):
+    """-> {owner, owned, rel, pct, note} or None. The same bar as parse_partnership,
+    because the same model answering the same corpus produces the same failures: two
+    organizations joined by 'and' in one field, a government where a company was asked
+    for, an untranslated label where a statement was asked for, and names that appear
+    nowhere in the statement the model was given."""
+    d = _json_reply(raw)
+    if d is None:
+        return None
+    owner, owned = _s(d.get("owner"), 90), _s(d.get("owned"), 90)
+    note = _s(d.get("note"), 300)
+    rel = (_s(d.get("rel"), 12) or "").lower()
+    if not owner or not owned or not note:
+        return None
+    if rel not in ("subsidiary", "division"):
+        return None
+    if not is_one_org(owner) or not is_one_org(owned):
+        return None                       # 'X and Y' in one field is two orgs, refused
+    if is_force(owner) or is_force(owned):
+        return None                       # a state owns plenty of this industry, but
+                                          # 'the Ministry of Defence' is not a parent co
+    if not has_proper_name(owner) or not has_proper_name(owned):
+        return None                       # NAMED organization -- the prompt's own rule
+    if not is_english(note):
+        return None
+    # THE BOUNDARY BETWEEN THIS STEP AND step_partnerships, as code. The prompt says a
+    # joint venture is not a subsidiary; the model agrees and then answers anyway,
+    # because 'Saab and Patria agreed to establish a joint venture' is about as close as
+    # two firms get. So: a note written in partnership language, with no ownership
+    # language in it, is a tie -- step_partnerships already stores it, and storing it
+    # here too would draw a parent on the graph that nobody claimed. A note carrying
+    # BOTH ('acquired a controlling stake under the agreement') is ownership and stays.
+    if PART_RX.search(note) and not OWN_RX.search(note):
+        return None
+    if hay is not None and not (_in_hay(owner, hay) and _in_hay(owned, hay)):
+        return None                       # both sides must come from the statement
+    owner, owned = canon_name(owner), canon_name(owned)
+    if slug(owner) == slug(owned):
+        return None                       # a company does not own itself
+    pct = d.get("pct")
+    try:
+        pct = float(pct) if pct is not None else None
+    except (TypeError, ValueError):
+        pct = None
+    if pct is not None and not (0 < pct <= 100):
+        pct = None                        # the column's CHECK, applied before the write
+    # A percentage the quote does not carry is the model supplying a plausible number,
+    # which on this dashboard is the failure that matters most.
+    if pct is not None and hay is not None:
+        shown = ("%.2f" % pct).rstrip("0").rstrip(".")
+        if shown not in hay.replace(" ", ""):
+            pct = None
+    return {"owner": owner, "owned": owned, "rel": rel, "pct": pct, "note": note}
+
+
+def step_structure(cur, con, docs, props_by_doc, limit=None):
+    """Parent / subsidiary edges for the Profile page's structure graph.
+
+    Mines the SAME extracted propositions step_partnerships reads, asking a different
+    question of them. Every row keeps the article it was read from, and source_url is
+    NOT NULL, so an ownership claim without a citation cannot be stored at all.
+    """
+    cur.execute("DELETE FROM serving.competitor_structure WHERE origin='pipeline'")
+    profiles = load_profiles(cur)
+    if not profiles:
+        print("structure: no profiled companies -- run companies first", flush=True)
+        return {"written": 0, "refused": 0, "orphans": 0}
+    prof_rx = [(p, word_rx(p["name"])) for p in profiles]
+    by_cid = {p["comp_id"]: p["name"] for p in profiles}
+
+    def landing(name):
+        """-> comp_id of the profiled company this name refers to, or None. The same
+        identity layer as everything else: the slug first, then a boundary match on the
+        display name so 'Bharat Forge Limited' reaches 'bharat-forge'."""
+        cid = slug(name)
+        if cid in by_cid:
+            return cid
+        low = name.lower()
+        for p, rx in prof_rx:
+            if rx.search(low):
+                return p["comp_id"]
+        return None
+
+    cands = [(did, pr) for did, prs in props_by_doc.items() for pr in prs
+             if OWN_RX.search("%s %s" % (pr["p"], pr["o"]))]
+    rows, refused, orphans, calls, seen = {}, 0, [], 0, set()
+    for did, pr in cands:
+        if limit and calls >= limit:
+            break
+        calls += 1
+        hay = ("%s %s %s %s" % (pr["s"], pr["p"], pr["o"], pr["q"])).lower()
+        try:
+            raw = _ask(OWN_PROMPT % (docs[did]["title"] or did, pr["s"], pr["p"],
+                                     pr["o"], clip(pr["q"], 300)), npredict=300)
+        except Exception as e:                                    # noqa: BLE001
+            refused += 1
+            print("  %s: %s" % (did, e), flush=True)
+            continue
+        got = parse_structure(raw, hay)
+        if got is None:
+            refused += 1
+            continue
+        key = (slug(got["owner"]), slug(got["owned"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        url = docs[did]["url"]
+
+        # Both directions, because both are true and each is the useful one on a
+        # different company's page: on the subsidiary's profile the parent is the fact,
+        # on the parent's profile the subsidiary is.
+        landed = False
+        for subject, other, rel in ((got["owned"], got["owner"], "parent"),
+                                    (got["owner"], got["owned"], got["rel"])):
+            cid = landing(subject)
+            if cid is None:
+                continue
+            landed = True
+            # The document this edge was read from IS its evidence; publishable grades
+            # the source the same way the partnership tiles are graded, so an
+            # uncorroborated single source says so rather than looking equal to a filing.
+            _ok, why, _t, _n = publishable([url], subject)
+            rows[(cid, slug(other), rel)] = (
+                cid, slug(other), esc(other), rel, got["pct"], esc(got["note"]),
+                url, why)
+        if not landed:
+            # Real ownership between two companies we do not profile. Counted and named
+            # rather than dropped in silence -- step_partnerships learned that lesson
+            # when 'N ties found' printed over ties nothing stored.
+            orphans.append("%s owns %s" % (got["owner"], got["owned"]))
+
+    for r in rows.values():
+        cur.execute("""INSERT INTO serving.competitor_structure
+                         (comp_id, entity_id, entity_name, relationship_type,
+                          ownership_pct, description, source_url, source_note, origin)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pipeline')
+                       ON CONFLICT (comp_id, entity_id, relationship_type)
+                       DO UPDATE SET entity_name=EXCLUDED.entity_name,
+                                     ownership_pct=EXCLUDED.ownership_pct,
+                                     description=EXCLUDED.description,
+                                     source_url=EXCLUDED.source_url,
+                                     source_note=EXCLUDED.source_note,
+                                     updated_at=now()""", r)
+    con.commit()
+    print("structure: %d edge(s) from %d candidate statement(s), %d refused, "
+          "%d ownership pair(s) with no profiled company"
+          % (len(rows), len(cands), refused, len(orphans)), flush=True)
+    for o in orphans[:10]:
+        print("  not profiled: %s" % o, flush=True)
+    # ponytail: no 'sister' rows yet. No single statement asserts one -- a sister is two
+    # companies sharing a stated parent, a self-join to add once there are parents to join.
+    return {"written": len(rows), "refused": refused, "orphans": len(orphans)}
+
+
 # ----------------------------------------------------------------------- step 3: geo
 
 def build_countries():
@@ -1682,6 +1875,7 @@ def step_matchups(cur, con, docs, props_by_doc, limit=None):
 # ----------------------------------------------------------------------------- driver
 
 STEPS = [("companies", step_companies), ("partnerships", step_partnerships),
+         ("structure", step_structure),
          ("geo", step_geo), ("tenders", step_tenders),
          ("innovations", step_innovations), ("sources", step_sources),
          ("matchups", step_matchups)]
@@ -1905,6 +2099,56 @@ def _demo():
         "an untranslated note belongs in the evidence, not in the label"
     assert is_english("agreed to co-produce the Simha 4x4 in India")
     assert not is_english("k\u00f6z\u00fctti meg\u00e1llapod\u00e1s alapj\u00e1n")
+    # --- step 2b: corporate structure ---
+    ohay = ("nexter systems is a subsidiary of knds, which holds 51% of the company")
+    o = parse_structure('{"owner":"KNDS","owned":"Nexter Systems","rel":"subsidiary",'
+                        '"pct":51,"note":"KNDS holds 51% of Nexter Systems"}', ohay)
+    assert o and o["rel"] == "subsidiary" and o["pct"] == 51
+    assert o["owner"] == "KNDS" and o["owned"] == "Nexter Systems", \
+        "owner and owned are not interchangeable"
+    # A percentage nobody stated is the failure that matters most on this dashboard.
+    assert parse_structure('{"owner":"KNDS","owned":"Nexter Systems",'
+                           '"rel":"subsidiary","pct":74,'
+                           '"note":"KNDS holds a stake in Nexter Systems"}',
+                           ohay)["pct"] is None, \
+        "a number the quote does not carry must not be stored"
+    # The client group folds to ONE identity in aliases.canonical, so an article saying
+    # Bharat Forge owns KSSL is not an ownership edge to draw -- it is the same company.
+    assert parse_structure('{"owner":"Bharat Forge Limited","owned":"Kalyani Strategic '
+                           'Systems","rel":"subsidiary","note":"Bharat Forge holds 51% '
+                           'of Kalyani Strategic Systems"}',
+                           "kalyani strategic systems is a subsidiary of bharat forge "
+                           "limited") is None, "the client group is not its own parent"
+    jhay = ("saab and patria agreed to establish a joint venture company in finland "
+            "to manufacture the carl-gustaf")
+    assert parse_structure('{"owner":"Saab","owned":"Patria","rel":"subsidiary",'
+                           '"note":"Saab and Patria agreed to establish a joint venture '
+                           'in Finland"}', jhay) is None, \
+        "a joint venture is a tie, not a parent -- step_partnerships owns it"
+    assert parse_structure('{"owner":"Bharat Forge and Kalyani Group","owned":"KSSL",'
+                           '"rel":"subsidiary","note":"Bharat Forge owns KSSL outright"}',
+                           None) is None, "'X and Y' in one field is two organisations"
+    assert parse_structure('{"owner":"the Ministry of Defence","owned":"Denel",'
+                           '"rel":"subsidiary","note":"the Ministry of Defence owns '
+                           'Denel outright"}', None) is None, \
+        "a state owns plenty of this industry; a ministry is not a parent company"
+    assert parse_structure('{"owner":"Leonardo","owned":"Leonardo","rel":"subsidiary",'
+                           '"note":"Leonardo is a subsidiary of Leonardo SpA"}',
+                           None) is None, "a company does not own itself"
+    assert parse_structure('{"owner":"Leonardo","owned":"Hensoldt","rel":"partner",'
+                           '"note":"Leonardo owns a majority stake in Hensoldt"}',
+                           None) is None, "rel outside the closed vocabulary refuses"
+    assert parse_structure('{"owner":"Leonardo","owned":"Hensoldt","rel":"subsidiary",'
+                           '"note":"owns"}', None) is None, \
+        "a one-word note states nothing that can be shown"
+    # the regexes that decide which statements are even asked about
+    assert OWN_RX.search("is a wholly-owned subsidiary of")
+    assert OWN_RX.search("acquired a controlling stake in")
+    assert not OWN_RX.search("signed a memorandum of understanding with"), \
+        "a partnership must not be asked an ownership question"
+    assert not OWN_RX.search("agreed to establish a joint venture"), \
+        "PART_RX owns joint ventures; OWN_RX must not claim them too"
+
     # --- step 3: geo ---
     pats = build_countries()
     assert find_countries("an order from Lithuania", pats) == ["Lithuania"]

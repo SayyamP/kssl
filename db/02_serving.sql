@@ -80,6 +80,37 @@ CREATE INDEX competitor_news_comp_idx ON serving.competitor_news (comp_id, publi
 CREATE INDEX competitor_news_trending_idx ON serving.competitor_news (is_trending, published_date DESC)
     WHERE is_trending;
 
+-- Ownership: the parent / subsidiary edges behind the Profile page's structure graph.
+-- Written by enrich_serving.step_structure from statements the corpus actually makes;
+-- before it, the graph drew partnerships and said so, because no column here held
+-- ownership at all.
+--
+-- source_url is NOT NULL on purpose. An ownership claim nobody can cite cannot be
+-- stored, so it cannot reach the graph -- the no-fabrication rule as a constraint
+-- rather than as a habit.
+CREATE TABLE serving.competitor_structure (
+    id                bigserial PRIMARY KEY,
+    comp_id           text NOT NULL REFERENCES serving.competitors(comp_id) ON DELETE CASCADE,
+    entity_id         text,
+    entity_name       text NOT NULL,
+    -- 'sister' is allowed and nothing writes it yet: no single statement asserts one,
+    -- it is derived from two companies sharing a stated parent.
+    relationship_type text NOT NULL
+        CHECK (relationship_type IN ('parent', 'subsidiary', 'sister', 'division')),
+    ownership_pct     numeric CHECK (ownership_pct > 0 AND ownership_pct <= 100),
+    description       text,
+    source_url        text NOT NULL,
+    source_note       text,
+    origin            text NOT NULL DEFAULT 'pipeline',
+    updated_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX competitor_structure_comp_idx
+    ON serving.competitor_structure (comp_id, relationship_type);
+-- One edge per direction: the same ownership stated in three articles is one row,
+-- not three nodes with the same label on the graph.
+CREATE UNIQUE INDEX competitor_structure_edge_idx
+    ON serving.competitor_structure (comp_id, entity_id, relationship_type);
+
 -- Globals: competitiveCards / marketCards / techCards — one table, lane column.
 -- market-lane cards have no company/lens/sec/url; those stay NULL and the API
 -- omits them.

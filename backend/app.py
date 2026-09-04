@@ -62,6 +62,11 @@ COMP_OPT = frozenset(["starting_year", "global_locations", "company_size",
 NEWS_FIELDS = ["id", "comp_id", "title", "description", "source",
                "published_date", "category", "is_trending", "url", "image"]
 NEWS_OPT = frozenset(["description", "category", "is_trending"])
+# Ownership. source_url is NOT optional here for the same reason it is NOT NULL in the
+# table: the Profile graph draws a claim, and a claim on this dashboard shows its source.
+STRUCT_FIELDS = ["comp_id", "entity_id", "entity_name", "relationship_type",
+                 "ownership_pct", "description", "source_url", "source_note"]
+STRUCT_OPT = frozenset(["entity_id", "ownership_pct", "description", "source_note"])
 CARD_FIELDS = ["id", "dir", "rank", "title", "meta", "company", "lens",
                "sowhat", "sec", "url", "ago", "tags", "image"]
 CARD_OPT = frozenset(["company", "lens", "sec", "url", "image"])
@@ -209,6 +214,20 @@ def _dataset(_st=None):
             item["date"] = d.date().isoformat() if d is not None else None
             news.setdefault(item.pop("comp_id"), []).append(item)
         out["competitorNews"] = news
+
+        # competitorStructure (dict comp_id -> list). Ownership edges, the parent first:
+        # on a company's own page its parent is the fact that orders the rest.
+        _q(cur, "SELECT %s FROM serving.competitor_structure "
+                "ORDER BY comp_id, relationship_type, entity_name"
+                    % _cols(STRUCT_FIELDS))
+        struct = {}
+        for r in cur.fetchall():
+            item = _emit(r, STRUCT_FIELDS, STRUCT_OPT)
+            # NUMERIC comes back as Decimal, which json cannot serialise.
+            if item.get("ownership_pct") is not None:
+                item["ownership_pct"] = float(item["ownership_pct"])
+            struct.setdefault(item.pop("comp_id"), []).append(item)
+        out["competitorStructure"] = struct
 
         # signal cards, three lanes.
         for lane, gname in (("competitive", "competitiveCards"),
