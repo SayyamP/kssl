@@ -80,6 +80,52 @@ export function formatLabel(raw) {
   return s.split(/\s+/).map(token).join(" ");
 }
 
+/* A HEADLINE, unlike a label, is somebody else's sentence.
+
+   The feed prints about 1,400 of them straight from their publishers, and the
+   publishers disagree with each other: of the 138 market cards, 29 arrive in title
+   case ("US Navy Seeks Carrier-Based Combat Drone Prototypes") and 109 in sentence
+   case ("US Navy issues RFI for carrier-based Collaborative Combat Aircraft"), so one
+   feed reads as two feeds stacked. Same split on the other two lanes -- 84/361 on
+   competitive, 63/179 on technology.
+
+   formatLabel is the WRONG tool here. It lower-cases every word it cannot find in a
+   fixed acronym list, and a headline is full of acronyms no list will ever hold: RFI,
+   DAPA, AMEV, HIMARS, LRAShM, KONGSBERG, HF-III. Running the label rule over headlines
+   would print "Us Navy Issues Rfi For Carrier-Based Collaborative Combat Aircraft".
+
+   So this rule only ever RAISES a letter and never lowers one. Whatever the publisher
+   capitalised stays capitalised, which preserves every acronym without knowing any of
+   them, and a word that does not begin with a letter is not a word to raise -- so
+   "120mm", "8x8", "F-35" and a currency figure all survive untouched.
+
+   The one hand-cut exception is the "x" of a calibre. In "30mm x 173 Airburst" that x
+   is a multiplication sign; every other lone letter, "a" included, is a word and is
+   raised like any other.
+
+   Titles carry markup (bolded figures) and are injected as HTML, so tags and entities
+   are stepped over rather than read as words -- without that "&amp;" comes out
+   "&Amp;" and reaches the screen as five literal characters. */
+const capWord = (w) => {
+  const m = w.match(/^([^A-Za-z0-9]*)([a-z][\s\S]*)$/);
+  return m ? m[1] + m[2].charAt(0).toUpperCase() + m[2].slice(1) : w;
+};
+
+export function titleCaseHeadline(raw) {
+  if (!raw) return "";
+  const words = (part) =>
+    // a hyphen is a word break: 'carrier-based' -> 'Carrier-Based'
+    part.replace(/[^\s-]+/g, (w, at, s) =>
+      w === "x" && /\d[a-z]*\s*$/.test(s.slice(0, at)) && /^\s*\d/.test(s.slice(at + 1))
+        ? w
+        : capWord(w));
+  return String(raw)
+    .split(/(<[^>]*>|&[a-zA-Z#][a-zA-Z0-9]*;)/)
+    // odd slots are the tags and entities the split captured; only text is touched
+    .map((part, i) => (i % 2 ? part : words(part)))
+    .join("");
+}
+
 /* Sector carries a default because a competitor with no sector is still in this
    industry; headquarters and the rest use formatLabel directly and stay blank. */
 export function formatSectorName(rawSector) {

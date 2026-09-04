@@ -7,11 +7,38 @@
    `window`, so the app can re-fetch and re-wire without a reload. */
 import { computeSpecEdge } from "./edge.js";
 import { wireTendersWithRealDays } from "./tenderCalc.js";
+import { titleCaseHeadline } from "./profile.js";
 import { logger } from "../utils/logger.js";
 
 export function wireDataset(raw) {
   // shallow clone the containers we mutate; the leaf objects are ours after a fetch
   const d = { ...raw };
+
+  /* ONE capitalisation for every headline in the app, applied at the single point they
+     all enter it. Doing it here rather than at the render sites is the whole point: the
+     SAME headline is held in five places -- the card, its detail panel, the innovation
+     rail, the per-company news feed -- and casing them at four render sites would let a
+     card and its own panel disagree, which is the exact shape of the date bug fixed
+     just before this one.
+
+     The stored text is untouched. This is a display rule; the record still holds the
+     publisher's headline verbatim, and the source link still leads to it. */
+  try {
+    ["competitiveCards", "marketCards", "techCards"].forEach((lane) => {
+      d[lane] = (d[lane] || []).map((c) => ({ ...c, title: titleCaseHeadline(c.title) }));
+    });
+    const mapValues = (obj, fn) =>
+      Object.fromEntries(Object.entries(obj || {}).map(([k, v]) => [k, fn(v)]));
+    d.innovations = mapValues(d.innovations, (rows) =>
+      (rows || []).map((iv) => ({ ...iv, t: titleCaseHeadline(iv.t) })));
+    d.competitorNews = mapValues(d.competitorNews, (rows) =>
+      (rows || []).map((n) => ({ ...n, title: titleCaseHeadline(n.title) })));
+    // the drill-down behind a card carries its own copy of the headline
+    d.details = mapValues(d.details, (x) =>
+      x && x.title ? { ...x, title: titleCaseHeadline(x.title) } : x);
+  } catch (e) {
+    logger.warn("wiring:headlineCase", e);
+  }
 
   // overviewConfig needs the card arrays by reference (the exporter emits them apart)
   try {
