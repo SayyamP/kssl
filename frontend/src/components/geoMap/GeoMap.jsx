@@ -89,6 +89,18 @@ const COUNTRY_COORDS = {
   "United States of America": [37.0902, -95.7129],
   Vietnam: [14.0583, 108.2772],
   Algeria: [28.0339, 1.6596],
+  Azerbaijan: [40.1431, 47.5769],
+  Bulgaria: [42.7339, 25.4858],
+  Chile: [-35.6751, -71.5430],
+  Colombia: [4.5709, -74.2973],
+  Croatia: [45.1000, 15.2000],
+  Ireland: [53.4129, -8.2439],
+  Jordan: [30.5852, 36.2384],
+  Latvia: [56.8796, 24.6032],
+  Lithuania: [55.1694, 23.8813],
+  Slovakia: [48.6690, 19.6990],
+  Slovenia: [46.1512, 14.9955],
+  Switzerland: [46.8182, 8.2275],
 };
 
 /* Not countries. The footprint table carries continent-level rows, and a continent
