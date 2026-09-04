@@ -159,6 +159,108 @@ export function wireDataset(raw) {
     logger.warn("wiring:tenders", e);
   }
 
+  /* OPEN TENDERS BECOME MARKET CARDS.
+     ---------------------------------------------------------------------------------
+     The Market feed's "Opportunities" and "Live Bids" pills read 0 because they filter
+     on `dir` and every one of the 231 demand-signal cards carries dir='watch'. The bid
+     state they want exists -- but on the TENDERS, and not one demand card joins to a
+     tender (measured: 0 of 231 share a url). So the tiles counted tenders while the
+     pills counted cards: two populations under one heading, and one of them had no
+     opinion to give.
+
+     Open tenders are promoted into the feed so the facets have members and the pills
+     finally count what the tiles above them count.
+
+     THE SPLIT IS A PARTITION, because Overview filters on `card.dir === f.f` -- a card
+     can sit in exactly one facet, so overlapping ones would silently drop rows:
+       threat -> "Live Bids"      open AND publishes a value: a bid you can size
+       fav    -> "Opportunities"  open, value not published
+     The two sum to the open count the "Open Opportunities" tile shows, which is the
+     invariant marketSelfCheck now holds them to. CONCLUDED tenders are deliberately NOT
+     promoted: awarded and closed already have their own two views, and adding them here
+     would inflate "Emerging Demand" with contracts nobody can bid on.
+
+     Each card carries a detail record built from the tender's own stored fields. A card
+     with no detail opens an empty panel -- the drawer reads data.details[id]. */
+  try {
+    const tenders = d.tenders || [];
+    if (tenders.length) {
+      const isAwarded = (t) =>
+        (t.status || "").toLowerCase() === "awarded" || t.urlKind === "award";
+      const isClosed = (t) =>
+        !isAwarded(t) && (t.isLive === false || t.dl <= 0 ||
+                          (t.deadline || "").includes("Closed"));
+      const open = tenders.filter((t) => !isAwarded(t) && !isClosed(t));
+      const hasValue = (t) => t.value != null && String(t.value).trim() !== "";
+
+      const details = { ...(d.details || {}) };
+      const cards = open.map((t, i) => {
+        const id = `tender_${t.id}`;
+        const live = hasValue(t);
+        const where = [t.issuer, t.country].filter(Boolean).join(" · ");
+        // No invented prose: every clause below is a stored field or omitted.
+        const sowhat = [
+          live ? `Published value ${t.value}.` : null,
+          t.deadline ? `Closes ${t.deadline}.` : null,
+          t.qty ? `Quantity ${t.qty}.` : null,
+        ].filter(Boolean).join(" ");
+        details[id] = {
+          rank: `${live ? "LIVE BID" : "OPPORTUNITY"} · ${String(i + 1).padStart(2, "0")}`,
+          dir: live ? "threat" : "fav",
+          title: titleCaseHeadline(t.title),
+          facts: [
+            ["Issuer", t.issuer],
+            ["Country", t.country],
+            ["Category", t.cat],
+            ["Closing", t.deadline],
+            ["Value", live ? t.value : null],
+            ["Quantity", t.qty],
+          ].filter((f) => f[1] != null && String(f[1]).trim() !== ""),
+          what: sowhat,
+          why: t.reqNote || "",
+          lens: "Market",
+          actions: [],
+          url: t.url,
+        };
+        return {
+          id,
+          dir: live ? "threat" : "fav",
+          rank: String(i + 1).padStart(2, "0"),
+          title: titleCaseHeadline(t.title),
+          meta: [t.cat, where].filter(Boolean).join(" · "),
+          company: t.issuer || "",
+          lens: "Market",
+          sowhat,
+          sec: t.cat || "",
+          url: t.url,
+          ago: t.deadline || "",
+          tags: t.cat || "",
+        };
+      });
+      d.marketCards = (d.marketCards || []).concat(cards);
+      d.details = details;
+      /* overviewConfig.market.cards was taken by REFERENCE further up, and the concat
+         above made a new array -- without this the pillar keeps serving the old 231 and
+         the whole block is a no-op. The subhead phrasing changes too: Layout prints the
+         live total in front of cfg.cnt, so leaving "demand signals" there would have
+         called 89 open tenders demand signals. */
+      if (d.overviewConfig && d.overviewConfig.market) {
+        d.overviewConfig = {
+          ...d.overviewConfig,
+          market: {
+            ...d.overviewConfig.market,
+            cards: d.marketCards,
+            cnt: cards.length
+              ? "market signals · open tenders and demand · sorted by urgency"
+              : d.overviewConfig.market.cnt,
+          },
+        };
+      }
+    }
+  } catch (e) {
+    logger.warn("wiring:tenderCards", e);
+  }
+
   /* Shared-partner marking is decided in the PIPELINE (mark_shared.py), not here.
 
      What used to sit in this block compared the two labels as strings and needed a

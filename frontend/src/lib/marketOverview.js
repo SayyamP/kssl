@@ -251,9 +251,26 @@ export function countriesOf(tenders) {
 /* ── self-check ───────────────────────────────────────────────────────────────
    Runs from DataProvider against the real served set. Asserts the invariants that
    the raw-vs-wired trap breaks, so a regression is loud rather than a wrong chart. */
-export function marketSelfCheck(tenders) {
+export function marketSelfCheck(tenders, marketCards) {
   const list = tenders || [];
   if (!list.length) return;
+
+  /* The pills and the tiles must count the same thing. "Opportunities" (fav) and
+     "Live Bids" (threat) are open tenders promoted into the feed by wireDataset, split
+     on whether a value is published; together they must equal the open count the
+     "Open opportunities" tile shows. They drifted before precisely because nobody held
+     them to each other -- the tiles counted tenders, the pills counted demand cards,
+     and the pills were 0 for months. Skipped when no cards are passed, so the older
+     one-argument call is still valid. */
+  if (Array.isArray(marketCards) && marketCards.length) {
+    const { open } = bucketTenders(list);
+    const promoted = marketCards.filter((c) => c.dir === "fav" || c.dir === "threat");
+    if (promoted.length !== open.length)
+      throw new Error(
+        `market: ${promoted.length} promoted tender card(s) but ${open.length} open ` +
+          "tenders -- the Opportunities + Live Bids pills no longer sum to the tile",
+      );
+  }
   const { open, awarded, closed } = bucketTenders(list);
   const sum = open.length + awarded.length + closed.length;
   if (sum !== list.length)
