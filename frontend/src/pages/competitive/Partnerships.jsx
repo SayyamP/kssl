@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import ScopeChat from "../../components/scopeChat/ScopeChat";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { formatSectorName, formatCompanyName } from "../../lib/profile";
 
@@ -78,6 +78,77 @@ export default function Partnerships() {
 
   const selCo = cid ? data.competitors[cid] : null;
   const c = selCo ? { ...selCo, id: cid } : null;
+
+  /* What the header's Copy / Export / Print act on: the selected competitor's mapped
+     partners, and the open tie in full. Memoised on selCo (the served record), not on
+     `c`, which is re-spread every render. */
+  const report = useMemo(() => {
+    const rel = data.REL_LABEL || {};
+    if (!selCo) {
+      /* nothing selected: the roster the rail lists, each with its mapped-partner count */
+      const clientId = (data.client && data.client.id) || "KSSL";
+      const roster = (data.compOrder || [])
+        .filter((k) => k !== clientId && data.competitors[k])
+        .map((k) => {
+          const co = data.competitors[k];
+          const n = (co.partners || []).length;
+          return { cid: k, name: co.name, partners: n, hq: co.hq || null };
+        });
+      return {
+        title: "Partnerships",
+        subtitle: `${roster.length} competitors · none selected`,
+        sections: [
+          {
+            h: "Competitors and mapped partnerships",
+            rows: roster.map((r) => [r.name, `${r.partners} partnership${r.partners === 1 ? "" : "s"}${r.hq ? ` · ${r.hq}` : ""}`]),
+          },
+        ],
+        payload: { competitors: roster },
+      };
+    }
+    const partners = selCo.partners || [];
+    const tp = tie ? partners.find((x) => x.id === tie) : null;
+    const nd = (v) => (v && v !== "n/d" ? String(v) : "—");
+    return {
+      title: selCo.name,
+      subtitle: `${partners.length} mapped partnership${partners.length === 1 ? "" : "s"}${tp ? ` · ${tp.label}` : ""}`,
+      sections: [
+        tp
+          ? {
+              h: `Tie: ${selCo.name} and ${tp.label}`,
+              rows: [
+                ["Kind", nd(tp.kind)],
+                ["Relationship", rel[tp.rel] || nd(tp.rel)],
+                ["Country", nd(tp.country)],
+                ["Date", nd(tp.date)],
+                ["Deal", nd(tp.deal)],
+                tp.note ? ["Note", tp.note] : null,
+                tp.insight ? ["Insight", tp.insight] : null,
+                tp.mean ? ["Meaning", tp.mean] : null,
+              ].filter(Boolean),
+            }
+          : null,
+        {
+          h: "Mapped partners",
+          rows: partners.map((x) => [
+            x.label || x.name || x.id,
+            [x.kind, rel[x.rel] || x.rel, x.country].filter(Boolean).join(" · "),
+          ]),
+        },
+        selCo.threat ? { h: "Threat read", rows: [selCo.threat] } : null,
+        selCo.assess ? { h: "Assessment", rows: [selCo.assess] } : null,
+      ].filter(Boolean),
+      payload: {
+        cid,
+        name: selCo.name,
+        partners,
+        tie: tp || null,
+        threat: selCo.threat || null,
+        assessment: selCo.assess || null,
+      },
+    };
+  }, [selCo, cid, tie, data]);
+  useHeaderReport(report);
 
   const hqOptions = useMemo(() => {
     const set = new Set();

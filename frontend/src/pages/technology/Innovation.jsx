@@ -1,7 +1,7 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import ScopeChat from "../../components/scopeChat/ScopeChat";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { techReportHtml } from "../../lib/reports";
 import { gapCorrelateStrip } from "../../lib/gapModel";
@@ -14,6 +14,9 @@ import { srcChips, attr } from "../../lib/html";
    one is gated, and the headings that survive say "not assessed" out loud. */
 const NOT_ASSESSED = "not assessed";
 const has = (v) => v != null && String(v).trim() !== "";
+/* one shared empty list, so a domain with no rows does not mint a new array per render
+   (the header report is memoised on `list`) */
+const EMPTY = [];
 
 /* maturity labels — one map, covering every `mat` value in the dataset
    (lab / dev / prod / fielded). 'prod' was once missing and rendered `undefined`. */
@@ -26,7 +29,7 @@ const MAT_LAB = {
 
 export default function Innovation() {
   const { data, gapModel } = useData();
-  const { setScope, jumpTo } = useAppState();
+  const { setScope, jumpTo, takePending } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
 
   const GAP_LAB = { behind: `${clientName} behind`, parity: `${clientName} at parity`, ahead: `${clientName} ahead` };
@@ -63,8 +66,27 @@ export default function Innovation() {
     } catch (e) {}
   }, [cat, sel]);
 
-  const list = data.innovations[cat] || [];
+  const list = useMemo(() => data.innovations[cat] || EMPTY, [data.innovations, cat]);
   const iv = sel !== null ? list[sel] : null;
+
+  /* Opened from the global search: switch to the row's domain first, then select it by
+     title once `list` is that domain's list. */
+  const [pendingTitle, setPendingTitle] = useState(null);
+  useEffect(() => {
+    const p = takePending("innovation");
+    if (p && p.title) {
+      if (p.catId && data.innovations[p.catId]) setCat(p.catId);
+      setPendingTitle(p.title);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takePending]);
+  useEffect(() => {
+    if (pendingTitle === null) return;
+    const i = list.findIndex((x) => x && x.t === pendingTitle);
+    if (i >= 0) select(i);
+    setPendingTitle(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingTitle, list]);
 
   const select = (i) => {
     const item = list[i];
@@ -87,6 +109,59 @@ export default function Innovation() {
   };
 
   const catName = (data.techCats.find((c) => c.id === cat) || {}).name || "";
+
+  /* What the header's Copy / Export / Print act on: the open innovation with every
+     field the record carries, or the domain's list when none is open. Fields the
+     record leaves null are printed as "not stated" / "not assessed", never filled. */
+  const headerReport = useMemo(() => {
+    const matOf = (x) => MAT_LAB[x.mat] || x.mat || "not stated";
+    if (iv) {
+      return {
+        title: iv.t,
+        subtitle: `${catName} · ${matOf(iv)}`,
+        sections: [
+          {
+            h: "Status",
+            rows: [
+              ["Maturity", matOf(iv)],
+              ["Driven by", has(iv.driver) ? iv.driver : "not stated"],
+              ["Horizon", has(iv.horizon) ? iv.horizon : "not stated"],
+              [`${clientName} position`, has(iv.gap) && GAP_LAB[iv.gap] ? GAP_LAB[iv.gap] : NOT_ASSESSED],
+            ],
+          },
+          has(iv.impact) ? { h: `Why this matters to ${clientName}`, rows: [iv.impact] } : null,
+          has(iv.compNote) ? { h: "Competitive landscape", rows: [iv.compNote] } : null,
+          has(iv.whatsNew) ? { h: "What's new", rows: [iv.whatsNew] } : null,
+          has(iv.body) ? { h: "Background", rows: [iv.body] } : null,
+          {
+            h: "Sources",
+            rows:
+              iv.srcs && iv.srcs.length
+                ? iv.srcs.map((s) => [s.label || "Source", s.url || ""])
+                : iv.url
+                  ? [["Source", iv.url]]
+                  : has(iv.sources)
+                    ? [iv.sources]
+                    : [],
+          },
+        ].filter(Boolean),
+        payload: { domain: catName, innovation: iv },
+      };
+    }
+    return {
+      title: `${catName} · Innovations`,
+      subtitle: `${list.length} tracked in this domain · none selected`,
+      sections: [
+        {
+          h: "Innovations",
+          rows: list.map((x) => [x.t, [matOf(x), x.driver, x.horizon].filter(has).join(" · ")]),
+        },
+      ],
+      payload: { domain: catName, innovations: list },
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [iv, list, catName, clientName]);
+  useHeaderReport(headerReport);
 
   const detailBody = () => {
     if (!iv) return "";

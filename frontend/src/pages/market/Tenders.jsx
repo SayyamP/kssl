@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import ScopeChat from "../../components/scopeChat/ScopeChat";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { gapCorrelateStrip } from "../../lib/gapModel";
 import { srcChips } from "../../lib/html";
@@ -223,6 +223,53 @@ export default function Tenders({ mode = "tender" }) {
   }, [takePending]);
 
   const t = sel ? (data.tenders || []).find((x) => x.id === sel) : null;
+
+  /* What the header's Copy / Export / Print act on: the open tender's facts and
+     requirement rows as served, then every tender listed under the tab and facets in
+     force. */
+  const modeTitle =
+    mode === "awarded-tenders" ? "Awarded Tenders" : mode === "closed-tenders" ? "Closed Tenders" : "Tender Pipeline";
+  const report = useMemo(() => {
+    const val = (v) => (has(v) ? String(v) : "—");
+    const row = (x) => [x.title, [x.country, x.cat, x.value, x.deadline].filter(has).join(" · ")];
+    const sections = [];
+    if (t) {
+      sections.push({
+        h: "Selected tender",
+        rows: [
+          ["Title", val(t.title)],
+          ["Issuer", val(t.issuer)],
+          ["Country", val(t.country)],
+          ["Category", val(t.cat)],
+          ["Value", val(t.value)],
+          ["Quantity", val(t.qty)],
+          ["Deadline", val(t.deadline)],
+          ["Status", val(t.status)],
+        ],
+      });
+      if (has(t.reqNote)) sections.push({ h: "Requirement", rows: [t.reqNote] });
+      if (Array.isArray(t.req) && t.req.length) sections.push({ h: "Requirements", rows: t.req });
+      if (Array.isArray(t.matches) && t.matches.length) {
+        sections.push({
+          h: `${clientName} match`,
+          rows: t.matches.map((m) => [m.n, [m.fit, m.pct].filter(has).join(" · ")]),
+        });
+      }
+    }
+    sections.push({ h: `${modeTitle} (${list.length})`, rows: list.map(row) });
+    return {
+      title: modeTitle,
+      subtitle: [country, cat, productType].filter(Boolean).join(" · ") || "all tenders in this tab",
+      sections,
+      payload: {
+        tab: mode,
+        filters: { country: country || null, category: cat || null, productType: productType || null },
+        selected: t || null,
+        tenders: list,
+      },
+    };
+  }, [t, list, mode, modeTitle, country, cat, productType, clientName]);
+  useHeaderReport(report);
 
   const menuItems = (which) => {
     if (which === "productType") {

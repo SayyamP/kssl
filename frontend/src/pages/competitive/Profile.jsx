@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
 import { companyNews } from "../../lib/news";
@@ -52,6 +52,9 @@ const joinList = (v) => {
   return names.length ? names.join(" · ") : null;
 };
 
+/* feed cards opened per "View more" click */
+const NEWS_PAGE = 6;
+
 const getCompanyDetailsMeta = (p) => {
   if (!p) return null;
   return {
@@ -98,6 +101,10 @@ export default function Profile() {
   // News category filter pill & active open article state for White Detail Window
   const [newsFilter, setNewsFilter] = useState("All");
   const [activeArticle, setActiveArticle] = useState(null);
+  /* How many feed cards are open. "View More News" had no handler and the stack
+     already listed every article, so the button could not have done anything; the
+     stack now opens NEWS_PAGE at a time and the button says how many remain. */
+  const [newsShown, setNewsShown] = useState(NEWS_PAGE);
 
   useEffect(() => {
     const pend = takePending("profile");
@@ -131,7 +138,11 @@ export default function Profile() {
   useEffect(() => {
     setActiveArticle(null);
     setNewsFilter("All");
+    setNewsShown(NEWS_PAGE);
   }, [cid]);
+  useEffect(() => {
+    setNewsShown(NEWS_PAGE);
+  }, [newsFilter]);
 
   /* Executive leadership.
    *
@@ -181,7 +192,9 @@ export default function Profile() {
   }, [p]);
 
   const displayName = p ? cleanCompanyName(p.name) : "";
-  const companyMeta = p ? getCompanyDetailsMeta(p) : null;
+  /* Memoised because the header report below depends on it: a fresh object each
+     render would republish the report each render, and each publish re-renders. */
+  const companyMeta = useMemo(() => (p ? getCompanyDetailsMeta(p) : null), [p]);
   // Absent for a company no dated document names -- the tile then does not render
   // at all, rather than showing a confident zero.
   const metrics = (data.competitorMetrics || {})[cid] || null;
@@ -208,6 +221,66 @@ export default function Profile() {
   const feedArticles = useMemo(() => {
     return filteredArticles.filter((a) => a.id !== (topStory && topStory.id));
   }, [filteredArticles, topStory]);
+
+  /* What the header's Copy / Export / Print act on: this company's profile as shown --
+     details, leadership, and every sourced article. Nothing is added to the record. */
+  const report = useMemo(() => {
+    if (!p) return null;
+    const details = companyMeta
+      ? [
+          ["Starting year", companyMeta.founded],
+          ["Headquarters", companyMeta.hq],
+          ["Global locations", companyMeta.globalLocs],
+          ["Company size", companyMeta.size],
+          ["Annual revenue / sales", companyMeta.revenue],
+          ["Industry / sector", formatSectorName(companyMeta.sector)],
+        ]
+      : [];
+    return {
+      title: displayName,
+      subtitle: "Competitor profile",
+      sections: [
+        { h: "Company details", rows: details },
+        companyMeta && companyMeta.assess
+          ? { h: "Strategic positioning & operations", rows: [companyMeta.assess] }
+          : null,
+        {
+          h: "Leadership",
+          rows: leadershipList.length
+            ? leadershipList.map((l) => [l.name, l.role])
+            : ["No executive officers published on public record."],
+        },
+        {
+          h: `Company news (${companyArticles.length})`,
+          rows: companyArticles.map((a) => [a.title, [a.source, a.ago, a.category].filter(Boolean).join(" · ")]),
+        },
+      ].filter(Boolean),
+      payload: {
+        cid: p.cid,
+        name: displayName,
+        details: companyMeta
+          ? {
+              startingYear: companyMeta.founded,
+              hq: companyMeta.hq,
+              globalLocations: companyMeta.globalLocs,
+              companySize: companyMeta.size,
+              revenue: companyMeta.revenue,
+              sector: companyMeta.sector,
+              assessment: companyMeta.assess || null,
+            }
+          : null,
+        leadership: leadershipList.map((l) => ({ name: l.name, role: l.role, source: l.source || null })),
+        news: companyArticles.map((a) => ({
+          title: a.title,
+          source: a.source || null,
+          date: a.date || null,
+          category: a.category || null,
+          url: a.url || null,
+        })),
+      },
+    };
+  }, [p, displayName, companyMeta, leadershipList, companyArticles]);
+  useHeaderReport(report);
 
   return (
     <div className="pos-view v-profile" style={{ gridTemplateColumns: "300px 1fr" }}>
@@ -509,7 +582,7 @@ export default function Profile() {
 
                     {/* COLUMN 2: NEWS FEED STACK */}
                     <div className="ln-feed-stack">
-                      {feedArticles.map((item, idx) => (
+                      {feedArticles.slice(0, newsShown).map((item, idx) => (
                         <div
                           key={item.id || idx}
                           className="ln-feed-card"
@@ -528,24 +601,27 @@ export default function Profile() {
                           </div>
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        style={{
-                          width: "100%",
-                          padding: "10px",
-                          background: "var(--d-bg-2)",
-                          border: "1px solid var(--d-line)",
-                          borderRadius: "6px",
-                          color: "var(--d-txt-2)",
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          cursor: "pointer",
-                          textAlign: "center",
-                          marginTop: "4px",
-                        }}
-                      >
-                        View More News ↓
-                      </button>
+                      {feedArticles.length > newsShown ? (
+                        <button
+                          type="button"
+                          onClick={() => setNewsShown((n) => n + NEWS_PAGE)}
+                          style={{
+                            width: "100%",
+                            padding: "10px",
+                            background: "var(--d-bg-2)",
+                            border: "1px solid var(--d-line)",
+                            borderRadius: "6px",
+                            color: "var(--d-txt-2)",
+                            fontSize: "12px",
+                            fontWeight: "600",
+                            cursor: "pointer",
+                            textAlign: "center",
+                            marginTop: "4px",
+                          }}
+                        >
+                          View {Math.min(NEWS_PAGE, feedArticles.length - newsShown)} more of {feedArticles.length}
+                        </button>
+                      ) : null}
                     </div>
 
                     {/* COLUMN 3: ANALYTICS & MARKET WIDGETS */}

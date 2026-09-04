@@ -3,9 +3,9 @@ import SignalCard from "../../components/signalCard/SignalCard";
 import DetailPanel from "../../components/detailPanel/DetailPanel";
 import ErrorBoundary from "../../components/ErrorBoundary";
 import FeedFilters from "../../components/subHead/FeedFilters";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useHeaderReport, PILLAR_LABEL } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
-import { buildFeed, paginateFeed, signalDate, tilePredicate } from "../../lib/overview";
+import { buildFeed, paginateFeed, signalDate, tilePredicate, SEQ_LABEL, TILE_LABELS } from "../../lib/overview";
 
 /* The overview feed and its detail column. Shared by all three pillars — the pillar
    only decides which card set and which metric strip config is in play, which is
@@ -80,9 +80,12 @@ export default function Overview({
     const detail = data.details[id];
     if (!detail || id === selected) return;
     setSelected(id);
+    /* The context line names the pillar and heading the reader is actually on. It
+       said "Competitive / Overview" on all three pillars, so a technology signal was
+       announced under a page it is not listed on (FE 18). */
     setScope("signal", { type: "signal", data: detail }, {
-      pillar: "Competitive",
-      view: "Overview",
+      pillar: PILLAR_LABEL[pillarKey] || "Competitive",
+      view: cfg.title || "Overview",
       selection: detail.title,
     });
   };
@@ -118,6 +121,46 @@ export default function Overview({
   );
   const shownCount = pageView.shown;
   const firstVisibleId = pageView.firstId;
+
+  /* What the header's Copy / Export / Print act on: the signals on THIS page of the
+     feed, under the sequence and filter in force. Every field is the card's own. */
+  const report = useMemo(() => {
+    const cards = pageView.groups.flatMap((g) => g.cards);
+    const filterLabel = tile
+      ? TILE_LABELS[tile] || tile
+      : dirFilter && dirFilter !== "all"
+        ? ((filters || []).find((f) => f.f === dirFilter) || {}).l || dirFilter
+        : "all signals";
+    return {
+      title: cfg.title || "Signals",
+      subtitle: `${SEQ_LABEL[seqMode] || seqMode} · ${filterLabel} · page ${pageView.page} of ${pageView.pageCount}`,
+      sections: [
+        {
+          h: `Signals ${pageView.from}-${pageView.to} of ${pageView.shown}`,
+          rows: cards.map((c) => [`${c.company ? `${c.company} — ` : ""}${c.title || ""}`, c.sowhat || ""]),
+        },
+      ],
+      payload: {
+        pillar: pillarKey,
+        sequence: seqMode,
+        filter: filterLabel,
+        page: pageView.page,
+        pageCount: pageView.pageCount,
+        shown: pageView.shown,
+        total: feed.total,
+        signals: cards.map((c) => ({
+          id: c.id,
+          title: c.title || null,
+          company: c.company || null,
+          direction: c.dir || null,
+          date: signalDate(c, data) || null,
+          sowhat: c.sowhat || null,
+          url: c.url || null,
+        })),
+      },
+    };
+  }, [pageView, cfg, seqMode, tile, dirFilter, filters, pillarKey, feed.total, data]);
+  useHeaderReport(report);
 
   const goPage = (n) => {
     setPage(n);
@@ -163,8 +206,10 @@ export default function Overview({
 
   if (isFiltered && activeFilterObj) {
     topHeaderTitle = activeFilterObj.l || "Filtered Signals";
-    const matchingGroup = groupsWithCards[0] || (cfg.groups || [])[0];
-    topHeaderSub = matchingGroup?.s || "";
+    /* No group strapline here. The filtered feed is flat, and the first group's
+       sub-heading ("what's live now") described a grouping the rows on screen no
+       longer follow -- a heading that names a structure the page is not showing. */
+    topHeaderSub = "";
   } else if (groupsWithCards.length > 0) {
     /* The feed title, NOT the first group's name. This banner is sticky, so naming
        group 0 pinned "Live Opportunities" to the top of the window and left it there

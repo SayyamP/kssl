@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { bucketTenders } from "../../lib/overview";
 import {
@@ -221,6 +221,38 @@ export default function MarketOverview() {
   }, [scope, country, cat]);
   const n = list.length;
 
+  /* What the header's Copy / Export / Print act on: the pipeline split and the rows
+     the report is currently listing, under the section and filters in force. */
+  const report = useMemo(() => {
+    const bucket = section === "awarded" ? "Awarded" : section === "closed" ? "Closed" : "Open";
+    return {
+      title: "Market Report",
+      subtitle: `${bucket.toLowerCase()} tenders${country === "all" ? "" : ` · ${country}`}${cat ? ` · ${cat}` : ""}`,
+      sections: [
+        {
+          h: "Pipeline",
+          rows: [
+            ["Open", String(open.length)],
+            ["Awarded", String(awarded.length)],
+            ["Closed", String(closed.length)],
+          ],
+        },
+        {
+          h: `${bucket} tenders listed (${n})`,
+          rows: list.map((x) => [x.title, [x.country, x.cat, x.value, x.deadline].filter(Boolean).join(" · ")]),
+        },
+      ],
+      payload: {
+        section,
+        country,
+        category: cat || null,
+        counts: { open: open.length, awarded: awarded.length, closed: closed.length },
+        tenders: list,
+      },
+    };
+  }, [section, country, cat, open, awarded, closed, list, n]);
+  useHeaderReport(report);
+
   const countries = useMemo(() => countriesOf(tenders), [tenders]);
   /* Palette first, from the whole corpus — every later colour lookup reads the map this
      builds, so it must run before demandSplit and before the filter renders its dots. */
@@ -255,9 +287,11 @@ export default function MarketOverview() {
   };
 
   useEffect(() => {
+    /* "Market Report" is the rail label and the heading; the context line said
+       "Market Intelligence", a page that exists nowhere in the navigation (FE 18). */
     setScope("market", { tenders: n, section, country, cat }, {
       pillar: "Market",
-      view: "Market Intelligence",
+      view: "Market Report",
       selection: cat || (country === "all" ? null : country),
     });
   }, [n, section, country, cat, setScope]);
