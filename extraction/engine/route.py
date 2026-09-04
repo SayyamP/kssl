@@ -35,6 +35,7 @@ through to P3 with no operator action and no separate backlog scheduler.
 import argparse
 import json
 import os
+import re
 import sys
 
 # --- the cost model -------------------------------------------------------------------------
@@ -715,6 +716,168 @@ def promote_deferred(q, limit=0):
     return len(got)
 
 
+# --- backfill: never idle beside a full queue -------------------------------------------------
+# Measured on the live queue: `ready` 0, `deferred/gate` 51,994, 198 workers all printing
+# "nothing eligible; polling with backoff". The queue was 98% full and the fleet was asleep.
+#
+# promote_deferred() refuses to touch gate rows on purpose -- its docstring calls re-admitting
+# them "a corpus-composition decision, not a queue-maintenance one". This is that decision, made
+# once and made explicit, and it rests on what the gate actually asks:
+#
+#     "is this document worth 13 minutes of Layer A?"  is shorthand for
+#     "...worth 13 minutes INSTEAD OF something better?"
+#
+# While better work exists the answer is no and the gate stands. When `ready` is empty there is
+# no better work, the opportunity cost the threshold encodes is zero, and the honest answer
+# flips. So the gate is not weakened -- PASS_THRESHOLD is untouched and enqueue still refuses
+# these rows -- it is given the one exception its own premise implies.
+#
+# It cannot displace real work, by construction:
+#   * it only runs when `ready` is below BACKFILL_FLOOR, and only tops up TO that floor;
+#   * `class` is left exactly as enqueue set it, and CLAIM orders by class ASC -- so a fresh P0
+#     or a worklist lane-1 document enqueued one second later is still claimed first;
+#   * it promotes nothing a live node could not take (same class/cap predicate as dispatch).
+#
+# Two passes, because the ordering must be GLOBAL and scoring is not free:
+#   1. score a bounded batch of never-examined `gate` rows, and record each score IN the reason
+#      (`gate:NN`). Nothing is promoted in this pass and no row is ever scored twice.
+#   2. promote the best-scoring examined rows across every batch ever scanned. Highest presignal
+#      score means most competitor/defence vocabulary, so the KSSL-relevant rejects drain first
+#      and the bulk-government noise last -- which is the whole reason to score rather than to
+#      take these FIFO.
+BACKFILL_FLOOR = int(os.environ.get("C_BACKFILL_FLOOR", "400"))
+BACKFILL_SCAN = int(os.environ.get("C_BACKFILL_SCAN", "4000"))
+
+# What the RUNNING fleet can claim. LIVE_CAP already exists; the class window is the same idea
+# and must come from the same place, or backfill promotes rows into `ready` that no worker can
+# claim -- which is the "lie the queue tells about itself" dispatchable() exists to prevent.
+_LIVE_CFG = [NODES[n] for n in LIVE_NODES if n in NODES] or list(NODES.values())
+LIVE_MIN_CLASS = min(n.get("min_class", P0) for n in _LIVE_CFG)
+LIVE_MAX_CLASS = max(n["max_class"] for n in _LIVE_CFG)
+
+_HOLD_RX = re.compile(r"^gate:(\d+)$")
+
+
+def hold_reason(score):
+    """A scanned-but-not-yet-promoted gate row, with its score kept in `reason`.
+
+    extract_queue has no score column, and adding one is a migration on a live table for a
+    number three lines read. The reason text is already the row's audit trail ('gate',
+    'no-live-node'), so the score rides there -- clamped, because reason feeds a regex."""
+    return "gate:%d" % max(0, min(999, int(score)))
+
+
+def held_score(reason):
+    """-> int for a scanned row, None for anything else. 'gate' (never examined) is NOT 0:
+    unscored and scored-zero must stay distinguishable or pass 1 rescans its own output."""
+    m = _HOLD_RX.match(reason or "")
+    return int(m.group(1)) if m else None
+
+
+BACKFILL_SCAN_SQL = """
+SELECT q.document_id, d.title, d.main_text, d.published_at
+  FROM extract_queue q JOIN documents d USING (document_id)
+ WHERE q.state='deferred' AND q.reason='gate'
+   AND q.class BETWEEN %(min_class)s AND %(max_class)s AND q.chars <= %(cap)s
+ ORDER BY q.crawl_ts DESC
+ LIMIT %(lim)s;
+"""
+
+BACKFILL_HOLD_SQL = """
+UPDATE extract_queue SET reason=%s
+ WHERE document_id=%s AND state='deferred' AND reason='gate';
+"""
+
+# reason='backfill' on the promoted row, never NULL: a document that was extracted only because
+# the farm would otherwise have idled must stay tellable from one the gate admitted on merit.
+# `done` keeps the reason, so this survives into the audit.
+BACKFILL_PROMOTE_SQL = """
+UPDATE extract_queue SET state='ready', reason='backfill'
+ WHERE state='deferred'
+   AND document_id IN (SELECT document_id FROM extract_queue
+                        WHERE state='deferred' AND reason ~ '^gate:[0-9]+$'
+                          AND class BETWEEN %(min_class)s AND %(max_class)s
+                          AND chars <= %(cap)s
+                        ORDER BY (substring(reason from 6))::int DESC, crawl_ts DESC
+                        LIMIT %(lim)s)
+RETURNING document_id;
+"""
+
+
+BACKFILL_BAND_SQL = """
+SELECT (substring(reason from 6))::int AS score FROM extract_queue
+ WHERE state='deferred' AND reason ~ '^gate:[0-9]+$'
+   AND class BETWEEN %(min_class)s AND %(max_class)s AND chars <= %(cap)s
+ ORDER BY (substring(reason from 6))::int DESC, crawl_ts DESC
+ LIMIT %(lim)s;
+"""
+
+
+def backfill(q, floor=None, scan=None, dry=False):
+    """Top `ready` back up to `floor` from what the gate refused. -> a dict of counts.
+
+    Called by the feeder every cycle. A no-op -- one COUNT -- whenever the queue is healthy,
+    which is the common case and must stay cheap."""
+    floor = BACKFILL_FLOOR if floor is None else int(floor)
+    scan = BACKFILL_SCAN if scan is None else int(scan)
+    band = {"min_class": LIVE_MIN_CLASS, "max_class": LIVE_MAX_CLASS, "cap": LIVE_CAP}
+    out = {"ready": 0, "want": 0, "nolive": 0, "scanned": 0, "promoted": 0,
+           "hi": None, "lo": None, "why": ""}
+    with q.cursor() as c:
+        c.execute("SELECT count(*) FROM extract_queue WHERE state='ready'")
+        out["ready"] = c.fetchone()[0]
+    out["want"] = want = max(0, floor - out["ready"])
+    if not want:
+        out["why"] = "ready %d >= floor %d" % (out["ready"], floor)
+        return out
+
+    # 1. Rows deferred only because nothing was RUNNING. Free, and correct under any gate
+    #    policy, so they are spent before any gate row is reconsidered.
+    if not dry:
+        out["nolive"] = promote_deferred(q, want)
+    want -= out["nolive"]
+    if want <= 0:
+        out["why"] = "filled from no-live-node"
+        return out
+
+    # 2. Score a batch of never-examined gate rows. Refusing to run without the dataset is the
+    #    same rule enqueue applies: a blind scorer returns numbers, and ordering 52k documents
+    #    by a number nobody computed is worse than not reordering them at all.
+    have_ps, ps_why = presignal_available()
+    if not have_ps:
+        out["why"] = "presignal unavailable, refusing to rank blind: %s" % ps_why
+        return out
+    with q.cursor() as c:
+        c.execute(BACKFILL_SCAN_SQL, dict(band, lim=scan))
+        rows = c.fetchall()
+    holds = []
+    for did, title, text, pa in rows:
+        s = presignal_of(text or "", title=title or "", published_at=pa)
+        holds.append((hold_reason(s or 0), did))
+    out["scanned"] = len(holds)
+    if holds and not dry:
+        with q.cursor() as c:
+            c.executemany(BACKFILL_HOLD_SQL, holds)
+        q.commit()
+
+    # 3. Promote the best examined rows -- across every batch ever scanned, not just this one.
+    #    The band promoted is reported because it is the number that matters operationally: while
+    #    it is high the fleet is eating real defence copy the gate was too strict about; once it
+    #    reaches 0 the backlog holds nothing relevant left and the only thing still being bought
+    #    is "not idle". That is a decision for a human, so it is printed rather than acted on.
+    if not dry:
+        with q.cursor() as c:
+            c.execute(BACKFILL_BAND_SQL, dict(band, lim=want))
+            got = c.fetchall()
+            if got:
+                out["hi"], out["lo"] = got[0][0], got[-1][0]
+            c.execute(BACKFILL_PROMOTE_SQL, dict(band, lim=want))
+            out["promoted"] = len(c.fetchall())
+        q.commit()
+    out["why"] = "ready %d -> want %d" % (out["ready"], out["want"])
+    return out
+
+
 def enqueue(q, since, now_iso, limit=20000, cohort_min=30):
     """Corpus -> queue, gated and classified.
 
@@ -1342,6 +1505,67 @@ def _demo():
     print("ok  capacity %.0f docs/day vs 9,188 arriving -> %.0fx deficit, %.1f%% coverage"
           % (tot, 9188 / tot, 100 * tot / 9188))
 
+    # --- backfill ------------------------------------------------------------------------
+    # The score has to survive a round trip through `reason`, because that column IS the
+    # storage. A silent mismatch here would not fail -- it would order 52,000 documents
+    # arbitrarily while looking exactly like a ranking.
+    for v in (0, 7, 45, 65, 999):
+        assert held_score(hold_reason(v)) == v, v
+    assert hold_reason(-3) == "gate:0" and hold_reason(10**6) == "gate:999", "clamp the regex input"
+    # 'gate' means NEVER EXAMINED and must not read as zero, or pass 1 rescans its own output
+    # forever and pass 2 never sees a candidate.
+    assert held_score("gate") is None and held_score(None) is None
+    assert held_score("backfill") is None and held_score("no-live-node") is None
+    assert held_score("gate:") is None and held_score("gate:12x") is None
+    # SQL sorts on `substring(reason from 6)::int`; Python sorts on _HOLD_RX. Two expressions,
+    # one meaning -- so check they agree on the same strings rather than trusting the offset.
+    for v in (0, 5, 45, 123):
+        assert hold_reason(v)[5:] == str(v), "substring(from 6) no longer lines up with 'gate:'"
+    # A backfill that can never promote anything is worse than none: it looks like insurance.
+    # The gate defers at the class enqueue assigned, so the live band must actually contain it.
+    assert LIVE_MIN_CLASS <= P3 <= LIVE_MAX_CLASS, \
+        "no live node can claim the class the gate defers at -- backfill would be a no-op"
+    assert LIVE_CAP > 0, "live cap of 0 promotes nothing, ever"
+
+    class _FakeCur:
+        """Just enough cursor to prove the guard. Counts what SQL would have run."""
+        def __init__(self, ready, log):
+            self.ready, self.log = ready, log
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+        def execute(self, sql, args=None):
+            self.log.append(sql.strip().split()[0].upper())
+            self._r = [(self.ready,)] if "count(*)" in sql else []
+        def executemany(self, sql, seq):
+            self.log.append("MANY")
+        def fetchone(self):
+            return self._r[0] if self._r else None
+        def fetchall(self):
+            return self._r
+
+    class _FakeQ:
+        def __init__(self, ready):
+            self.ready, self.log = ready, []
+        def cursor(self):
+            return _FakeCur(self.ready, self.log)
+        def commit(self):
+            pass
+
+    # Above the floor it must do NOTHING but count -- this runs every feeder cycle forever,
+    # and it must never touch a row while the fleet has work.
+    q = _FakeQ(500)
+    r = backfill(q, floor=400)
+    assert r["want"] == 0 and r["promoted"] == 0 and r["nolive"] == 0, r
+    assert q.log == ["SELECT"], "backfill wrote to the queue while ready was above the floor"
+    # Below the floor it asks for exactly the shortfall, never for the whole backlog.
+    q = _FakeQ(120)
+    r = backfill(q, floor=400, dry=True)
+    assert r["want"] == 280, r
+    print("ok  backfill: %d-row floor, score survives the reason round trip, "
+          "no-op above the floor" % BACKFILL_FLOOR)
+
 
 STATUS = """
 SELECT state, class, count(*), min(crawl_ts), max(crawl_ts)
@@ -1391,6 +1615,11 @@ def main():
     ap.add_argument("--enqueue", action="store_true", help="corpus -> queue")
     ap.add_argument("--promote", type=int, default=0, metavar="N",
                     help="promote up to N node-unavailable `deferred` rows back to ready")
+    ap.add_argument("--backfill", action="store_true",
+                    help="top `ready` back up from what the gate refused, best-scoring first")
+    ap.add_argument("--backfill-floor", type=int, default=None, metavar="N",
+                    help="keep at least N rows in `ready` (default C_BACKFILL_FLOOR=%d)"
+                         % BACKFILL_FLOOR)
     ap.add_argument("--since", default="2026-08-01", help="enqueue documents fetched on/after")
     ap.add_argument("--now", default=None, help="ISO timestamp to age against (default: now)")
     ap.add_argument("--limit", type=int, default=20000)
@@ -1448,6 +1677,14 @@ def main():
                  f"{n.get('parked', 0):,}"))
     if a.promote:
         print("promoted %d deferred row(s) back to ready" % promote_deferred(q, a.promote))
+    if a.backfill:
+        b = backfill(q, floor=a.backfill_floor)
+        band = ("" if b["hi"] is None
+                else "  promoted scores %d..%d" % (b["hi"], b["lo"]))
+        print("backfill: ready %d, want %d -> %d from no-live-node + %d from the gate "
+              "(%d newly scored)%s [%s]"
+              % (b["ready"], b["want"], b["nolive"], b["promoted"], b["scanned"],
+                 band, b["why"]))
     if a.reap:
         with q.cursor() as c:
             c.execute(REAP, {"max_attempts": MAX_ATTEMPTS})

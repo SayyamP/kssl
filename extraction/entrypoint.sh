@@ -3,7 +3,8 @@
 # Every role is a long-running process so the container's own restart policy is the supervisor.
 #
 #   worker     drain the queue forever: claim -> extract (farm) -> store, back off when empty
-#   feeder     every FEED_EVERY_S: sync new corpus docs -> enqueue (presignal gate) -> reap leases
+#   feeder     every FEED_EVERY_S: sync new corpus docs -> enqueue (presignal gate) -> reap
+#              leases -> backfill `ready` from gate-refused rows so no worker idles
 #   migrate    apply the SQL schema (documents, extracted.*, serving.*) then exit
 #   cards      every CARDS_EVERY_S: build serving cards from what has been extracted (UI; optional)
 #   once       run one feed+drain cycle and exit (smoke test / cron)
@@ -52,6 +53,18 @@ feed_once() {
   ( cd "$ENGINE" && python3 route.py --enqueue ) || log "enqueue failed (continuing)"
   log "reap: release expired leases"
   ( cd "$ENGINE" && python3 route.py --reap ) || log "reap failed (continuing)"
+  # 3. BACKFILL last, so it sees the queue exactly as the workers will: only what nothing else
+  #    filled. Measured live -- ready 0, deferred/gate 51,994, 198 workers in backoff -- an idle
+  #    fleet beside a 98%-full queue. This tops `ready` back up to KSSL_READY_FLOOR from the rows
+  #    the presignal gate refused, best-scoring first, and does nothing at all while real work
+  #    exists. See route.backfill(); class is untouched, so fresh work still claims first.
+  backfill_once
+}
+
+backfill_once() {
+  log "backfill: keep the fleet fed when the gate has left nothing ready"
+  ( cd "$ENGINE" && C_BACKFILL_FLOOR="${KSSL_READY_FLOOR:-400}" python3 route.py --backfill ) \
+      || log "backfill failed (continuing)"
 }
 
 case "${1:-worker}" in
@@ -71,8 +84,19 @@ case "${1:-worker}" in
     ;;
   feeder)
     health_gate
-    log "feeder starting: cycle every ${FEED_EVERY_S}s"
-    while true; do feed_once; sleep "$FEED_EVERY_S"; done
+    log "feeder starting: feed every ${FEED_EVERY_S}s, backfill every ${BACKFILL_EVERY_S:-120}s"
+    while true; do
+      feed_once
+      # Poll the backfill BETWEEN feed cycles as well. feed_once is heavy -- a worklist select, a
+      # corpus sync and a full enqueue pass -- so it cannot run often; but 198 workers can empty
+      # `ready` in a couple of minutes, and every minute after that is the whole farm in backoff.
+      # Above the floor a backfill is a single COUNT, so this poll costs nothing when all is well.
+      _until=$(( $(date +%s) + FEED_EVERY_S ))
+      while [ "$(date +%s)" -lt "$_until" ]; do
+        sleep "${BACKFILL_EVERY_S:-120}"
+        backfill_once
+      done
+    done
     ;;
   select)
     log "select: priming the queue from the worklist, then exit"
