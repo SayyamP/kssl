@@ -26,6 +26,7 @@ import json
 import os
 import re
 import stage_timer
+import roster
 import sys
 from pathlib import Path
 
@@ -1033,6 +1034,13 @@ def parse_card(raw, cats, props=None, comp_patterns=None, known_rx=None):
     elif gain and pillar == "competitive" and in_core:
         direction = "threat"
     if direction not in ("threat", "watch"):
+        direction = "watch"
+    # A company nobody chose to track cannot be a threat, however good its news. The
+    # evidence test above still decides whether a CURATED rival's news is a threat --
+    # this only removes the rest, so the badge means "one of my 50 won something in a
+    # line I sell". Advisory: with no allowlist, on_roster() is False for everyone and
+    # the gate is skipped rather than demoting the world.
+    if direction == "threat" and roster.keys() and not roster.on_roster(company):
         direction = "watch"
     return {"pillar": pillar, "title": title[:120], "company": company[:80],
             "category": cat, "dir": direction, "sowhat": sowhat[:500], "what": whatv[:400]}
