@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { bucketTenders } from "../../lib/overview";
+import { formatDate } from "../../utils/formatDate";
 import {
   CATEGORY_COLOR,
   catOf,
@@ -201,6 +202,10 @@ export default function MarketOverview() {
   const setSection = (id) => {
     setSectionRaw(id);
     setRows(TABLE_PAGE);
+    /* the options are the new section's rows; a country picked in another section
+       may not exist in this one, and a filter matching nothing must not be silently
+       kept */
+    setCountry("all");
     try {
       localStorage.setItem(SECTION_KEY, id);
     } catch (e) {}
@@ -221,7 +226,10 @@ export default function MarketOverview() {
   }, [scope, country, cat]);
   const n = list.length;
 
-  const countries = useMemo(() => countriesOf(tenders), [tenders]);
+  /* Over `scope` -- the rows the filter narrows -- not every tender. Built from all
+     136 it advertised "All (22)" over an awarded list carrying 8 countries, and 14 of
+     the options returned an empty table. [{ v, n }]: the label prints the length. */
+  const countries = useMemo(() => countriesOf(scope), [scope]);
   /* Palette first, from the whole corpus — every later colour lookup reads the map this
      builds, so it must run before demandSplit and before the filter renders its dots. */
   const cats = useMemo(() => {
@@ -317,7 +325,7 @@ export default function MarketOverview() {
                   <td>{t.country || none("—")}</td>
                   <td>{t.cat || none("—")}</td>
                   {/* the column is headed "Closes" -- it must hold a date, not a countdown */}
-                  <td className="num">{t.closingDate || "—"}</td>
+                  <td className="num">{t.closingDate ? formatDate(t.closingDate) : "—"}</td>
                   {sourceCell(t)}
                 </tr>
               ))}
@@ -390,8 +398,8 @@ export default function MarketOverview() {
           >
             <option value="all">All ({countries.length})</option>
             {countries.map((c) => (
-              <option key={c} value={c}>
-                {c}
+              <option key={c.v} value={c.v}>
+                {c.v} ({c.n})
               </option>
             ))}
           </select>

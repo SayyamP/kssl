@@ -1,20 +1,14 @@
 import { useMemo, useState } from "react";
 import { useAppState } from "../../state/AppState";
+import { titleCaseHeadline } from "../../lib/profile";
 
+/* POS_CATS labels are served already cased ("UAVs & Drones"). The splitter that used to
+   live here broke a word on every lower-to-upper boundary and re-cased the pieces, so
+   the category filter offered "Ua Vs & Drones" -- a label no row carries. Raise only,
+   through the same function the product names go through, and eat no acronym. */
 const formatCategoryLabel = (str) => {
   if (!str) return "Uncategorised";
-  let s = String(str).replace(/&amp;/g, "&").trim();
-  s = s.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
-  const acronyms = new Set(["KSSL", "DRDO", "BDL", "BEL", "L&T", "UAV", "IAF", "BAE", "IAI", "HAL", "JSW", "MRO", "EO/IR", "GPS", "RF", "C4I"]);
-  return s
-    .split(/\s+/)
-    .map((word) => {
-      const clean = word.toUpperCase();
-      if (acronyms.has(clean)) return clean;
-      if (word === "&") return "&";
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(" ");
+  return titleCaseHeadline(String(str).replace(/&amp;/g, "&").trim());
 };
 
 /* The competitor-product list: kVA band → KSSL anchor product → the rivals paired

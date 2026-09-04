@@ -9,6 +9,7 @@
    And `bucketTenders`' `t.dl <= 0` is TRUE for the served `null`, so raw rows bucket
    as 100% closed. Wired input is a correctness requirement, not a convention. */
 import { parseCr } from "./gapModel.js";
+import { facetOptionsByName } from "./countryFacet.js";
 import { bucketTenders } from "./overview.js";
 
 /* dl semantics, set by computeTenderRealDays:
@@ -244,8 +245,12 @@ export function portalRows(tenders) {
   return Object.values(n).sort((a, b) => b.total - a.total);
 }
 
+/* The country options for a list of tenders, WITH the row count each one labels.
+   Built from the rows the filter narrows -- the open section's rows for the open
+   section -- never from every tender: the report offered 22 countries over an
+   awarded list that carried 8, and 14 of them returned nothing. */
 export function countriesOf(tenders) {
-  return Array.from(new Set((tenders || []).map((t) => t.country).filter(Boolean))).sort();
+  return facetOptionsByName(tenders, (t) => t.country);
 }
 
 /* ── self-check ───────────────────────────────────────────────────────────────
