@@ -45,6 +45,7 @@ joint-highest-yielding source measured (72%) and must never be cited alone. Craw
 never. Trust is `source_tiers.publishable()`, at the other end of the pipeline.
 """
 import argparse
+import html
 import json
 import os
 import re
@@ -86,7 +87,70 @@ _CODE_STOPLIST = {
     "AMMO",
     "IT", "US", "AS", "IN", "AT", "ON", "OR", "SO", "NO", "AN", "BE", "DO", "GO", "IS", "IF",
     "OF", "TO",
+    # Added after measuring every one-token term against 77,788 real documents. Each of these
+    # is a company on the live roster whose name is ALSO an ordinary word in a language this
+    # corpus is actually written in -- the FORCE bug, four more times, in four more languages.
+    # The count is documents matched; the verdict is what the surrounding text actually said.
+    "DAHER",      # 348 docs, 335 of them German: "daher" = therefore. Zero were the French
+                  # aerospace firm. Costs us Daher, which appears nowhere else in the roster.
+    "WIL",        # 206 docs, 154 Dutch: "wil" = wants. Walchandnagar Industries' COMPSYN code,
+                  # and the company still matches by its full name "Walchandnagar".
+    "PARAMOUNT",  # 544 docs, nearly all the English adjective ("where safety is paramount"),
+                  # the rest Paramount Pictures. "Paramount Group" -- the roster row and the
+                  # KSSL partner label -- is multi-word and unaffected.
+    "REGENT",     # 22 docs: regent of Finland, Hungarian regent. Costs us REGENT the seaglider
+                  # maker; it had 3 genuine hits against 19 heads of state.
+    "ARI",        # 52 docs: Indonesian "Asy'ari", a mining project, the US Army's Aviation
+                  # Restructure Initiative. One genuine hit.
 }
+
+
+# The press short-forms, listed explicitly -- NEVER derived. Deriving them is exactly what the
+# old head-token rule did: it took the first word of any multi-word name of six characters or
+# more, which turned "General Dynamics" into `General` and "Israel Aerospace Industries" into
+# `Israel`. Measured over 75,480 documents, `General` matched 6,843 of them where no General
+# Dynamics or General Atomics was present at all, and `Israel` 3,286.
+#
+# But refusing every short form loses real intelligence in the other direction, which the same
+# measurement shows: `BrahMos` appears in 266 documents that never write "BrahMos Aerospace",
+# `Hanwha` in 208, `Safran` in 555. Those are ordinary competitor stories written the way the
+# trade press actually writes them, and the old rule was the only reason they scored.
+#
+# So this list is DEFAULT-DENY and hand-checked. Every entry is a coinage that means one company
+# and nothing else. Deliberately ABSENT, though all of them are heads of real roster names:
+# ordinary words (General, Shield, Premier, Applied, Quantum, Impulse, Infinite, Envision,
+# Voyager, Firestorm), industry nouns (Munitions, Ordnance, Armoured, Naval), places and peoples
+# (Israel, Israeli, Ukraine, Korea, Bharat, Hindustan), and surnames that are also companies
+# (Larsen, Collins, Huntington, Rafael, Mehler). Adding one of those is how the +40 signal gets
+# handed to an article about a general election.
+_ALIASES = [
+    "BrahMos",        # BrahMos Aerospace
+    "Hanwha",         # Hanwha Aerospace / Defense USA / Group / Ocean: four rows, one word
+    "Lockheed",       # Lockheed Martin
+    "Northrop",       # Northrop Grumman
+    "Dassault",       # Dassault Aviation
+    "Safran",         # Safran Helicopter Engines
+    "Thyssenkrupp",   # Thyssenkrupp Marine Systems
+    "Oshkosh",        # Oshkosh Defense
+    "Mahindra",       # Mahindra Defence
+    "Milrem",         # Milrem Robotics
+    "UVision",        # UVision Air
+    "Omnisys",        # Omnisys Engenharia
+]
+
+
+def _stoplisted(name):
+    """A ONE-TOKEN name that is also an ordinary word is never a competitor term.
+
+    The FORCE bug, generalised: LENGTH IS NOT PROTECTION. `Force` is five characters and would
+    sail past any minimum-length rule straight into the name path, where it is perfectly
+    word-bounded inside "Air Force". `CSG` is a carrier strike group before it is a company and
+    `MPF` is Mobile Protected Firepower. A multi-word name cannot collide this way -- "Force
+    Motors" is unambiguous -- so only single tokens are tested, and both the name path and the
+    code path ask this same question.
+    """
+    n = name.strip()
+    return " " not in n and n.upper() in _CODE_STOPLIST
 
 
 def _union(terms):
@@ -208,15 +272,57 @@ def _load_ds(path=None):
     return {}, "ds.json not found"
 
 
+def _load_roster(dsn=None):
+    """The LIVE competitor roster, read from serving.competitors.
+
+    ds.json is the SEED of that table, not its content. Its 24 competitors became the table's
+    29 `origin='reference'` rows; the pipeline then discovered 178 more and wrote them back as
+    `origin='pipeline'`. By September the product knew 207 companies and this gate still knew
+    24, so Airbus, Boeing, BAE Systems, Northrop Grumman and Babcock were invisible to the +40
+    competitor signal -- and a document naming one of them topped out at 40 against a threshold
+    of 45, failing by five. Audited over 43,151 gate rejections, that was the single
+    demonstrated cause of false rejection.
+
+    Reading the table rather than re-seeding ds.json is the point: a copy would drift again, and
+    the drift is what this fixes. ds.json stays the fallback and keeps everything else it owns
+    (codes, categories, partners, the client).
+
+    NEVER FATAL. No DSN, no psycopg, no table, no network -- all return an empty roster and the
+    scorer runs on ds.json alone, exactly as it did before. A gate that refused to start because
+    a projection table was briefly unavailable would stop the queue for a vocabulary refresh.
+    """
+    dsn = dsn or os.environ.get("C_ROSTER_DSN") or os.environ.get("KSSL_CORPUS_DSN")
+    if not dsn:
+        return [], "no dsn"
+    try:
+        import psycopg
+        with psycopg.connect(dsn, connect_timeout=5) as c:
+            # dir='client' is us. The name filter below catches it too, but excluding it here
+            # means the client is never even carried as a candidate rival.
+            rows = c.execute("SELECT DISTINCT name FROM serving.competitors "
+                             "WHERE name <> '' AND dir IS DISTINCT FROM 'client'").fetchall()
+        return [r[0] for r in rows], "serving.competitors (%d)" % len(rows)
+    except Exception as e:
+        return [], "unavailable (%s: %s)" % (type(e).__name__, e)
+
+
 class Scorer:
     """Compiled once, reused. Building the patterns is the slow part; matching is microseconds."""
 
-    def __init__(self, ds=None, path=None):
+    def __init__(self, ds=None, path=None, roster=None):
         self.ds, self.src = (ds, "supplied") if ds is not None else _load_ds(path)
         d = self.ds or {}
-        self.competitors = _union(self._competitor_terms(d))
-        self.codes = _union([k for k in (d.get("COMPSYN") or {})
-                             if k.upper() not in _CODE_STOPLIST and len(k) >= 3])
+        # A SUPPLIED dataset means "use exactly this". The self-check and every regression test
+        # below depend on it: a scorer that quietly reached for the live roster as well would
+        # pass or fail according to what the pipeline happened to discover that week.
+        if roster is not None:
+            self.roster, self.roster_src = list(roster), "supplied"
+        elif ds is not None:
+            self.roster, self.roster_src = [], "not loaded (dataset supplied)"
+        else:
+            self.roster, self.roster_src = _load_roster()
+        self.competitors = _union(self._competitor_terms(d, self.roster))
+        self.codes = _union(self._competitor_codes(d, self.roster))
         self.categories = _union(self._category_terms(d))
         self.partners = _union([p.get("label", "") for p in (d.get("KSSL_PARTNERS") or [])])
         self.client = _union(self._client_terms(d))
@@ -234,27 +340,65 @@ class Scorer:
         return bool(self.competitors)
 
     @staticmethod
-    def _competitor_terms(d):
-        # The client itself appears in ds.json's competitor table -- it is the subject of the
-        # comparison, not a rival. Left in, every piece of our own news scores +40 as competitor
-        # intelligence instead of -20 as our own announcement, which inverts the exact signal
-        # this gate exists to produce.
+    def _all_names(d, roster=()):
+        """Every company this gate may treat as a rival: ds.json's table plus the live roster.
+
+        The client itself appears in ds.json's competitor table -- it is the subject of the
+        comparison, not a rival. Left in, every piece of our own news scores +40 as competitor
+        intelligence instead of -20 as our own announcement, which inverts the exact signal
+        this gate exists to produce.
+        """
         c = d.get("client") or {}
         mine = {(c.get("name") or "").lower(), (c.get("short") or "").lower(),
                 "kalyani strategic systems", "kalyani", "bharat forge", "kssl"}
+        names = [((v or {}).get("name") or "") for v in (d.get("competitors") or {}).values()]
+        names += list(roster or ())
         out = []
-        for _k, v in (d.get("competitors") or {}).items():
-            if ((v or {}).get("name") or "").lower() in mine:
-                continue
-            name = (v or {}).get("name") or ""
-            # Full names only. A one-token name shorter than five characters is a code in
-            # disguise and goes through _code_re's stricter path instead.
-            if len(name) >= 5 or " " in name:
+        for name in names:
+            # Both sources carry HTML entities from the pages they were extracted from --
+            # "Larsen &amp; Toubro" is one row in serving.competitors. Unescaped, the term can
+            # never match the prose it came from.
+            name = html.unescape(name or "").strip()
+            if name and name.lower() not in mine:
                 out.append(name)
-                head = name.split()[0]
-                if len(head) >= 6 and head.lower() not in ("defence", "defense", "systems"):
-                    out.append(head)
         return out
+
+    @staticmethod
+    def _competitor_terms(d, roster=()):
+        """Full company names, matched verbatim.
+
+        NO HEAD TOKENS. The previous version also added the first word of any multi-word name
+        of six characters or more, which turned "General Dynamics" into the standalone term
+        `General` and "Israel Aerospace Industries" into `Israel`. Audited on the documents that
+        PASSED this gate, `General` alone matched 214 of them and 38% of all competitor hits
+        rested on nothing but such a token -- articles about COVID variants and Pakistani
+        politics scored +40 as competitor intelligence. It is the FORCE bug in a second costume:
+        word boundaries are no defence when the token is itself an ordinary word.
+
+        What the head tokens were actually buying -- "Hanwha" for Hanwha Ocean, "Elbit" for
+        Elbit America -- the roster now supplies as real rows of its own.
+        """
+        names = [n for n in Scorer._all_names(d, roster)
+                 if (len(n) >= 5 or " " in n) and not _stoplisted(n)]
+        # An alias counts only if it is a word of a company this scorer actually knows. That is
+        # what keeps the list honest: a typo, or an alias for a company since dropped from the
+        # roster, quietly stops being a term instead of quietly becoming a +40 signal of its own.
+        tokens = {t.lower() for n in names for t in n.split()}
+        return names + [a for a in _ALIASES
+                        if a.lower() in tokens and not _stoplisted(a)]
+
+    @staticmethod
+    def _competitor_codes(d, roster=()):
+        """COMPSYN codes, plus the short one-word names the term path above cannot take.
+
+        Saab and KNDS are four characters with no space, so `_competitor_terms` drops them --
+        and neither is in COMPSYN, so before this the gate could not see either at all, though
+        both have sat in ds.json since the first import. They belong here, behind exactly the
+        stoplist that stops FORCE matching "Air Force".
+        """
+        short = [n for n in Scorer._all_names(d, roster) if len(n) < 5 and " " not in n]
+        return [k for k in {*(d.get("COMPSYN") or {}), *short}
+                if len(k) >= 3 and not _stoplisted(k)]
 
     @staticmethod
     def _category_terms(d):
@@ -458,11 +602,128 @@ def _demo():
     wall = "\n".join("Some defence headline number %d" % i for i in range(12))
     assert "looks_like_index" in sc.score(wall, "News")["signals"]
 
+    # ------------------------------------------------------------------ the roster regressions
+    # Four separate failures were measured on 43,151 gate rejections and on the documents that
+    # passed. Each is pinned here, because each one scored plausibly while being wrong.
+
+    # 1. THE STALE ROSTER. ds.json holds 24 companies; serving.competitors holds 207. A document
+    #    naming one of the other 183 scored category+event = 40 against a threshold of 45 and was
+    #    refused by five points. The roster is injected, never inferred, so this stays a test of
+    #    the merge and not of what the pipeline discovered this week.
+    live = ["Northrop Grumman", "Babcock", "BAE Systems", "Airbus", "Boeing",
+            "Larsen &amp; Toubro", "RTX"]
+    scr = Scorer(ds=ds, roster=live)
+    for who in ("Northrop Grumman", "Babcock", "BAE Systems", "Airbus", "Boeing"):
+        r = scr.score("%s awarded artillery contract worth 300 crore, 4 April 2024" % who)
+        assert any(x.startswith("competitor") for x in r["signals"]), \
+            "%s is on the live roster and must be seen: %s" % (who, r["signals"])
+        assert r["pass"], "%s: %d %s" % (who, r["score"], r["signals"])
+    # ...and the same document is refused when the roster is absent, which is the bug itself.
+    blind = sc.score("Northrop Grumman awarded artillery contract, 4 April 2024")
+    assert not any(x.startswith("competitor") for x in blind["signals"])
+
+    # 2. THE GENERIC HEAD TOKEN. "General Dynamics" once contributed the standalone term
+    #    `General`, and "Israel Aerospace Industries" contributed `Israel`; 38% of competitor
+    #    hits on the passing side rested on such a token alone. Both companies stay matchable by
+    #    their real names -- it is the fragment that must not match.
+    heads = Scorer(ds=ds, roster=["General Dynamics", "Israel Aerospace Industries",
+                                  "General Atomics", "Paramount Group", "Patria"])
+    for junk in ("General Motors reports quarterly results, 4 April 2024",
+                 "Israel and Egypt sign a peace accord, 4 April 2024",
+                 "Should India worry about the COVID BF.7 variant? 4 April 2024",
+                 "Paramount Pictures announces a sequel, 4 April 2024"):
+        r = heads.score(junk)
+        assert not any(x.startswith("competitor") for x in r["signals"]), \
+            "a generic head token matched again: %r -> %s" % (junk, r["signals"])
+    for real in ("General Dynamics wins a US Army contract, 4 April 2024",
+                 "Israel Aerospace Industries delivered the radar, 4 April 2024"):
+        assert any(x.startswith("competitor") for x in heads.score(real)["signals"]), \
+            "the full name must still match: %r" % real
+
+    # 3. SHORT NAMES ARE CODES, NOT NOTHING. Saab and KNDS are four characters with no space, so
+    #    the name path drops them, and neither is in COMPSYN -- so the gate was blind to two
+    #    companies that have been in ds.json since the first import.
+    shorts = Scorer(ds={"competitors": {"s": {"name": "Saab"}, "k": {"name": "KNDS"}},
+                        "COMPSYN": {}, "client": {}})
+    for who in ("Saab", "KNDS"):
+        assert any(x.startswith("competitor") for x in
+                   shorts.score("%s wins an order, 4 April 2024" % who)["signals"]), \
+            "%s must match through the code path" % who
+    # The stoplist still governs that path: a short name that is an ordinary word is refused.
+    assert not any(x.startswith("competitor") for x in Scorer(
+        ds={"competitors": {"f": {"name": "FORCE"}}, "COMPSYN": {}, "client": {}}
+    ).score("Anduril wins US Air Force award, 4 April 2024")["signals"]), \
+        "a stoplisted short name reached the competitor union"
+
+    # 4. HTML ENTITIES. serving.competitors carries "Larsen &amp; Toubro" exactly as the page
+    #    that produced it did. Unescaped, the term can never match the prose it came from.
+    assert any(x.startswith("competitor") for x in
+               scr.score("Larsen & Toubro wins a naval order, 4 April 2024")["signals"]), \
+        "an HTML-escaped roster name never matches real text"
+
+    # 5. THE BOUNDARY IS UNCHANGED AT 45. The fix is a vocabulary fix; nothing about the
+    #    arithmetic moved, and a document one point short must still fail.
+    assert PASS_THRESHOLD == 45
+    assert W_COMPETITOR + W_CATEGORY == 65 and W_CATEGORY + W_EVENT == 40
+    near = scr.score("Boeing artillery programme continues, 4 April 2024")     # comp+cat = 65
+    assert near["score"] == 65 and near["pass"]
+    edge = sc.score("The artillery programme was awarded on 4 April 2024")     # cat+event = 40
+    assert edge["score"] == 40 and not edge["pass"], \
+        "40 must still fail: %d %s" % (edge["score"], edge["signals"])
+    assert not Scorer(ds=ds, roster=[]).score(
+        "The artillery programme was awarded on 4 April 2024")["pass"]
+
+    # 6. THE VALIDATED ALIAS. The press writes "BrahMos", not "BrahMos Aerospace" -- 266
+    #    documents do exactly that -- so the short form has to work. It works because it is on an
+    #    explicit list, not because it is the first word of something.
+    al = Scorer(ds=ds, roster=["BrahMos Aerospace", "Hanwha Ocean", "General Dynamics"])
+    for short in ("Thailand set to join India's growing BrahMos club, 4 April 2024",
+                  "Hanwha delivers the K9 howitzer to Poland, 4 April 2024"):
+        assert any(x.startswith("competitor") for x in al.score(short)["signals"]), \
+            "a listed alias must match: %r" % short
+    # `General` is the head of a roster name too, and is deliberately NOT on the list.
+    assert "General" not in Scorer._competitor_terms(ds, ["General Dynamics"])
+    # An alias for a company the scorer does not know is not a term. Without this, the list
+    # becomes a second vocabulary that nobody validates.
+    orphan = Scorer(ds={"competitors": {"a": {"name": "Adani Defence"}},
+                        "COMPSYN": {}, "client": {}})
+    assert "BrahMos" not in orphan._competitor_terms(orphan.ds), \
+        "an alias survived with no company behind it"
+    # ...and a stoplisted token could never be rescued by being listed as an alias.
+    assert not any(_stoplisted(a) for a in _ALIASES), "an alias collides with the code stoplist"
+
+    # 7. THE ORDINARY WORD IN SOMEBODY ELSE'S LANGUAGE. Each of these is a real company on the
+    #    live roster whose name is a common word in a language this corpus is written in. They
+    #    are the FORCE bug repeated, and the measurement that found them is in the stoplist.
+    words = Scorer(ds=ds, roster=["Daher", "Paramount", "REGENT", "ARI", "Walchandnagar"])
+    for junk, why in (
+            ("Die Systeme sind daher besonders wirtschaftlich, 4 April 2024", "German 'daher'"),
+            ("De commissie wil een nieuw contract, 4 April 2024", "Dutch 'wil'"),
+            ("A rapid response is paramount for the artillery order, 4 April 2024", "English adj"),
+            ("Mannerheim served as regent of Finland, 4 April 2024", "'regent'")):
+        r = words.score(junk)
+        assert not any(x.startswith("competitor") for x in r["signals"]), \
+            "%s matched a competitor: %s" % (why, r["signals"])
+    # The company behind a stoplisted CODE is still reachable by its full name.
+    assert any(x.startswith("competitor") for x in
+               words.score("Walchandnagar wins a naval order, 4 April 2024")["signals"]), \
+        "stoplisting WIL took Walchandnagar with it"
+    # ...and the multi-word form of a stoplisted single token still matches.
+    assert any(x.startswith("competitor") for x in Scorer(ds=ds, roster=["Paramount Group"])
+               .score("Paramount Group delivers Mbombe vehicles, 4 April 2024")["signals"]), \
+        "stoplisting Paramount took Paramount Group with it"
+
+    # The client must stay excluded no matter which source names it.
+    assert not any(x.startswith("competitor") for x in Scorer(
+        ds=ds, roster=["Kalyani Strategic Systems", "Bharat Forge"]
+    ).score("Kalyani Strategic Systems wins artillery order, 4 April 2024")["signals"]), \
+        "the client arrived as a rival through the roster"
+
     # Report TERMS, not compiled patterns: after unioning there are only one or two patterns per
     # class, and printing "2 competitor terms" would read like the vocabulary had collapsed.
     print("ok  %d competitor / %d category / %d event terms in %d patterns, "
           "%.2f ms/doc, threshold %d"
-          % (len(sc._competitor_terms(ds)) + len(ds.get("COMPSYN", {})),
+          % (len(sc._competitor_terms(ds)) + len(sc._competitor_codes(ds)),
              len(sc._category_terms(ds)), len(EVENT_TERMS),
              len(sc.competitors) + len(sc.codes) + len(sc.categories) + len(sc.events),
              _ms, PASS_THRESHOLD))
