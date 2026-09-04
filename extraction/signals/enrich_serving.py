@@ -459,9 +459,12 @@ def product_rows(names, use, docs):
     a product blurb the corpus never wrote is the kind of plausible filler this
     dashboard removed once already.
 
-    `category` is a real gain, not a rename: the Products page banded every product by
-    its COMPANY's sector, so a firm's radars and its trucks came out with one label.
-    categorise_product reads the product name against the KSSL bands instead.
+    `category` bands the product by ITS OWN name where the name says what it is, instead
+    of by its company's sector, which the Products page used for everything -- so a firm's
+    radars and its trucks came out under one label. It is a narrow win, not a broad one:
+    measured over the real corpus it fills 4 products in 112, because real names are model
+    designations (Switchblade, VSR-700, M-346) that carry no category word. Never wrong
+    when present, and Products.jsx keeps the company sector as the fallback.
 
     `source_url` is the document whose statement actually named the product -- the same
     statements the profile was built from, so the citation is the evidence, not a guess.
@@ -985,6 +988,10 @@ OWN_RX = re.compile(
     r"majority[- ]owned|(?:majority|minority|controlling) (?:stake|shareholding)|"
     r"owns|owned by|acquir\w+|takeover|division of|unit of|arm of|"
     r"holding company|spun off|demerged|merged into)(?!\w)", re.I)
+# `arm of` looks like a false-positive magnet and is not: of the 20 statements it selected
+# from the real corpus, 14 are ownership ("U.S. arm of QinetiQ Group plc", "R&D arm of
+# Electronic Systems") and the 2 physical arms ("the arm of the UAV") have no proper name
+# on either side, so the prefilter below drops them before they cost a call.
 
 OWN_PROMPT = """Below is ONE extracted statement from a defence-news article, with its
 supporting quote. Decide: does it state that one NAMED organization OWNS or IS OWNED BY
@@ -1013,6 +1020,13 @@ Quote: "%s"
 """
 
 
+# US11920999B2, JP7068126B2, EP3725676B1: patent records phrase their assignee as
+# "<number> is owned by <company>", which OWN_RX cannot tell from corporate ownership.
+# Five such statements in the real corpus -- few, and each one would put a patent number
+# on the structure graph as though it were a subsidiary.
+_PATENT_ID_RX = re.compile(r"^[A-Z]{2}\d{5,}[A-Z]?\d?\b")
+
+
 def parse_structure(raw, hay=None):
     """-> {owner, owned, rel, pct, note} or None. The same bar as parse_partnership,
     because the same model answering the same corpus produces the same failures: two
@@ -1036,6 +1050,8 @@ def parse_structure(raw, hay=None):
                                           # 'the Ministry of Defence' is not a parent co
     if not has_proper_name(owner) or not has_proper_name(owned):
         return None                       # NAMED organization -- the prompt's own rule
+    if _PATENT_ID_RX.match(owner.strip()) or _PATENT_ID_RX.match(owned.strip()):
+        return None                       # a patent's assignee is not a parent company
     if not is_english(note):
         return None
     # THE BOUNDARY BETWEEN THIS STEP AND step_partnerships, as code. The prompt says a
@@ -1096,8 +1112,20 @@ def step_structure(cur, con, docs, props_by_doc, limit=None):
                 return p["comp_id"]
         return None
 
+    def asks_a_question(pr):
+        """Worth one LLM call? These are checks parse_structure makes anyway, moved to
+        before the call that pays for them. Measured on the real corpus: 4,481 statements
+        match OWN_RX and 403 of them cannot possibly yield an edge -- "the US Navy plans
+        to acquire 1,800 missiles" is procurement, and "further research will allow us to
+        gradually acquire vehicles" names nobody at all."""
+        if is_force(pr["s"]):
+            return False                  # a military buying equipment is not a takeover
+        # The parser needs a NAMED organisation on both sides; a statement with no proper
+        # name anywhere cannot supply one, whatever the model replies.
+        return has_proper_name(pr["s"]) or has_proper_name(pr["o"])
+
     cands = [(did, pr) for did, prs in props_by_doc.items() for pr in prs
-             if OWN_RX.search("%s %s" % (pr["p"], pr["o"]))]
+             if OWN_RX.search("%s %s" % (pr["p"], pr["o"])) and asks_a_question(pr)]
     rows, refused, orphans, calls, seen = {}, 0, [], 0, set()
     for did, pr in cands:
         if limit and calls >= limit:
@@ -1176,6 +1204,13 @@ def step_structure(cur, con, docs, props_by_doc, limit=None):
 # days is wide enough that one quiet Sunday is not a collapse.
 METRIC_WINDOW_DAYS = 7
 
+# How far behind publication the crawl is allowed to be before a day counts as settled.
+# A floor, not the answer: corpus_window_end() measures the real lag each run. Measured
+# 2026-09-04, the corpus held 322 documents for 1 Sep and 16, 19 and 1 for the three days
+# after -- so a window ending today would have covered three days the crawler had barely
+# reached, and every company on the roster read as collapsing by 25-88%.
+METRIC_SETTLE_DAYS = 3
+
 
 def corpus_dates(cur):
     """-> {document_id: datetime.date} for documents the crawler dated credibly.
@@ -1213,6 +1248,38 @@ def corpus_dates(cur):
     return out
 
 
+def corpus_window_end(cur):
+    """-> the last day the corpus can honestly be said to cover.
+
+    NOT today. The crawl runs behind publication, so the newest days in the corpus are
+    thin and still filling. Counting them makes every company's coverage look like it is
+    falling, which is a confident wrong number of exactly the kind this dashboard keeps
+    deleting -- a reader would act on "BAE Systems -88%".
+
+    The lag is measured rather than assumed: the most recent day holding at least half
+    the trailing 30-day median is treated as settled. That self-corrects when the crawler
+    stalls for a week or catches up, where a fixed offset would quietly go stale.
+    METRIC_SETTLE_DAYS is only the floor for when the measurement finds nothing.
+    """
+    import datetime
+    cur.execute("""WITH per AS (
+                     SELECT (meta->>'published_at')::date AS dt, count(*) AS n
+                       FROM extracted.document
+                      WHERE meta->>'published_at' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+                        AND (meta->>'published_at')::date <= current_date
+                      GROUP BY 1),
+                   med AS (SELECT percentile_disc(0.5) WITHIN GROUP (ORDER BY n) AS m
+                             FROM per WHERE dt > current_date - 30)
+                   SELECT max(per.dt) FROM per, med WHERE per.n >= med.m / 2""")
+    row = cur.fetchone()
+    floor_day = datetime.date.today() - datetime.timedelta(days=METRIC_SETTLE_DAYS)
+    if not row or row[0] is None:
+        return floor_day
+    # Never claim to cover a day more recent than the floor allows, and never reach back
+    # further than the corpus actually goes.
+    return min(row[0], floor_day) if row[0] > floor_day else row[0]
+
+
 def step_metrics(cur, con, docs, props_by_doc, limit=None):
     """How many corpus documents named each competitor, this window against the last.
 
@@ -1234,8 +1301,8 @@ def step_metrics(cur, con, docs, props_by_doc, limit=None):
         return {"written": 0, "dated": 0}
 
     dated = corpus_dates(cur)
-    today = datetime.date.today()
-    cur_from = today - datetime.timedelta(days=METRIC_WINDOW_DAYS - 1)
+    window_end = corpus_window_end(cur)
+    cur_from = window_end - datetime.timedelta(days=METRIC_WINDOW_DAYS - 1)
     prev_from = cur_from - datetime.timedelta(days=METRIC_WINDOW_DAYS)
     as_of = datetime.datetime.now(datetime.timezone.utc)
 
@@ -1246,6 +1313,13 @@ def step_metrics(cur, con, docs, props_by_doc, limit=None):
     # would think to look for.
     merged = merge_candidates({p["name"] for p in profiles})
     by_name = {slug(n): a for n, a in merged.items()}
+    # The denominators. A company's raw count rises when the crawler has a big week,
+    # which is not the same as the company having one: measured 2026-09-04, the crawler
+    # put 847 documents in the current window against 423 in the previous (547 vs 423
+    # after the fetch-stamp filter, which is what these count), so every raw count rose
+    # and the whole roster read as surging.
+    corpus_now = sum(1 for d in dated.values() if cur_from <= d <= window_end)
+    corpus_prev = sum(1 for d in dated.values() if prev_from <= d < cur_from)
     written, moved = 0, 0
     for p in sorted(profiles, key=lambda r: r["comp_id"]):
         cid = p["comp_id"]
@@ -1258,31 +1332,49 @@ def step_metrics(cur, con, docs, props_by_doc, limit=None):
             d = dated.get(did)
             if d is None:
                 continue
+            if d > window_end:
+                continue          # inside the crawl's unsettled tail; in neither window
             if d >= cur_from:
                 now_n += 1
             elif d >= prev_from:
                 prev_n += 1
-        # No baseline, no percentage: "+100%" against zero is a division wearing a trend's
-        # clothes, and this dashboard has printed one of those before.
-        pct = round((now_n - prev_n) * 100.0 / prev_n, 1) if prev_n else None
+        # SHARE of the corpus, not raw count. This is the only form of the number that
+        # means "more of the conversation" rather than "the crawler had a bigger week".
+        # No baseline, no percentage: "+100%" against zero is a division wearing a
+        # trend's clothes, and this dashboard has printed one of those before.
+        if prev_n and corpus_now and corpus_prev:
+            share_now = now_n / float(corpus_now)
+            share_prev = prev_n / float(corpus_prev)
+            pct = round((share_now - share_prev) * 100.0 / share_prev, 1)
+        else:
+            pct = None
         if pct:
             moved += 1
         cur.execute("""INSERT INTO serving.competitor_metrics
                          (comp_id, mentions_window, mentions_previous,
-                          mentions_change_pct, window_days, as_of, origin)
-                       VALUES (%s,%s,%s,%s,%s,%s,'pipeline')
+                          corpus_window, corpus_previous,
+                          mentions_change_pct, window_days, window_end, as_of, origin)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pipeline')
                        ON CONFLICT (comp_id) DO UPDATE SET
                          mentions_window=EXCLUDED.mentions_window,
                          mentions_previous=EXCLUDED.mentions_previous,
+                         corpus_window=EXCLUDED.corpus_window,
+                         corpus_previous=EXCLUDED.corpus_previous,
                          mentions_change_pct=EXCLUDED.mentions_change_pct,
                          window_days=EXCLUDED.window_days,
+                         window_end=EXCLUDED.window_end,
                          as_of=EXCLUDED.as_of, updated_at=now()""",
-                    (cid, now_n, prev_n, pct, METRIC_WINDOW_DAYS, as_of))
+                    (cid, now_n, prev_n, corpus_now, corpus_prev, pct,
+                     METRIC_WINDOW_DAYS, window_end, as_of))
         written += 1
     con.commit()
-    print("metrics: %d compan(ies) over a %d-day window, %d with a dated corpus "
-          "document, %d moved against the previous window"
-          % (written, METRIC_WINDOW_DAYS, len(dated), moved), flush=True)
+    print("metrics: %d compan(ies) over the %d days to %s (the corpus is %d day(s) "
+          "behind today), %d dated document(s), %d moved against the previous window"
+          % (written, METRIC_WINDOW_DAYS, window_end,
+             (datetime.date.today() - window_end).days, len(dated), moved), flush=True)
+    print("  corpus in window: %d document(s), previous window: %d -- shares, not raw "
+          "counts, are what the percentage compares" % (corpus_now, corpus_prev),
+          flush=True)
     # ponytail: one row per company, overwritten each pass -- no history, so no sparkline.
     # A (comp_id, as_of) history table is the upgrade, and it needs a reader first: the
     # last sparkline on this page was drawn from a hardcoded path.
@@ -2345,6 +2437,12 @@ def _demo():
     assert parse_structure('{"owner":"Leonardo","owned":"Hensoldt","rel":"subsidiary",'
                            '"note":"owns"}', None) is None, \
         "a one-word note states nothing that can be shown"
+    # A patent's assignee is not a parent company. Real corpus: five statements phrase it
+    # as "<patent number> is owned by <company>", and each would have put a patent number
+    # on the structure graph as a subsidiary.
+    assert parse_structure('{"owner":"Toyota","owned":"JP7068126B2","rel":"subsidiary",'
+                           '"note":"JP7068126B2 is owned by Toyota Motor Corporation"}',
+                           None) is None, "a patent number is not a company"
     # the regexes that decide which statements are even asked about
     assert OWN_RX.search("is a wholly-owned subsidiary of")
     assert OWN_RX.search("acquired a controlling stake in")
@@ -2352,6 +2450,9 @@ def _demo():
         "a partnership must not be asked an ownership question"
     assert not OWN_RX.search("agreed to establish a joint venture"), \
         "PART_RX owns joint ventures; OWN_RX must not claim them too"
+    # `arm of` stays: 14 of the 20 statements it selects from the real corpus are real
+    # ownership, and the physical arms it also catches carry no proper name to survive on.
+    assert OWN_RX.search("operates as the U.S. arm of QinetiQ Group plc")
 
     # --- step 2c: corpus mention volume ---
     # The window arithmetic, which is the whole step: a document lands in exactly one
@@ -2361,10 +2462,14 @@ def _demo():
     _cur_from = _today - _dt.timedelta(days=METRIC_WINDOW_DAYS - 1)
     _prev_from = _cur_from - _dt.timedelta(days=METRIC_WINDOW_DAYS)
 
-    def _bucket(d):
+    def _bucket(d, end=_today):
+        if d > end:
+            return None                   # the crawl's unsettled tail counts nowhere
         return "now" if d >= _cur_from else ("prev" if d >= _prev_from else None)
 
-    assert _bucket(_today) == "now", "today counts in the current window"
+    assert _bucket(_today) == "now", "the window's last day counts in it"
+    assert _bucket(_today + _dt.timedelta(days=1)) is None, \
+        "a day past the window end is in neither bucket"
     assert _bucket(_cur_from) == "now", "the window is inclusive at its near edge"
     assert _bucket(_cur_from - _dt.timedelta(days=1)) == "prev"
     assert _bucket(_prev_from) == "prev"
@@ -2372,16 +2477,33 @@ def _demo():
         "older than two windows is in neither bucket, not silently in the previous one"
     assert (_cur_from - _prev_from).days == METRIC_WINDOW_DAYS, \
         "the two windows must be the same width or the percentage is meaningless"
+    # The window ends where the CORPUS ends, not where the calendar does. Measured on
+    # real data 2026-09-04: the crawl was three days behind, so a calendar-anchored
+    # window covered three near-empty days and every company read as down 25-88%.
+    assert METRIC_SETTLE_DAYS > 0, \
+        "a window ending today counts days the crawler has not reached yet"
 
-    def _pct(now_n, prev_n):
-        return round((now_n - prev_n) * 100.0 / prev_n, 1) if prev_n else None
+    def _pct(now_n, prev_n, corpus_now=100, corpus_prev=100):
+        if not (prev_n and corpus_now and corpus_prev):
+            return None
+        return round(((now_n / float(corpus_now)) - (prev_n / float(corpus_prev)))
+                     * 100.0 / (prev_n / float(corpus_prev)), 1)
 
-    assert _pct(12, 8) == 50.0
+    assert _pct(12, 8) == 50.0            # equal corpora -> the raw ratio
     assert _pct(8, 12) == -33.3
     assert _pct(0, 4) == -100.0
     assert _pct(7, 0) is None, \
         "no baseline, no percentage -- '+100%' against zero is a division, not a trend"
     assert _pct(0, 0) is None
+    # THE ONE REAL DATA FOUND, kept with its real numbers. Measured 2026-09-04 the crawler
+    # put 847 documents in the current window against 423 in the previous, and Boeing
+    # went 25 -> 51. On raw counts that is +104% and the whole roster read as an
+    # industry-wide surge. Against the corpus it is a company roughly holding its share.
+    assert _pct(51, 25, 847, 423) == 1.9, \
+        "the percentage must survive the crawl doubling, or it measures the crawler"
+    assert _pct(50, 25, 850, 425) == 0.0, \
+        "double the mentions in double the corpus is no change in share"
+    assert _pct(7, 4, 0, 100) is None, "an empty corpus window has no share to compare"
     # The columns that must NOT exist. This dashboard printed a share price of 1,428.50
     # INR for every company on the roster, private firms and state arsenals included,
     # and check_no_fabrication.mjs fails the build on its marker strings. The table is

@@ -1127,7 +1127,8 @@ export default function Profile() {
                         <div className="ln-widget">
                           <div className="ln-widget-h">
                             <span className="eyebrow">
-                              Corpus mentions · {metrics.window_days}d
+                              Corpus mentions · {metrics.window_days}d to{" "}
+                              {metrics.window_end || "\u2014"}
                             </span>
                           </div>
                           <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
@@ -1146,8 +1147,7 @@ export default function Profile() {
                                 }}
                               >
                                 {metrics.mentions_change_pct >= 0 ? "+" : ""}
-                                {metrics.mentions_change_pct}% vs previous{" "}
-                                {metrics.window_days}d
+                                {metrics.mentions_change_pct}% share of corpus
                               </span>
                             ) : (
                               /* The previous window held nothing, so there is no
@@ -1158,10 +1158,18 @@ export default function Profile() {
                               </span>
                             )}
                           </div>
+                          {/* The denominators are printed, not hidden. The percentage
+                              above compares SHARE of the corpus rather than raw counts,
+                              because the crawler's weekly volume moves independently of
+                              the news: measured 2026-09-04, it put 847 documents in one
+                              window against 423 in the previous, which on raw counts
+                              made every company on the roster look like it was surging.
+                              A reader can only check that if the base is on screen. */}
                           <div style={{ fontSize: "11px", color: "var(--d-txt-2)",
                                         marginTop: "4px" }}>
-                            documents in this pipeline&rsquo;s corpus naming{" "}
-                            {p.name}, previous window {metrics.mentions_previous}
+                            of {metrics.corpus_window} corpus documents naming {p.name};
+                            previously {metrics.mentions_previous} of{" "}
+                            {metrics.corpus_previous}
                           </div>
                         </div>
                       ) : null}

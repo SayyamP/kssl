@@ -336,11 +336,13 @@ export default function Products() {
             id: obj.id ? `co-prod-${obj.id}` : `co-prod-${name}`,
             name: formatTitleCase(name),
             company: selectedCompany.name,
-            /* The product's OWN band when the record carries one. This used to be the
+            /* The product's OWN band when the record carries one -- this used to be the
                company's sector for every product it makes, so a firm's radars and its
-               trucks came out under one label and the category filter could not
-               separate them. co.sector remains the fallback for the reference archive,
-               whose products are still bare strings. */
+               trucks came out under one label. It is a narrow win: measured over the
+               real corpus only 4 products in 112 carry a band, because real names are
+               model designations (Switchblade, VSR-700) with no category word in them.
+               co.sector stays the fallback, and is also what the reference archive's
+               bare-string products still use. */
             category: formatCategoryTitle(obj.category || co.sector),
             source: obj.source || "",
             sourceUrl: obj.source_url || "",

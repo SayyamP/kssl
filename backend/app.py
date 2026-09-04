@@ -70,7 +70,8 @@ STRUCT_OPT = frozenset(["entity_id", "ownership_pct", "description", "source_not
 # Corpus mention volume. window_days travels WITH the counts, so the UI cannot label a
 # 7-day figure as 24h: the number carries its own units.
 METRIC_FIELDS = ["comp_id", "mentions_window", "mentions_previous",
-                 "mentions_change_pct", "window_days", "as_of"]
+                 "corpus_window", "corpus_previous",
+                 "mentions_change_pct", "window_days", "window_end", "as_of"]
 METRIC_OPT = frozenset(["mentions_change_pct"])
 CARD_FIELDS = ["id", "dir", "rank", "title", "meta", "company", "lens",
                "sowhat", "sec", "url", "ago", "tags", "image"]
@@ -243,6 +244,10 @@ def _dataset(_st=None):
             if item.get("mentions_change_pct") is not None:
                 item["mentions_change_pct"] = float(item["mentions_change_pct"])
             item["as_of"] = item["as_of"].isoformat() if item["as_of"] else None
+            # window_end is a date; the UI prints which days the count covers, because
+            # they are not the last seven -- the crawl runs behind publication.
+            item["window_end"] = (item["window_end"].isoformat()
+                                  if item["window_end"] else None)
             metrics[item.pop("comp_id")] = item
         out["competitorMetrics"] = metrics
 

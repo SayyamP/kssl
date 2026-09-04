@@ -128,9 +128,29 @@ CREATE TABLE serving.competitor_metrics (
                           REFERENCES serving.competitors(comp_id) ON DELETE CASCADE,
     mentions_window     integer NOT NULL CHECK (mentions_window >= 0),
     mentions_previous   integer NOT NULL CHECK (mentions_previous >= 0),
-    -- NULL when the previous window is empty: no baseline, no percentage.
+    -- How many DATED DOCUMENTS the whole corpus held in each window. Without these the
+    -- percentage below is uninterpretable, which real data proved rather than theory:
+    -- measured 2026-09-04, the crawler put 847 documents in the current window against
+    -- 423 in the previous, so every company's raw count rose and the roster read as an
+    -- industry-wide surge. It was the crawler, not the news. (547 of those 847 survive
+    -- the fetch-stamp filter and are what these columns count -- the filter does its
+    -- heaviest work on exactly the recent days where the crawler guesses most.)
+    corpus_window       integer NOT NULL CHECK (corpus_window >= 0),
+    corpus_previous     integer NOT NULL CHECK (corpus_previous >= 0),
+    -- Change in SHARE OF THE CORPUS, not in raw count -- mentions/corpus this window
+    -- against mentions/corpus last window. That is the only form of this number that
+    -- survives the crawl doubling. NULL when the previous window held nothing: no
+    -- baseline, no percentage, and "+100%" against zero is a division in a trend's
+    -- clothes.
     mentions_change_pct numeric,
     window_days         integer NOT NULL CHECK (window_days > 0),
+    -- The last day the window covers, which is NOT today. The crawl runs behind
+    -- publication: measured on 2026-09-04, the corpus held 322 documents for 1 Sep and
+    -- then 16, 19 and 1 for the three days after it. A window ending today therefore
+    -- always includes two or three near-empty days, and every company on the roster
+    -- reads as collapsing -- the tile would be measuring ingestion lag, not news.
+    -- step_metrics anchors the window to the corpus instead, and stores where it landed.
+    window_end          date NOT NULL,
     as_of               timestamptz NOT NULL,
     origin              text NOT NULL DEFAULT 'pipeline',
     updated_at          timestamptz NOT NULL DEFAULT now()
