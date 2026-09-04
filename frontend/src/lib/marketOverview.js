@@ -44,7 +44,24 @@ export function windowOf(t) {
    the legend direct-labels every slice with its name, count and share, so hue is never
    doing the work alone. A ninth category folds into "Other" rather than earning a
    generated hue. */
-const SERIES = ["#3B82F6", "#F59E0B", "#10B981", "#8B5CF6", "#EC4899", "#06B6D4", "#F97316"];
+/* NINE slots, because the client's taxonomy has nine categories and every one of them
+   is a line KSSL actually sells. With seven, "Other (2 categories)" was Missiles & Air
+   Defence and ARTILLERY -- ranked 7th and 8th by tender count and folded into a grey
+   slice, which is how the client's flagship line came to be unnamed on its own chart.
+   Nothing foreign was ever in that bucket: all eight categories on record are KSSL's.
+
+   Ranking by contract count is the right order for the LEGEND and the wrong rule for
+   who gets a name, so the palette now covers the whole taxonomy and "Other" is reserved
+   for a category genuinely outside it.
+
+   Re-validated with the dataviz palette checker against BOTH surfaces (dark #1a1a19,
+   light #fcfcfb): lightness band, chroma floor, adjacent-pair CVD, normal-vision floor
+   and contrast all PASS. The old seven did not -- four sat outside the dark lightness
+   band. Hue ORDER is load-bearing: the CVD check runs on adjacent pairs, and the warm
+   and green hues are interleaved with the cool ones on purpose (lime beside orange
+   collapses to deutan ΔE 1.7). Re-run the checker before reordering or adding one. */
+const SERIES = ["#3B82F6", "#D97706", "#0891B2", "#DC2626", "#8B5CF6",
+                "#EA580C", "#059669", "#EC4899", "#65A30D"];
 const OTHER_COLOR = "#94A3B8";
 const _catSlot = new Map();
 let _otherLabel = "";
@@ -252,4 +269,25 @@ export function marketSelfCheck(tenders) {
   const s = demandSplit(open).reduce((n, b) => n + b.count, 0);
   if (s !== open.length)
     throw new Error(`market: demand split covers ${s} of ${open.length} open tenders`);
+
+  /* No KSSL category may be folded into the grey "Other" slice. This is the bug the
+     nine-slot palette fixes: Artillery and Missiles & Air Defence ranked 7th and 8th
+     by contract count and vanished into "Other (2 categories)" -- the client's own
+     flagship line, unnamed on the client's own chart. Asserted against the SERVED set
+     rather than a fixed list, so it fires the moment the taxonomy outgrows the palette
+     again instead of silently folding whichever two rank lowest.
+
+     Counted from the ranking directly, NOT from _catSlot: this runs in DataProvider
+     and initCategoryPalette only runs when the Market page renders, so reading the
+     slot map here would assert against an empty map on every load. */
+  const folded = categoryRank(list)
+    .map((r) => r.label)
+    .slice(SERIES.length);
+  if (folded.length)
+    throw new Error(
+      `market: ${folded.length} categor${folded.length === 1 ? "y is" : "ies are"} ` +
+        `folded into "Other" (${folded.join(", ")}) -- SERIES has ${SERIES.length} ` +
+        "hues for them. Add a validated hue (dataviz palette checker, both surfaces) " +
+        "rather than letting a KSSL line go unnamed.",
+    );
 }
