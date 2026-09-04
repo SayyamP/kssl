@@ -285,7 +285,17 @@ def parse_date(s):
         for tok in re.findall(r"[^\W\d_]+", s, re.UNICODE):
             mm = _ml_month(tok)
             if mm:
-                return y, mm, None
+                # The day sits on one side of the month word or the other in every
+                # language here: '01 settembre 2026', 'settembre 1, 2026',
+                # 'vasario 17 d.'. This branch used to return None for it, so an
+                # English page yielded '30 Aug 2026' and an Italian one carrying the
+                # same information yielded 'Sep 2026' -- the English path had day
+                # precision and no other language did. On the served corpus that cost
+                # the day on 85 of 825 cards, 42 of them one Italian publisher.
+                esc = re.escape(tok)
+                near = (re.search(r"\b(\d{1,2})\s{0,2}[.,-]?\s{0,2}" + esc, s)
+                        or re.search(esc + r"[^\W\d_]*\.?[\s,]{0,2}(\d{1,2})(?!\d)", s))
+                return y, mm, _clamp(near.group(1), 1, 31) if near else None
         return y, None, None
     return None
 
@@ -452,6 +462,27 @@ def article_date(cur, did, today_ym=None):
     row = cur.fetchone()
     url, pub, fetched = (row[0], row[1], row[2]) if row else (None, None, None)
 
+    coarse = [None]      # first usable answer that names no day
+
+    def take(ymd):
+        """Return a decision, or None to keep looking.
+
+        A more-trusted source that names only a month used to end the search, so a
+        day sitting in a less-trusted one was never reached: the URL path
+        /2026/09/ answered 'Sep 2026' for an article whose own byline read
+        '01 Settembre 2026'. Trust still picks the MONTH -- what follows may only
+        add a day to the month already chosen, never move it.
+        """
+        if not usable(ymd):
+            return None
+        if ymd[2] is not None:
+            if coarse[0] is None or coarse[0][:2] == ymd[:2]:
+                return ymd
+            return coarse[0]        # a dated candidate from another month cannot win
+        if coarse[0] is None:
+            coarse[0] = ymd
+        return None
+
     # 1. The publisher's own declaration, read out of the stored markup. Costs a
     #    corpus round-trip, which is shared with the card's image lookup.
     html_url, html = corpus.fetch_html(did)
@@ -461,13 +492,14 @@ def article_date(cur, did, today_ym=None):
         # by a site migration can be confidently wrong (boeing.com dated a June
         # 2024 mission update 2025-10-16), and the permalink is the one thing a
         # CMS cannot rewrite without breaking its own links.
-        ymd = pick_html_date(html, html_url or url, url_ymd=from_url)
-        if usable(ymd):
-            return ymd
+        got = take(pick_html_date(html, html_url or url, url_ymd=from_url))
+        if got:
+            return got
 
     # 2. The URL path.
-    if usable(from_url):
-        return from_url
+    got = take(from_url)
+    if got:
+        return got
 
     # 3. published_at, unless it is the fetch stamp wearing a publication date's
     #    clothes. `fetched_at` is carried into meta by store_pg; when it is
@@ -476,20 +508,21 @@ def article_date(cur, did, today_ym=None):
     if pub and not is_fetch_fallback(pub, fetched):
         # ISO timestamps arrive as 2026-08-25T14:03:11Z; the T has to go or the
         # parser reads the year and month and drops the day.
-        ymd = parse_date(pub.replace("T", " ")[:24])
-        if usable(ymd):
-            return ymd
+        got = take(parse_date(pub.replace("T", " ")[:24]))
+        if got:
+            return got
 
-    # 3. Date spans in the body, earliest position first.
+    # 4. Date spans in the body, earliest position first. This is where a byline
+    #    the CMS never declared in markup finally turns up.
     cur.execute("""SELECT text, gloss FROM extracted.span
                     WHERE document_id=%s AND type='Date'
                     ORDER BY start_c LIMIT 15""", (did,))
     for t, g in cur.fetchall():
-        ymd = parse_date("%s %s" % (t or "", g or ""))
-        if usable(ymd):
-            return ymd
+        got = take(parse_date("%s %s" % (t or "", g or "")))
+        if got:
+            return got
 
-    return None
+    return coarse[0]
 
 
 def date_label(ymd):
