@@ -5,6 +5,34 @@ built in CI and pulled by the server. Only `frontend` and `backend` are managed 
 DB, LLM, gliner, tunnels and the long-running extraction farm are stable infra and are never
 restarted by a deploy.
 
+
+## Before a migration reaches production
+
+    db/rehearse_migration.sh          # exit 0 = safe, exit 1 = diverged
+
+It pulls production's schema AND its `schema_version` ledger (both reads, nothing is
+written there), rebuilds that state locally, runs `extraction/entrypoint.sh migrate`
+against it -- the real runner, not a copy of its logic -- and diffs the result against
+`db/schema_snapshot.txt`.
+
+The ledger is the point. A fresh database applies every migration and looks fine; only a
+copy carrying production's ledger shows what production will actually do. That is how the
+2026-09-04 pass found both of its faults:
+
+  * a migration edited AFTER production had applied it. The ledger keys on filename, so
+    the edit was invisible -- prod kept a six-column table while the next deploy shipped
+    code writing nine. Once a migration has run anywhere it is history; corrections are
+    new files.
+  * the deploy's rsync has no `--delete`, so renamed schema files pile up on the box.
+    Harmless on an existing database, fatal on an empty one until the base glob was
+    narrowed to `db/[0-9][0-9]_*.sql`.
+
+Then, on the box: stop `extraction-enrich-1` first (its transaction spans LLM calls for
+minutes and `competitor_news` cascades from `serving.competitors`, so an ALTER arriving
+mid-pass waits on ACCESS EXCLUSIVE and blocks every reader behind it -- measured at 2m37s),
+back up, deploy, and verify with
+`db/schema_snapshot.sh "$KSSL_DSN" | diff - db/schema_snapshot.txt`.
+
 ## Flow
 
 ```
