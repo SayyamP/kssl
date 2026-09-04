@@ -54,8 +54,8 @@ sys.path.insert(0, str(HERE.parent))
 
 from serving_fill import (  # noqa: E402  (helpers are REUSED, not duplicated)
     DSN, MODEL, article_date, ask, clip, date_label, esc, is_dup,
-    is_listing, is_recent_ym, is_relevant, kssl_cats, load_terms, parse_date,
-    recent_cutoff, suppressed_ids, title_tokens,
+    is_fetch_fallback, is_listing, is_recent_ym, is_relevant, kssl_cats, load_terms,
+    parse_date, recent_cutoff, suppressed_ids, title_tokens,
 )
 from llmapi import client as llm_client  # noqa: E402  (every model call goes through the API)
 # `publishable` (the tier-graded source bar) lives in the ENGINE's source_tiers; the pipeline's
@@ -1108,6 +1108,128 @@ def step_structure(cur, con, docs, props_by_doc, limit=None):
     return {"written": len(rows), "refused": refused, "orphans": len(orphans)}
 
 
+# ------------------------------------------------------- step 2c: corpus mention volume
+
+# Whole days, because the corpus is day-granular: 23,657 of the 23,701 dated documents on
+# VPS-B carry a midnight-padded timestamp. A rolling 24-hour window over day-stamped data
+# drifts with the hour it is evaluated -- yesterday's 00:00 article falls out of the
+# window at 00:01 today -- so the figure would track the clock as much as the news. Seven
+# days is wide enough that one quiet Sunday is not a collapse.
+METRIC_WINDOW_DAYS = 7
+
+
+def corpus_dates(cur):
+    """-> {document_id: datetime.date} for documents the crawler dated credibly.
+
+    ONE query for the whole corpus. article_date() is the trustworthy ladder -- markup
+    first, then the URL path -- but it fetches the stored HTML per document, and this
+    step needs a date for all 35k of them rather than for the handful behind a card.
+    So: the crawler's `published_at`, minus the ones is_fetch_fallback catches (the
+    stamp the crawler writes when it found no publication date, measured wrong on 62 of
+    63 documents where a URL date existed to check against).
+
+    That is a weaker date than a card's, and it is used for a weaker claim. A count of
+    documents in a window survives a few misdated ones; a date printed beside a headline
+    does not, which is why the two do not share a source.
+    """
+    import datetime
+    cur.execute("""SELECT document_id, meta->>'published_at', meta->>'fetched_at'
+                     FROM extracted.document
+                    WHERE meta->>'published_at' IS NOT NULL""")
+    today = datetime.date.today()
+    out = {}
+    for did, pub, fetched in cur.fetchall():
+        if is_fetch_fallback(pub, fetched):
+            continue
+        ymd = parse_date(str(pub).replace("T", " ")[:24])
+        if not ymd or ymd[1] is None or ymd[2] is None:
+            continue                      # a month with no day cannot land in a window
+        try:
+            d = datetime.date(ymd[0], ymd[1], ymd[2])
+        except ValueError:
+            continue
+        if d > today:
+            continue                      # a publication date in the future is not one
+        out[did] = d
+    return out
+
+
+def step_metrics(cur, con, docs, props_by_doc, limit=None):
+    """How many corpus documents named each competitor, this window against the last.
+
+    No LLM call and no new lookup: company_mentions() is the same alias matching every
+    other step uses, and the dates come from one query. The whole step is arithmetic over
+    what the pass already holds, which is why it can afford to run for every company
+    rather than for a capped candidate list.
+
+    What it is NOT: a measure of how much the world is talking about a company. It counts
+    THIS corpus, roughly 35k crawled documents, and the UI has to say so -- "corpus
+    mentions", never "mentions". The share-price columns the spec asks for are absent on
+    purpose; see the table comment.
+    """
+    import datetime
+    cur.execute("DELETE FROM serving.competitor_metrics WHERE origin='pipeline'")
+    profiles = load_profiles(cur)
+    if not profiles:
+        print("metrics: no profiled companies -- run companies first", flush=True)
+        return {"written": 0, "dated": 0}
+
+    dated = corpus_dates(cur)
+    today = datetime.date.today()
+    cur_from = today - datetime.timedelta(days=METRIC_WINDOW_DAYS - 1)
+    prev_from = cur_from - datetime.timedelta(days=METRIC_WINDOW_DAYS)
+    as_of = datetime.datetime.now(datetime.timezone.utc)
+
+    # The comp_id comes from the ROW, never from slug(name). They agree for everything
+    # step_companies writes, and that is exactly what makes re-deriving it look safe:
+    # revive_partners owns its own id range, and one company whose id did not match its
+    # slug would be silently skipped rather than counted wrong -- a missing tile nobody
+    # would think to look for.
+    merged = merge_candidates({p["name"] for p in profiles})
+    by_name = {slug(n): a for n, a in merged.items()}
+    written, moved = 0, 0
+    for p in sorted(profiles, key=lambda r: r["comp_id"]):
+        cid = p["comp_id"]
+        # A name the merge folded into another company's group is not in `merged` as a
+        # key; count it under its own name rather than dropping it.
+        aliases = by_name.get(slug(p["name"])) or {p["name"]}
+        dids, _ = company_mentions(aliases, docs, props_by_doc)
+        now_n = prev_n = 0
+        for did in dids:
+            d = dated.get(did)
+            if d is None:
+                continue
+            if d >= cur_from:
+                now_n += 1
+            elif d >= prev_from:
+                prev_n += 1
+        # No baseline, no percentage: "+100%" against zero is a division wearing a trend's
+        # clothes, and this dashboard has printed one of those before.
+        pct = round((now_n - prev_n) * 100.0 / prev_n, 1) if prev_n else None
+        if pct:
+            moved += 1
+        cur.execute("""INSERT INTO serving.competitor_metrics
+                         (comp_id, mentions_window, mentions_previous,
+                          mentions_change_pct, window_days, as_of, origin)
+                       VALUES (%s,%s,%s,%s,%s,%s,'pipeline')
+                       ON CONFLICT (comp_id) DO UPDATE SET
+                         mentions_window=EXCLUDED.mentions_window,
+                         mentions_previous=EXCLUDED.mentions_previous,
+                         mentions_change_pct=EXCLUDED.mentions_change_pct,
+                         window_days=EXCLUDED.window_days,
+                         as_of=EXCLUDED.as_of, updated_at=now()""",
+                    (cid, now_n, prev_n, pct, METRIC_WINDOW_DAYS, as_of))
+        written += 1
+    con.commit()
+    print("metrics: %d compan(ies) over a %d-day window, %d with a dated corpus "
+          "document, %d moved against the previous window"
+          % (written, METRIC_WINDOW_DAYS, len(dated), moved), flush=True)
+    # ponytail: one row per company, overwritten each pass -- no history, so no sparkline.
+    # A (comp_id, as_of) history table is the upgrade, and it needs a reader first: the
+    # last sparkline on this page was drawn from a hardcoded path.
+    return {"written": written, "dated": len(dated)}
+
+
 # ----------------------------------------------------------------------- step 3: geo
 
 def build_countries():
@@ -1875,7 +1997,7 @@ def step_matchups(cur, con, docs, props_by_doc, limit=None):
 # ----------------------------------------------------------------------------- driver
 
 STEPS = [("companies", step_companies), ("partnerships", step_partnerships),
-         ("structure", step_structure),
+         ("structure", step_structure), ("metrics", step_metrics),
          ("geo", step_geo), ("tenders", step_tenders),
          ("innovations", step_innovations), ("sources", step_sources),
          ("matchups", step_matchups)]
@@ -2148,6 +2270,47 @@ def _demo():
         "a partnership must not be asked an ownership question"
     assert not OWN_RX.search("agreed to establish a joint venture"), \
         "PART_RX owns joint ventures; OWN_RX must not claim them too"
+
+    # --- step 2c: corpus mention volume ---
+    # The window arithmetic, which is the whole step: a document lands in exactly one
+    # bucket or in neither, and the boundaries are inclusive at the near end.
+    import datetime as _dt
+    _today = _dt.date(2026, 9, 4)
+    _cur_from = _today - _dt.timedelta(days=METRIC_WINDOW_DAYS - 1)
+    _prev_from = _cur_from - _dt.timedelta(days=METRIC_WINDOW_DAYS)
+
+    def _bucket(d):
+        return "now" if d >= _cur_from else ("prev" if d >= _prev_from else None)
+
+    assert _bucket(_today) == "now", "today counts in the current window"
+    assert _bucket(_cur_from) == "now", "the window is inclusive at its near edge"
+    assert _bucket(_cur_from - _dt.timedelta(days=1)) == "prev"
+    assert _bucket(_prev_from) == "prev"
+    assert _bucket(_prev_from - _dt.timedelta(days=1)) is None, \
+        "older than two windows is in neither bucket, not silently in the previous one"
+    assert (_cur_from - _prev_from).days == METRIC_WINDOW_DAYS, \
+        "the two windows must be the same width or the percentage is meaningless"
+
+    def _pct(now_n, prev_n):
+        return round((now_n - prev_n) * 100.0 / prev_n, 1) if prev_n else None
+
+    assert _pct(12, 8) == 50.0
+    assert _pct(8, 12) == -33.3
+    assert _pct(0, 4) == -100.0
+    assert _pct(7, 0) is None, \
+        "no baseline, no percentage -- '+100%' against zero is a division, not a trend"
+    assert _pct(0, 0) is None
+    # The columns that must NOT exist. This dashboard printed a share price of 1,428.50
+    # INR for every company on the roster, private firms and state arsenals included,
+    # and check_no_fabrication.mjs fails the build on its marker strings. The table is
+    # the other half of that guard.
+    _sql = (Path(__file__).resolve().parents[2] / "db" / "02_serving.sql")
+    if _sql.exists():
+        _tbl = _sql.read_text().split("CREATE TABLE serving.competitor_metrics")[1]
+        _tbl = _tbl.split(");")[0]
+        for _banned in ("share_price", "currency", "price_change"):
+            assert _banned not in _tbl, \
+                "%s has no source in this system; it must not exist as a column" % _banned
 
     # --- step 3: geo ---
     pats = build_countries()

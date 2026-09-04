@@ -67,6 +67,11 @@ NEWS_OPT = frozenset(["description", "category", "is_trending"])
 STRUCT_FIELDS = ["comp_id", "entity_id", "entity_name", "relationship_type",
                  "ownership_pct", "description", "source_url", "source_note"]
 STRUCT_OPT = frozenset(["entity_id", "ownership_pct", "description", "source_note"])
+# Corpus mention volume. window_days travels WITH the counts, so the UI cannot label a
+# 7-day figure as 24h: the number carries its own units.
+METRIC_FIELDS = ["comp_id", "mentions_window", "mentions_previous",
+                 "mentions_change_pct", "window_days", "as_of"]
+METRIC_OPT = frozenset(["mentions_change_pct"])
 CARD_FIELDS = ["id", "dir", "rank", "title", "meta", "company", "lens",
                "sowhat", "sec", "url", "ago", "tags", "image"]
 CARD_OPT = frozenset(["company", "lens", "sec", "url", "image"])
@@ -228,6 +233,18 @@ def _dataset(_st=None):
                 item["ownership_pct"] = float(item["ownership_pct"])
             struct.setdefault(item.pop("comp_id"), []).append(item)
         out["competitorStructure"] = struct
+
+        # competitorMetrics (dict comp_id -> one object). Counts over THIS corpus, which
+        # is why the payload carries window_days rather than a name that implies a window.
+        _q(cur, "SELECT %s FROM serving.competitor_metrics" % _cols(METRIC_FIELDS))
+        metrics = {}
+        for r in cur.fetchall():
+            item = _emit(r, METRIC_FIELDS, METRIC_OPT)
+            if item.get("mentions_change_pct") is not None:
+                item["mentions_change_pct"] = float(item["mentions_change_pct"])
+            item["as_of"] = item["as_of"].isoformat() if item["as_of"] else None
+            metrics[item.pop("comp_id")] = item
+        out["competitorMetrics"] = metrics
 
         # signal cards, three lanes.
         for lane, gname in (("competitive", "competitiveCards"),

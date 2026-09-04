@@ -4,6 +4,14 @@ serving.company_source.ord integer NOT NULL
 serving.company_source.origin text NOT NULL
 serving.company_source.updated_at timestamp with time zone NOT NULL DEFAULT now()
 serving.company_source.url text NOT NULL
+serving.competitor_metrics.as_of timestamp with time zone NOT NULL
+serving.competitor_metrics.comp_id text NOT NULL
+serving.competitor_metrics.mentions_change_pct numeric
+serving.competitor_metrics.mentions_previous integer NOT NULL
+serving.competitor_metrics.mentions_window integer NOT NULL
+serving.competitor_metrics.origin text NOT NULL DEFAULT 'pipeline'::text
+serving.competitor_metrics.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.competitor_metrics.window_days integer NOT NULL
 serving.competitor_news.category text
 serving.competitor_news.comp_id text NOT NULL
 serving.competitor_news.description text
@@ -229,6 +237,13 @@ serving_live.company_source.ord integer
 serving_live.company_source.origin text
 serving_live.company_source.updated_at timestamp with time zone
 serving_live.company_source.url text
+serving_live.competitor_metrics.as_of timestamp with time zone
+serving_live.competitor_metrics.comp_id text
+serving_live.competitor_metrics.mentions_change_pct numeric
+serving_live.competitor_metrics.mentions_previous integer
+serving_live.competitor_metrics.mentions_window integer
+serving_live.competitor_metrics.updated_at timestamp with time zone
+serving_live.competitor_metrics.window_days integer
 serving_live.competitor_news.category text
 serving_live.competitor_news.comp_id text
 serving_live.competitor_news.description text

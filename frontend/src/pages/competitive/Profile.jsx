@@ -705,6 +705,9 @@ export default function Profile() {
   const structMap = p
     ? getCorporateStructureMap(p, (data.competitorStructure || {})[cid])
     : null;
+  // Absent for a company no dated document names -- the tile then does not render
+  // at all, rather than showing a confident zero.
+  const metrics = (data.competitorMetrics || {})[cid] || null;
   const companyArticles = useMemo(
     () => (p && p.cid ? companyNews(data, p.cid) : []),
     [data, p],
@@ -1105,19 +1108,63 @@ export default function Profile() {
                           "-42.35 (-2.88%) Today" for EVERY company on the roster --
                           including the private ones and the state arsenals that have no
                           listed equity at all -- beside a sparkline drawn from a fixed
-                          path. This system has no market-data feed of any kind.
+                          path. This system has no market-data feed of any kind, so it
+                          stays gone: serving.competitor_metrics deliberately has no
+                          share_price column for a future version of this to read.
 
-                          MENTIONS printed a 24-hour mention count and a percentage change
-                          against yesterday. Nothing counts mentions and no part of the
-                          pipeline has a 24-hour window.
+                          SET NEWS ALERTS was a button with no onClick, and stays gone
+                          too -- there is no alerting behind it.
 
-                          SET NEWS ALERTS was a button with no onClick.
-
-                          A fabricated share price on a competitive-intelligence dashboard
-                          is the worst of the three: it is precise, plausible, and a reader
-                          would act on it. Removed rather than zeroed -- see
-                          check_no_fabrication.mjs, which now fails the build on their
-                          marker strings. */}
+                          MENTIONS is BACK, and different. It printed a 24-hour count and
+                          a percentage against yesterday, both literals in the JSX. What
+                          is below is counted by enrich_serving.step_metrics over the
+                          documents this pipeline actually crawled and dated. Two things
+                          keep it honest: it says CORPUS MENTIONS, because that is what it
+                          counts and not what the world is saying, and it takes its window
+                          from the record rather than naming one here -- the corpus is
+                          day-granular, so there is no 24-hour figure to print. */}
+                      {metrics ? (
+                        <div className="ln-widget">
+                          <div className="ln-widget-h">
+                            <span className="eyebrow">
+                              Corpus mentions · {metrics.window_days}d
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
+                            <span style={{ fontSize: "26px", fontWeight: 700,
+                                           fontVariantNumeric: "tabular-nums" }}>
+                              {metrics.mentions_window}
+                            </span>
+                            {typeof metrics.mentions_change_pct === "number" ? (
+                              <span
+                                style={{
+                                  fontSize: "12px",
+                                  fontVariantNumeric: "tabular-nums",
+                                  color: metrics.mentions_change_pct >= 0
+                                    ? "var(--d-up, #34d399)"
+                                    : "var(--d-down, #f87171)",
+                                }}
+                              >
+                                {metrics.mentions_change_pct >= 0 ? "+" : ""}
+                                {metrics.mentions_change_pct}% vs previous{" "}
+                                {metrics.window_days}d
+                              </span>
+                            ) : (
+                              /* The previous window held nothing, so there is no
+                                 baseline to compare against. Saying so beats printing
+                                 a percentage computed from zero. */
+                              <span style={{ fontSize: "12px", color: "var(--d-txt-2)" }}>
+                                no documents in the previous {metrics.window_days}d
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: "11px", color: "var(--d-txt-2)",
+                                        marginTop: "4px" }}>
+                            documents in this pipeline&rsquo;s corpus naming{" "}
+                            {p.name}, previous window {metrics.mentions_previous}
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>

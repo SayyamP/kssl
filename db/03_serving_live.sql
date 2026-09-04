@@ -8,6 +8,10 @@ CREATE OR REPLACE VIEW serving_live.competitor_news AS
   SELECT id, comp_id, title, description, source, published_date, category,
          is_trending, url, updated_at, image
     FROM serving.competitor_news WHERE origin = 'pipeline';
+CREATE OR REPLACE VIEW serving_live.competitor_metrics AS
+  SELECT comp_id, mentions_window, mentions_previous, mentions_change_pct,
+         window_days, as_of, updated_at
+    FROM serving.competitor_metrics WHERE origin = 'pipeline';
 CREATE OR REPLACE VIEW serving_live.competitor_structure AS
   SELECT id, comp_id, entity_id, entity_name, relationship_type, ownership_pct,
          description, source_url, source_note, updated_at

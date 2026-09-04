@@ -111,6 +111,31 @@ CREATE INDEX competitor_structure_comp_idx
 CREATE UNIQUE INDEX competitor_structure_edge_idx
     ON serving.competitor_structure (comp_id, entity_id, relationship_type);
 
+-- How much the corpus is talking about a company. One row per company, rebuilt each
+-- enrich pass by step_metrics -- no LLM call, just company_mentions() over the documents
+-- the crawler dated.
+--
+-- There is no share price here and there must not be. Profile.jsx printed one for every
+-- company on the roster, private firms and state arsenals included, from a literal in
+-- the JSX; this system has no market-data feed. Nullable columns "for later" are how
+-- that happened, so the columns do not exist.
+--
+-- window_days is stored beside the counts because the corpus is day-granular (23,657 of
+-- 23,701 dated documents are midnight-padded) and a "24h" figure over day-stamped data
+-- would measure the hour you looked at it. The number describes its own window.
+CREATE TABLE serving.competitor_metrics (
+    comp_id             text PRIMARY KEY
+                          REFERENCES serving.competitors(comp_id) ON DELETE CASCADE,
+    mentions_window     integer NOT NULL CHECK (mentions_window >= 0),
+    mentions_previous   integer NOT NULL CHECK (mentions_previous >= 0),
+    -- NULL when the previous window is empty: no baseline, no percentage.
+    mentions_change_pct numeric,
+    window_days         integer NOT NULL CHECK (window_days > 0),
+    as_of               timestamptz NOT NULL,
+    origin              text NOT NULL DEFAULT 'pipeline',
+    updated_at          timestamptz NOT NULL DEFAULT now()
+);
+
 -- Globals: competitiveCards / marketCards / techCards — one table, lane column.
 -- market-lane cards have no company/lens/sec/url; those stay NULL and the API
 -- omits them.
