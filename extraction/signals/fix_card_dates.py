@@ -66,6 +66,8 @@ def main():
     ap.add_argument("--list-stale", action="store_true")
     ap.add_argument("--allow-move", action="store_true",
                     help="also apply changes that move the year/month or lose precision")
+    ap.add_argument("--ids", default=None,
+                    help="comma-separated card ids to re-derive; default is all of them")
     a = ap.parse_args()
 
     import psycopg2
@@ -82,11 +84,22 @@ def main():
     cur = con.cursor()
 
     cutoff, cur_year = sf.recent_cutoff()
-    cur.execute("""SELECT c.id, c.ago, d.facts FROM serving.signal_card c
-                    LEFT JOIN serving.signal_detail d ON d.id = c.id
-                    WHERE c.origin='pipeline' AND c.id LIKE 'pl_%'""")
+    # Re-deriving one card costs one corpus round-trip; re-deriving all of them
+    # costs nine hundred, and takes about an hour. The common repair after a
+    # corpus outage is a handful of named cards, so name them.
+    ids = [s.strip() for s in (a.ids or "").split(",") if s.strip()]
+    if ids:
+        cur.execute("""SELECT c.id, c.ago, d.facts FROM serving.signal_card c
+                        LEFT JOIN serving.signal_detail d ON d.id = c.id
+                        WHERE c.origin='pipeline' AND c.id = ANY(%s)""", (ids,))
+    else:
+        cur.execute("""SELECT c.id, c.ago, d.facts FROM serving.signal_card c
+                        LEFT JOIN serving.signal_detail d ON d.id = c.id
+                        WHERE c.origin='pipeline' AND c.id LIKE 'pl_%'""")
     cards = cur.fetchall()
-    print("pipeline cards: %d" % len(cards))
+    print("pipeline cards: %d%s" % (len(cards), " (of %d asked for)" % len(ids) if ids else ""))
+    for missing in sorted(set(ids) - {c[0] for c in cards}):
+        print("  NOT FOUND: %s" % missing)
 
     def date_fact(facts):
         """The 'Date' the drawer shows, which is where the DAY lives."""

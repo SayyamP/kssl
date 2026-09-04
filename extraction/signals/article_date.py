@@ -342,15 +342,29 @@ def pick_date(html, url="", today=None, url_ymd=None):
     mission -- a site migration regenerated the metadata sixteen months late.
     When the two disagree on year-and-month, the permalink wins: it is the one
     a CMS cannot silently rewrite without breaking its own links.
+
+    A page may state its date TWICE, at different precisions, and tier 1 emits
+    both. stm.com.tr carries `<meta name="pubdate">` giving only May 2026 and a
+    JSON-LD `datePublished` of 2026-05-12; returning the first candidate handed
+    back the month and threw the day away. The month is still decided by the
+    first usable candidate -- what follows may only supply a DAY the winner
+    lacked, and only inside that same month. Third time this shape has cost a
+    day: once in article_date's source walk, once in the repair for it, and here.
     """
     if today is None:
         import datetime
         t = datetime.date.today()
         today = (t.year, t.month, t.day)
+    chosen = None
     for ymd in date_candidates(html, url, url_ymd=url_ymd):
         if (ymd[0], ymd[1] or 1, ymd[2] or 1) > today:
             continue
         if url_ymd and (ymd[0], ymd[1]) != (url_ymd[0], url_ymd[1]):
             return url_ymd
-        return ymd
-    return None
+        if chosen is None:
+            chosen = ymd
+            if chosen[2] is not None:
+                return chosen           # already day-precise; nothing to add
+        elif ymd[2] is not None and ymd[:2] == chosen[:2]:
+            return ymd                  # the day the first statement left out
+    return chosen

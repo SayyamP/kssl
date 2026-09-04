@@ -168,6 +168,27 @@ check("agreeing markup keeps its finer precision",
 # parse_iso_date must not read an id or a range as a date.
 check("no end anchor bug: 2023-01-234", parse_iso_date("2023-01-234"), None)
 
+# --- one page, two statements of its date, at different precisions ----------
+# stm.com.tr carries <meta name="pubdate"> giving only the month and a JSON-LD
+# datePublished carrying the day. Tier 1 emits both, and returning the first
+# candidate handed back "May 2026" and threw 12 May away.
+STM = ('<meta name="pubdate" content="2026-05">'
+       '<script type="application/ld+json">{"datePublished":"2026-05-12"}</script>')
+check("a coarse first statement does not hide the day in the second",
+      pick_date(STM, today=TODAY), (2026, 5, 12))
+check("...and the same holds with the permalink agreeing",
+      pick_date(STM, today=TODAY, url_ymd=(2026, 5, None)), (2026, 5, 12))
+# but the month is still the FIRST statement's: a later day in another month is
+# a different article's, and must not move the date.
+check("a day from another month cannot sharpen the chosen month",
+      pick_date('<meta name="pubdate" content="2026-05">'
+                '<script type="application/ld+json">{"datePublished":"2026-08-12"}</script>',
+                today=TODAY), (2026, 5, None))
+check("a day-precise first statement is returned as it stands",
+      pick_date('<meta property="article:published_time" content="2026-05-03">'
+                '<script type="application/ld+json">{"datePublished":"2026-05-12"}</script>',
+                today=TODAY), (2026, 5, 3))
+
 # --- tier 4: a listing page whose permalink already fixed the month ---------
 # analisidifesa.it's Centauro II story states no metadata at all and carries NINE
 # <time pubdate> tags -- eight are the sidebar's August recent-posts, one is the
