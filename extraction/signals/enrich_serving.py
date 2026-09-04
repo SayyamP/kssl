@@ -585,7 +585,77 @@ def out_of_portfolio(products):
     return all(_OUT_OF_PORTFOLIO.search(p) for p in products)
 
 
-def competes_with_kssl(prof):
+# THE FIFTH CLAUSE: A SUPPLIER IS NOT A RIVAL. A rival fields an END SYSTEM and meets KSSL
+# across a tender; a company that sells INTO someone else's end system meets KSSL across a
+# purchase order. Both make defence hardware, and clause four cannot tell them apart --
+# titanium castings for a 155mm howitzer land squarely in Artillery.
+#
+# The named cases, all sitting as dir='rival' today:
+#   PTC Industries   "metallic airframe assembly"     -- BAE's Indian foundry: it casts the
+#                                                        M777's saddle, cradle and carriage.
+#                                                        BAE is the rival; PTC is BAE's chain.
+#   RENK Group       "drive systems for armored ..."  -- gearboxes for vehicle OEMs
+#   Safran Hel. Eng. "turboshaft engines"             -- propulsion for airframers
+#   SSAB             "Armox 500 AM Powder"            -- a steel mill; it sells KSSL its plate
+#
+# EVERY stated product must be a component, material or subsystem -- the same discipline as
+# clause four, and for the same reason. One driveline entry must never delete a prime that
+# also builds vehicles.
+_COMPONENT_RX = re.compile(
+    r"(?<!\w)("
+    # NOT a bare "steel" or "blank": "Insta Steel Eagle drone solution" is a drone, and a
+    # "blank" is ammunition before it is a barrel blank. Brand names eat broad material words.
+    r"steel plate|steel plates|armou?red steel|armou?r steel|steel powder|steel mill"
+    r"|plate|plates|billet|billets|alloy|alloys|superalloy|powder|titanium|ingot"
+    r"|casting|castings|forging|forgings|barrel blank"
+    r"|airframe|aerostructure|structure|structures|sub-?assembly|assembly|assemblies"
+    r"|sub-?system|sub-?systems|component|components"
+    r"|drive system|drive systems|transmission|transmissions|gearbox|gearboxes|powertrain"
+    r"|axle|axles|suspension|track link|road wheel"
+    r"|engine|engines|turbine|turbines|turboshaft|turbomotor|turbofan|turboprop|propulsion"
+    r"|rocket motor|rocket motors"
+    r"|bearing|bearings|actuator|actuators|valve|valves"
+    r")(?!\w)", re.I)
+
+
+def sells_components(products):
+    """True when every product this company states is a part of someone else's system."""
+    products = [p for p in (products or []) if (p or "").strip()]
+    return bool(products) and all(_COMPONENT_RX.search(p) for p in products)
+
+
+# THE SIXTH CLAUSE: THE PRODUCTS MUST BE ITS OWN. Palladyne AI is stored with products
+# ["HARPY", "HAROP", "Mini HARPY"] -- Israel Aerospace Industries' loitering munitions, which
+# Palladyne partnered to "manufacture, integrate, and market". The profile attributed IAI's
+# catalogue to the marketing partner, so a software company inherited a rival's weapons and
+# passed every test above on them.
+#
+# The evidence says so in plain English: a possessive naming a DIFFERENT company, followed by
+# the product. A company's own possessive ("Kongsberg's PROTECTOR") is excluded by name, which
+# is why the name is passed in.
+_POSSESSIVE_RX = re.compile(r"\b([A-Z][\w.&-]*(?:\s+[A-Z][\w.&-]*){0,3})(?:\u2019s|'s)\s+([^.]{0,110})")
+
+
+def borrowed_products(prof, name=""):
+    """True when EVERY stated product is credited in the evidence to another named company."""
+    products = [p for p in (prof.get("products") or []) if (p or "").strip()]
+    if not products:
+        return False
+    own = {t for t in re.findall(r"\w+", (name or "").lower()) if len(t) > 2}
+    claimed = set()
+    for m in _POSSESSIVE_RX.finditer(prof.get("assess") or ""):
+        owner = m.group(1).lower()
+        if own and any(t in owner for t in own):
+            continue                                  # its own product, properly credited
+        tail = m.group(2).lower()
+        for p in products:
+            head = p.strip().lower()[:20]
+            if head and head in tail:
+                claimed.add(p)
+    return len(claimed) == len(products)
+
+
+def competes_with_kssl(prof, name=""):
     """-> (admit, reason). Is this profile a DIRECT DEFENCE COMPETITOR, or merely a company
     the corpus mentions near defence?
 
@@ -622,6 +692,12 @@ def competes_with_kssl(prof):
         return False, "services business, no manufacturing evidence"
     if out_of_portfolio(prof.get("products")):
         return False, "makes nothing KSSL makes (%s)" % ", ".join(prof["products"][:3])
+    if sells_components(prof.get("products")):
+        return False, "supplies parts, does not field a system (%s)" % ", ".join(
+            prof["products"][:2])
+    if borrowed_products(prof, name):
+        return False, "products belong to another company (%s)" % ", ".join(
+            prof["products"][:2])
     return True, "rival"
 
 
@@ -732,7 +808,7 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
         # THE COMPETITOR TEST. Everything above profiles the company; this decides whether a
         # competitor is what it is. Checked before the update lines below, which are the
         # expensive part and are wasted on a row that is not going to be written.
-        admit, why = competes_with_kssl(prof)
+        admit, why = competes_with_kssl(prof, name)
         if not admit:
             not_competitor += 1
             why_counts[why.split(" (")[0]] = why_counts.get(why.split(" (")[0], 0) + 1
@@ -2807,6 +2883,40 @@ def _demo():
     assert categorise_product("howitzers") == "art"
     assert competes_with_kssl(_p("rival", ["helicopters", "missiles"], "defence"))[0], \
         "Adani Defence makes missiles; the plural must not hide that"
+
+    # 1b. SUPPLIERS ARE NOT RIVALS. All four sat as dir='rival'. A rival meets KSSL across a
+    #     tender; these meet it across a purchase order -- SSAB literally sells KSSL its plate.
+    assert not competes_with_kssl(_p("rival", ["metallic airframe assembly"],
+        "PTC Industries is an Indian partner casting the saddle, cradle and lower carriage "
+        "for the M777.", "defense manufacturing"), "PTC Industries")[0]
+    assert not competes_with_kssl(_p("rival", ["drive systems for armored vehicles and ships"],
+        "RENK produces drive systems.", "Defence, Marine and Industry"), "RENK Group")[0]
+    assert not competes_with_kssl(_p("rival", ["turbomotor", "turboshaft engines"],
+        "Safran focuses on propulsion.", "helicopter engines"), "Safran Helicopter Engines")[0]
+    assert not competes_with_kssl(_p("rival", ["Armox 500 AM Powder"],
+        "military armour.", "Defence materials"), "SSAB")[0]
+
+    #     ...but a BRAND NAME must not be eaten by a material word. "Insta Steel Eagle drone
+    #     solution" is a drone; a bare "steel" in the vocabulary deleted it.
+    assert competes_with_kssl(_p("rival", ["Insta Steel Eagle drone solution"],
+                                 "", "defence"), "Insta")[0], "a Steel Eagle is a drone"
+    #     ...and one component beside a real system must never delete the system's maker.
+    assert competes_with_kssl(_p("rival", ["PROTECTOR Remote Weapon Stations", "gearboxes"],
+                                 "", "defence"), "Kongsberg")[0]
+
+    # 1c. THE PRODUCTS MUST BE ITS OWN. Palladyne AI is stored holding IAI's loitering
+    #     munitions, which it partnered to market -- a software company wearing a rival's
+    #     catalogue, and passing every other test on it.
+    pal = _p("rival", ["HARPY", "HAROP", "Mini HARPY"],
+             "Palladyne AI has formed a strategic partnership with Israel Aerospace "
+             "Industries (IAI) to manufacture, integrate, and market IAI\u2019s HARPY, HAROP, "
+             "and Mini HARPY loitering munition systems to the U.S. Department of War.")
+    ok, why = competes_with_kssl(pal, "Palladyne AI")
+    assert not ok and "another company" in why, "IAI's weapons are not Palladyne's: %s" % why
+    #     A company's OWN possessive must not condemn it -- which is why the name is passed in.
+    assert competes_with_kssl(_p("rival", ["PROTECTOR"],
+        "Kongsberg\u2019s PROTECTOR remote weapon station is fielded widely.", "defence"),
+        "Kongsberg Gruppen")[0], "its own possessive must not read as borrowed"
 
     # 2. THE NAMED CASE. Accenture sat in serving.competitors with dir='other', threat NULL
     #    and no products at all. The model had answered correctly; step_companies wrote the
