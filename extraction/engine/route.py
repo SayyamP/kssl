@@ -1158,6 +1158,30 @@ def backoff_s(empty_rounds):
     return min(MAX_BACKOFF_S, MIN_GAP_S * (2 ** min(empty_rounds, 8)))
 
 
+# A BUSY SHARED GATEWAY IS NOT AN EMPTY QUEUE, and backing off from one the way you back off from
+# the other is what kept the Pune farm at 6/12 instead of 12/12. The two failures have opposite
+# shapes:
+#
+#   an empty queue stays empty     -> re-asking costs a transaction and gains nothing: climb to 300s
+#   a busy gateway recovers in     -> re-asking costs one HTTP call and gains a worker: stay low
+#   seconds
+#
+# 144 workers re-probing every 30s is 4.8 probes/second, which is nothing next to the inference
+# load they are waiting on. Meanwhile every second of over-long backoff is a whole GPU slot idle,
+# so the ceiling here is deliberately an order of magnitude below MAX_BACKOFF_S.
+SVC_MAX_BACKOFF_S = 30
+
+
+def svc_backoff_s(fail_rounds):
+    """Backoff for a MODEL SERVER that is not answering, counted separately from queue emptiness.
+
+    Observed on the live fleet: a gateway returning 502s for ten seconds put workers on the shared
+    `empty` ladder, which only resets on a successful claim -- so a ten-second blip bought a
+    five-minute sleep, and the farm oscillated between 6/12 and idle instead of settling at 12/12.
+    """
+    return min(SVC_MAX_BACKOFF_S, MIN_GAP_S * (2 ** min(fail_rounds, 8)))
+
+
 # Where each node's model actually lives. A node is not "up" because its box is up.
 ENDPOINTS = {
     "vps-a": "http://127.0.0.1:11434/api/tags",
@@ -1174,7 +1198,10 @@ _SVC_CACHE = {}                   # node -> (monotonic_deadline, ok, detail)
 SVC_TTL_OK, SVC_TTL_BAD = 60.0, 15.0
 
 
-def service_ok(node, url=None, timeout=4.0, now=None, fetch=None):
+SVC_PROBE_TIMEOUT = float(os.environ.get("C_SVC_PROBE_TIMEOUT", "10"))
+
+
+def service_ok(node, url=None, timeout=None, now=None, fetch=None):
     """Is this node's MODEL SERVER answering, and does it hold the model we require?
 
     Checked before claiming, never after. Claim first and the document is leased to a node that
@@ -1192,6 +1219,7 @@ def service_ok(node, url=None, timeout=4.0, now=None, fetch=None):
     failed node is re-probed sooner than a healthy one so recovery is noticed quickly.
     """
     import time as _t
+    timeout = SVC_PROBE_TIMEOUT if timeout is None else timeout
     now = now if now is not None else _t.monotonic()
     hit = _SVC_CACHE.get(node)
     if hit and now < hit[0]:
@@ -1512,6 +1540,18 @@ def _demo():
     assert not ok and "OSError" in why
     # A dead node is re-probed sooner than a healthy one, so recovery is noticed quickly.
     assert SVC_TTL_BAD < SVC_TTL_OK
+    # A busy gateway must be re-asked in seconds, not minutes. This is the whole fix for the farm
+    # sitting at 6/12: the ceiling for "server not answering" is an order of magnitude below the
+    # ceiling for "queue is empty", because the two recover on completely different timescales.
+    assert svc_backoff_s(0) == MIN_GAP_S, "the first retry must be immediate-ish"
+    assert svc_backoff_s(99) == SVC_MAX_BACKOFF_S
+    assert SVC_MAX_BACKOFF_S < MAX_BACKOFF_S / 5, \
+        "a recoverable gateway is being backed off from like an empty queue"
+    # ...and it must actually climb, or 144 workers hammer a struggling gateway at 5s intervals.
+    assert svc_backoff_s(3) > svc_backoff_s(1), "service backoff must still climb"
+    # The probe has to outlast a gateway that is busy SERVING. At 4s it reported the hardest-
+    # working node in the fleet as dead, which is the most expensive possible false negative.
+    assert SVC_PROBE_TIMEOUT >= 8, "probe times out before a loaded gateway can answer"
     _SVC_CACHE.clear()
 
     cap = capacity()

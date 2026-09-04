@@ -93,7 +93,10 @@ def drain(node, conn, process, lin=None):
           f"<= {cfg['cap']:,} chars, {cfg['minutes']} min budget, order {cfg['order']}", flush=True)
     print(f"  pacing: {route.DUTY.get(node, 0.85):.0%} duty cycle, "
           f"min gap {route.MIN_GAP_S}s, health gate at {route.load_ok.__name__}", flush=True)
-    n, empty = 0, 0
+    # `empty` and `svc_fail` are counted SEPARATELY and reset independently. They used to share
+    # one counter, which meant a gateway blip climbed the queue-empty ladder to 300s and stayed
+    # there until a claim succeeded -- so a ten-second 502 cost five minutes of an idle GPU slot.
+    n, empty, svc_fail = 0, 0, 0
     while True:
         # Health BEFORE claim. Claiming first and then discovering the box is overloaded leaves
         # the document leased until its TTL expires -- the slowest possible way to find out.
@@ -101,12 +104,14 @@ def drain(node, conn, process, lin=None):
         # process it is frozen for the whole lease TTL before anyone else can have it.
         svc_ok, svc_why = route.service_ok(node)
         if not svc_ok:
-            wait = route.backoff_s(empty)
+            svc_fail += 1
+            wait = route.svc_backoff_s(svc_fail - 1)
             print(f"{node}: model server not ready ({svc_why}); "
-                  f"holding {wait:.0f}s and claiming nothing", flush=True)
+                  f"holding {wait:.0f}s and claiming nothing "
+                  f"(probe failure {svc_fail})", flush=True)
             time.sleep(wait)
-            empty += 1
             continue
+        svc_fail = 0
         if not route.load_ok(node):
             wait = route.backoff_s(empty)
             print(f"{node}: load too high, holding {wait:.0f}s before asking again", flush=True)
