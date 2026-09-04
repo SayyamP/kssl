@@ -17,29 +17,31 @@ import { SEQ_OPTIONS } from "../../lib/overview";
    A facet that selects everything is not a facet, and one that selects nothing is a
    dead end. Both are still shown -- hiding them would misrepresent the taxonomy the
    client configured -- but each carries its count, and an empty one cannot be clicked. */
+/* Styled from chrome.css (.filters, .feed-search-box, .dir-filters), not inline. The
+   inline styles this carried forced `flex-wrap: nowrap` on both rows, and an inline
+   style outranks every class rule -- so the wrap the stylesheet asked for could never
+   happen, and below about 1280px on the market pillar (four pills) the row ran off the
+   right edge of a header whose scrollbar is hidden. The Sequence control was simply
+   gone at 1024px. */
 export default function FeedFilters({ filters, active, onFilter, seqMode, onSeq, searchQuery, onSearch, counts }) {
   return (
-    <div className="filters" style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "nowrap", whiteSpace: "nowrap" }}>
-      <div className="feed-search-box" style={{ display: "flex", alignItems: "center", background: "var(--d-bg-1)", border: "1px solid var(--d-line-2)", borderRadius: "4px", padding: "2px 6px", flexShrink: 0 }}>
-        <span style={{ fontSize: "11px", color: "var(--d-txt-4)", marginRight: "4px" }}>⌕</span>
+    <div className="filters">
+      <div className="feed-search-box">
+        <span className="feed-search-icon">⌕</span>
         <input
           type="text"
           placeholder="Filter cards..."
           value={searchQuery || ""}
           onChange={(e) => onSearch?.(e.target.value)}
-          style={{ background: "transparent", border: "none", outline: "none", color: "var(--d-txt)", fontSize: "11px", fontFamily: "var(--mono)", width: "105px" }}
         />
         {searchQuery ? (
-          <button
-            onClick={() => onSearch?.("")}
-            style={{ background: "none", border: "none", color: "var(--d-txt-4)", cursor: "pointer", fontSize: "12px", padding: "0 2px" }}
-          >
+          <button className="feed-search-clear" onClick={() => onSearch?.("")} type="button">
             ×
           </button>
         ) : null}
       </div>
 
-      <span className="dir-filters" style={{ display: "inline-flex", alignItems: "center", gap: "4px", flexWrap: "nowrap", whiteSpace: "nowrap", flexShrink: 0 }}>
+      <span className="dir-filters">
         {(filters || []).map((f) => {
           const n = counts ? counts[f.f] : undefined;
           /* "All" is the reset door and is never disabled. If a search matches nothing
@@ -62,15 +64,20 @@ export default function FeedFilters({ filters, active, onFilter, seqMode, onSeq,
           );
         })}
       </span>
-      <span className="seq-sep" style={{ flexShrink: 0 }} />
-      <span className="seq-label">Sequence</span>
-      <select className="seq-select" onChange={(e) => onSeq(e.target.value)} value={seqMode}>
-        {SEQ_OPTIONS.map(([v, label]) => (
-          <option key={v} value={v}>
-            {label}
-          </option>
-        ))}
-      </select>
+      {/* one flex item, so the label and its select wrap together -- a row break between
+          them left "SEQUENCE" stranded at the end of one line and the select alone on
+          the next */}
+      <span className="seq-ctl">
+        <span className="seq-sep" />
+        <span className="seq-label">Sequence</span>
+        <select className="seq-select" onChange={(e) => onSeq(e.target.value)} value={seqMode}>
+          {SEQ_OPTIONS.map(([v, label]) => (
+            <option key={v} value={v}>
+              {label}
+            </option>
+          ))}
+        </select>
+      </span>
     </div>
   );
 }

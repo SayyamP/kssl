@@ -131,6 +131,49 @@ export function signalDate(card, data) {
 /* How many signals one page of the feed shows. */
 export const FEED_PAGE_SIZE = 50;
 
+/* The page the reader was on, remembered per pillar for the session.
+
+   `page` was React state and nothing else, so a reload, or a detour to Competitor and
+   back (Layout remounts the feed per view), put the reader on page 1 again: the route
+   remembered the pillar and the view but not the page. This keeps it in a Storage-shaped
+   object (sessionStorage in the browser -- a tab's worth, not a stale page number from
+   last week) under one key, as {pillar: {key, page}}.
+
+   `key` names the FILTER the page was saved under (sequence, direction, tile, both
+   search strings). A page is restored only for the same key: page 7 saved on "All" must
+   not land on "Threat", which may be one page long. paginateFeed still clamps whatever
+   comes back, so a corpus that shrank cannot produce a blank feed. Storage access is
+   wrapped because a private window throws on it. */
+export const FEED_PAGE_KEY = "kssl_feed_page";
+
+function readFeedPages(store) {
+  try {
+    const raw = store && store.getItem(FEED_PAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (e) {
+    return {};
+  }
+}
+
+export function readFeedPage(store, pillar, key) {
+  const saved = readFeedPages(store)[pillar];
+  if (!saved || saved.key !== key) return 1;
+  const n = parseInt(saved.page, 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
+export function writeFeedPage(store, pillar, key, page) {
+  try {
+    if (!store) return;
+    const all = readFeedPages(store);
+    all[pillar] = { key, page: Math.max(1, parseInt(page, 10) || 1) };
+    store.setItem(FEED_PAGE_KEY, JSON.stringify(all));
+  } catch (e) {
+    /* storage refused (private mode, quota) -- the page simply is not remembered */
+  }
+}
+
 /* Flatten the grouped feed to the cards a filter keeps, remembering which group each
    came from, then hand back one page of them re-grouped for render. Pure, so the page
    maths can be checked without a browser.

@@ -1,11 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import SignalCard from "../../components/signalCard/SignalCard";
 import DetailPanel from "../../components/detailPanel/DetailPanel";
 import ErrorBoundary from "../../components/ErrorBoundary";
 import FeedFilters from "../../components/subHead/FeedFilters";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
-import { buildFeed, paginateFeed, signalDate, tilePredicate } from "../../lib/overview";
+import {
+  buildFeed,
+  paginateFeed,
+  readFeedPage,
+  signalDate,
+  tilePredicate,
+  writeFeedPage,
+} from "../../lib/overview";
+
+/* sessionStorage, guarded: a private window throws on the property itself */
+const pageStore = () => {
+  try {
+    return typeof window !== "undefined" ? window.sessionStorage : null;
+  } catch (e) {
+    return null;
+  }
+};
 
 /* The overview feed and its detail column. Shared by all three pillars — the pillar
    only decides which card set and which metric strip config is in play, which is
@@ -24,7 +40,15 @@ export default function Overview({
   const { setScope, takePending, searchQuery } = useAppState();
   const [selected, setSelected] = useState(null);
   const [feedSearchQuery, setFeedSearchQuery] = useState("");
-  const [page, setPage] = useState(1);
+
+  /* What the feed is filtered and ordered by, as one string. The page is remembered
+     under it and reset when it changes. */
+  const filterKey = JSON.stringify([pillarKey, seqMode, dirFilter || "all", tile || "", feedSearchQuery, searchQuery || ""]);
+
+  /* Restored on mount, per pillar and for this filter. Layout keys the boundary above
+     this component on the view, so a detour to Competitor and back is a remount -- and
+     before this the reader came back to page 1 every time, as they did on reload. */
+  const [page, setPage] = useState(() => readFeedPage(pageStore(), pillarKey, filterKey));
 
   // the shell's third column collapses when nothing is selected, so Layout has to know
   useEffect(() => {
@@ -45,10 +69,17 @@ export default function Overview({
   /* Anything that changes WHAT the feed contains sends the reader back to page 1.
      The search boxes are in this list because they were not in the pre-port version --
      they did not exist yet -- and a query that shrinks 453 signals to 3 would otherwise
-     leave the reader on page 7 of a 1-page feed, looking at nothing. */
+     leave the reader on page 7 of a 1-page feed, looking at nothing.
+
+     Guarded by the PREVIOUS key rather than firing on mount: an effect with these deps
+     also runs once after the first render, and that first run was throwing away the
+     page just restored above. */
+  const lastKey = useRef(filterKey);
   useEffect(() => {
+    if (lastKey.current === filterKey) return;
+    lastKey.current = filterKey;
     setPage(1);
-  }, [pillarKey, seqMode, dirFilter, tile, feedSearchQuery, searchQuery]);
+  }, [filterKey]);
 
   /* Memoised on the tile NAME, not rebuilt per render: an identity that changed every
      render made the auto-select effect below re-fire forever. */
@@ -118,6 +149,12 @@ export default function Overview({
   );
   const shownCount = pageView.shown;
   const firstVisibleId = pageView.firstId;
+
+  /* The page actually on screen -- pageView.page, which is clamped -- is what is
+     remembered, never the raw state. */
+  useEffect(() => {
+    writeFeedPage(pageStore(), pillarKey, filterKey, pageView.page);
+  }, [pillarKey, filterKey, pageView.page]);
 
   const goPage = (n) => {
     setPage(n);

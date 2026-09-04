@@ -373,44 +373,77 @@ export default function MarketOverview() {
           say the same thing. Two encodings of one category that don't match is worse
           than one. The swatch is a SECOND encoding of a choice the text already states,
           never the only one: the option is readable with the dot ignored entirely. */}
+      {/* The same control shape as the Tender Pipeline's filter bar (tender.css
+          .tp-dd-input): a mono label, the value in white, a clear cross inside the
+          control once something is picked. The report had its own -- rounded native
+          selects, a separate green "clear" chip -- so the two tabs of one pillar
+          filtered in two designs. The <select> is kept because it is the correct
+          control for keyboard and screen readers; only its chrome is shared. */}
       <div className="tp-fbar">
         <span className="eyebrow">Filter</span>
-        <select
-          aria-label="Filter by country"
-          onChange={(e) => setCountry(e.target.value)}
-          value={country}
-        >
-          <option value="all">Country · All ({countries.length})</option>
-          {countries.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-        <span className="ovf-cat">
-          <span
-            aria-hidden="true"
-            className="ovf-sw"
-            style={{ background: cat ? CATEGORY_COLOR(sliceLabel(cat)) : "transparent" }}
-          />
+        <label className="ovf-sel">
+          <span className="ddlbl">Country</span>
+          <select
+            aria-label="Filter by country"
+            onChange={(e) => setCountry(e.target.value)}
+            value={country}
+          >
+            <option value="all">All ({countries.length})</option>
+            {countries.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          {country !== "all" ? (
+            <button
+              aria-label="Clear country"
+              className="ddclear"
+              onClick={(e) => {
+                e.preventDefault();
+                setCountry("all");
+              }}
+              type="button"
+            >
+              ×
+            </button>
+          ) : null}
+        </label>
+        <label className="ovf-sel">
+          {cat ? (
+            <span
+              aria-hidden="true"
+              className="ovf-sw"
+              style={{ background: CATEGORY_COLOR(sliceLabel(cat)) }}
+            />
+          ) : null}
+          <span className="ddlbl">Category</span>
           <select
             aria-label="Filter by category"
             onChange={(e) => setCat(e.target.value === "all" ? null : e.target.value)}
             value={cat || "all"}
           >
-            <option value="all">Category · All ({cats.length})</option>
+            <option value="all">All ({cats.length})</option>
             {cats.map((c) => (
               <option key={c.label} style={{ color: CATEGORY_COLOR(sliceLabel(c.label)) }} value={c.label}>
                 {c.label} ({c.count})
               </option>
             ))}
           </select>
-        </span>
-        {cat ? (
-          <button className="ovt-link" onClick={() => setCat(null)} type="button">
-            clear {cat} ✕
-          </button>
-        ) : null}
+          {cat ? (
+            <button
+              aria-label="Clear category"
+              className="ddclear"
+              onClick={(e) => {
+                e.preventDefault();
+                setCat(null);
+              }}
+              type="button"
+            >
+              ×
+            </button>
+          ) : null}
+        </label>
         <span className="sortnote">
           {fmt(n)} row{n === 1 ? "" : "s"}
           {country === "all" ? "" : ` in ${country}`}

@@ -51,9 +51,14 @@
   /* ============ SUBHEAD ============ */
   .subhead{display:flex;align-items:center;justify-content:space-between;height:46px;padding:0 20px;border-bottom:1px solid var(--d-line);background:var(--d-bg-1);flex-shrink:0;gap:12px;overflow-x:auto;scrollbar-width:none}
   .subhead::-webkit-scrollbar{display:none}
-  .subhead .left{display:flex;align-items:center;gap:12px;white-space:nowrap !important;flex-shrink:0}
-  .subhead h1{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--d-txt);white-space:nowrap !important;flex-shrink:0}
-  .subhead .cnt{font-family:var(--mono);font-size:11px;color:var(--d-txt-3);white-space:nowrap !important;flex-shrink:0}
+  /* The count line is the one thing here that may yield. Everything was flex-shrink:0
+     in a bar whose scrollbar is hidden, so on a narrow window the three action buttons
+     were pushed past the right edge and could not be reached. The title and the buttons
+     keep their width; the mono count line shrinks and elides, and its full text stays
+     on the tooltip. */
+  .subhead .left{display:flex;align-items:center;gap:12px;white-space:nowrap;flex-shrink:1;min-width:0}
+  .subhead h1{font-size:16px;font-weight:600;letter-spacing:-.01em;color:var(--d-txt);white-space:nowrap;flex-shrink:0}
+  .subhead .cnt{font-family:var(--mono);font-size:11px;color:var(--d-txt-3);white-space:nowrap;flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
   .subhead-toast {
     font-family: var(--mono);
     font-size: 11px;
@@ -122,9 +127,19 @@
       background: transparent !important;
     }
   }
-  .filters{display:flex;gap:6px;align-items:center;flex-wrap:nowrap !important;white-space:nowrap;flex-shrink:0}
-  .dir-filters{display:inline-flex;gap:4px;align-items:center;flex-wrap:nowrap !important;white-space:nowrap;flex-shrink:0}
-  .fbtn{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--d-txt-3);border:1px solid var(--d-line);padding:4px 7px;cursor:pointer;background:transparent;transition:.12s;white-space:nowrap !important;flex-shrink:0}
+  /* The feed's filter row. Each CONTROL stays on one line (a pill never breaks
+     mid-word); the ROW wraps. Both rows used to be `flex-wrap:nowrap !important`, and
+     FeedFilters.jsx repeated the same nowrap as an inline style on top -- three layers
+     saying the row may never wrap, in a header that hides its own scrollbar. The
+     controls now live in the cascade only, so a width rule here is the rule. */
+  .filters{display:flex;gap:6px;row-gap:6px;align-items:center;flex-wrap:wrap;min-width:0}
+  .dir-filters{display:inline-flex;gap:4px;align-items:center;flex-wrap:wrap}
+  .feed-search-box{display:flex;align-items:center;background:var(--d-bg-1);border:1px solid var(--d-line-2);border-radius:4px;padding:2px 6px;flex-shrink:0}
+  .feed-search-icon{font-size:11px;color:var(--d-txt-4);margin-right:4px}
+  .feed-search-box input{background:transparent;border:none;outline:none;color:var(--d-txt);font-size:11px;font-family:var(--mono);width:105px}
+  .feed-search-clear{background:none;border:none;color:var(--d-txt-4);cursor:pointer;font-size:12px;padding:0 2px}
+  .feed-search-clear:hover{color:var(--d-txt)}
+  .fbtn{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--d-txt-3);border:1px solid var(--d-line);padding:4px 7px;cursor:pointer;background:transparent;transition:.12s;white-space:nowrap;flex-shrink:0}
   /* Each direction filter carries how many cards it would show. A facet selecting zero
      is not clickable -- on the market and technology pillars every card is 'watch', so
      two of the four filters could never have returned anything. */
@@ -133,6 +148,7 @@
   .fbtn.empty:hover{background:transparent}
   .fbtn:hover{border-color:var(--d-line-2);color:var(--d-txt-2)}
   .fbtn.on{color:var(--d-txt);border-color:var(--d-txt-4);background:var(--d-bg-3)}
+  .seq-ctl{display:inline-flex;align-items:center;gap:6px;flex-shrink:0}
   .seq-sep{width:1px;height:18px;background:var(--d-line);margin:0 4px;flex-shrink:0}
   .seq-label{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--d-txt-4);white-space:nowrap;flex-shrink:0}
   .seq-select{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--d-txt-2);background:transparent;border:1px solid var(--d-line);padding:4px 6px;cursor:pointer;transition:.12s;outline:none;white-space:nowrap;flex-shrink:0}
@@ -142,7 +158,10 @@
 
   /* ============ METRICS STRIP (dark) ============ */
   .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(0,1fr));border-bottom:1px solid var(--d-line);background:var(--d-bg);flex-shrink:0}
-  .metric{padding:11px 20px 12px;border-right:1px solid var(--d-line);display:flex;flex-direction:column;gap:5px;cursor:pointer;position:relative;transition:background .12s}
+  /* min-width:0 so a tile can never be wider than its grid track: a long sub line or an
+     unbroken value would otherwise widen the tile and push its neighbours off the
+     right edge. The sub line wraps inside the tile instead. */
+  .metric{padding:11px 20px 12px;border-right:1px solid var(--d-line);display:flex;flex-direction:column;gap:5px;cursor:pointer;position:relative;transition:background .12s;min-width:0}
   .metric:last-child{border-right:none}
   .metric::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:transparent;transition:background .12s}
   .metric:hover{background:var(--d-bg-2)}
@@ -160,7 +179,7 @@
   .metric .mv .delta{font-size:10px;color:var(--d-txt-3);margin-left:8px;letter-spacing:0}
   .metric .mv .delta.up{color:var(--threat)}
   .metric .mv .delta.down{color:var(--fav)}
-  .metric .msub{font-size:10.5px;color:var(--d-txt-3);font-family:var(--sans);display:flex;align-items:center;gap:5px;margin-top:1px}
+  .metric .msub{font-size:10.5px;color:var(--d-txt-3);font-family:var(--sans);display:flex;align-items:center;gap:5px;margin-top:1px;flex-wrap:wrap;min-width:0;line-height:1.35}
   .metric .msub .arr{font-family:var(--mono);color:var(--d-txt-4);transition:color .12s,transform .12s;display:inline-block}
   .metric:hover .msub{color:var(--d-txt-2)}
   .metric:hover .msub .arr{color:var(--d-txt);transform:translateX(2px)}

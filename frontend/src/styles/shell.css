@@ -76,8 +76,12 @@
   /* CENTER FEED */
   .feed{overflow-y:auto;background:var(--d-bg-1);padding:0}
   .feed-grp{border-bottom:1px solid var(--d-line)}
-  .feed-grp-h{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 18px;position:sticky;top:0;background:var(--d-bg-1);z-index:2;border-bottom:1px solid var(--d-line);flex-wrap:nowrap !important;white-space:nowrap !important;overflow-x:auto;scrollbar-width:none}
-  .feed-grp-h::-webkit-scrollbar{display:none}
+  /* Wraps. This was `flex-wrap:nowrap !important` with `overflow-x:auto` and the
+     scrollbar hidden, so a window narrower than the row clipped the controls with no
+     affordance at all: on the market pillar (four direction pills) the Sequence select
+     was off-screen at 1024px and cut in half at 1280px. The title stays on one line;
+     the filter row drops beneath it when it must. `row-gap` keeps the two lines apart. */
+  .feed-grp-h{display:flex;align-items:center;justify-content:space-between;gap:12px;row-gap:8px;padding:11px 18px;position:sticky;top:0;background:var(--d-bg-1);z-index:2;border-bottom:1px solid var(--d-line);flex-wrap:wrap;min-width:0}
   .feed-grp-h .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;letter-spacing:.1em;color:var(--d-txt);white-space:nowrap !important;flex-shrink:0}
   .feed-grp-h .sub{font-size:11px;color:var(--d-txt-3);font-weight:400;letter-spacing:0;text-transform:none;font-family:var(--sans);white-space:nowrap !important;flex-shrink:0}
 
