@@ -6,6 +6,8 @@ import { useData } from "../../state/DataProvider";
 import { gapCorrelateStrip } from "../../lib/gapModel";
 import { srcChips } from "../../lib/html";
 import { formatLabel } from "../../lib/profile";
+import { facetOptions } from "../../lib/countryFacet";
+import { formatDate } from "../../utils/formatDate";
 
 const fitClass = (p) => {
   const n = parseInt(p, 10);
@@ -41,7 +43,8 @@ const factRows = (t) => {
     ["Country", t.country],
     ["Estimated value", t.value],
     ["Quantity", t.qty],
-    ["Closing date", t.closingDate || "not published"],
+    /* one formatter for every printed date, so "1 Sep" and "01 Sept" cannot coexist */
+    ["Closing date", t.closingDate ? formatDate(t.closingDate) : "not published"],
     ["Status", statusTxt],
     ["Notice ref.", noticeRef(t)],
     ["Source", sourceName(t)],
@@ -232,43 +235,26 @@ export default function Tenders({ mode = "tender" }) {
         { v: "Air, Naval & Missiles", n: pool.filter(isAirNaval).length },
       ];
     }
-    /* Option values come from the SERVED tenders — the config lists only order
-       values that exist; a country no tender mentions is not offered as a filter. */
-    const cfgOrder = which === "country" ? data.tpAllCountries || [] : data.tpAllCats || [];
-    /* Counted over `scope` with the OTHER facets applied -- the facet being counted is
+    /* Option values come from the SERVED tenders only. The config vocabulary
+       (tpAllCountries / tpAllCats) ORDERS them; it adds nothing. It used to be unioned
+       in "for completeness", which put Armenia, Kenya, Morocco and eight more countries
+       with no tender at all into the menu as unclickable zero rows -- eleven of the
+       twenty-five options were padding -- and the acceptance test read that as the
+       filter not matching the data. An option is a promise of rows; a zero is not
+       information a menu should carry.
+       Counted over `scope` with the OTHER facets applied -- the facet being counted is
        excluded, so picking one of its options gives exactly the number promised. */
+    const cfgOrder = which === "country" ? data.tpAllCountries || [] : data.tpAllCats || [];
     const pool = applyFacets(scope, which);
-    /* The configured vocabulary is included even where it has no rows. Building the
-       options from served rows alone silently dropped "Armoured Vehicle MRO" -- a
-       configured category with 0 tenders -- so the interface advertised 7 categories
-       and offered 6, which is exactly what the report counted. A configured facet with
-       nothing behind it is information: it says the vocabulary covers a segment this
-       corpus has not reached. It is shown with its 0 and cannot be clicked. */
-    const items = [
-      ...new Set([
-        ...pool.map((x) => (which === "country" ? x.country : x.cat)).filter(Boolean),
-        ...cfgOrder,
-      ]),
-    ];
-    const counts = {};
-    items.forEach((v) => {
-      counts[v] = pool.filter((x) => (which === "country" ? x.country : x.cat) === v).length;
-    });
-    // most tenders first, then the config's ordering, then alphabetically
-    const cfgIx = (v) => {
-      const i = cfgOrder.indexOf(v);
-      return i < 0 ? cfgOrder.length : i;
-    };
-    const sorted = [...items].sort(
-      (a, b) => counts[b] - counts[a] || cfgIx(a) - cfgIx(b) || a.localeCompare(b),
-    );
     const q = menuQuery.trim().toLowerCase();
-    return sorted
-      .filter((v) => which !== "country" || !q || v.toLowerCase().includes(q))
-      .map((v) => ({ v, n: counts[v] }));
+    return facetOptions(pool, (x) => (which === "country" ? x.country : x.cat), cfgOrder)
+      .filter((o) => which !== "country" || !q || o.v.toLowerCase().includes(q));
   };
 
-  const dd = (which, label, value, setValue) => (
+  const dd = (which, label, value, setValue) => {
+    /* one array: the "All" row prints its length, the rows under it are its members */
+    const items = menuItems(which);
+    return (
     <div className="tp-dd" data-tpdd={which}>
       <div
         className={`tp-dd-input${value ? " has-val" : ""}`}
@@ -312,27 +298,26 @@ export default function Tenders({ mode = "tender" }) {
             setMenu(null);
           }}
         >
-          All {which === "country" ? "countries" : which === "productType" ? "product types" : "categories"}
+          All {which === "country" ? "countries" : which === "productType" ? "product types" : "categories"} ({items.length})
         </div>
-        {menuItems(which).map(({ v, n }) => (
+        {items.map(({ v, n }) => (
           <div
-            className={`tp-dd-pick${n === 0 ? " zero" : ""}`}
+            className="tp-dd-pick"
             key={v}
             onClick={() => {
-              // a configured facet with no rows is shown for completeness, not to pick
-              if (!n) return;
               setValue(v);
               setSel(null);
               setMenu(null);
             }}
           >
             {v}
-            {n === 0 ? <span className="m none">—</span> : <span className="m">{n}</span>}
+            <span className="m">{n}</span>
           </div>
         ))}
       </div>
     </div>
-  );
+    );
+  };
 
   return (
     <div className={`tp-view v-tender ${t ? "has-sel" : "no-sel"}`}>
@@ -393,7 +378,13 @@ export default function Tenders({ mode = "tender" }) {
                     <span className={`ddl ${dlClass(row.dl, row.statusClass)}`}>{row.deadline}</span>
                   </div>
                   <div className="meta">
-                    {metaLine([row.issuer, row.country, row.cat, [row.value, "val"], row.qty])}
+                    {/* The chip above is a countdown; the DATE it counts to is printed here,
+                        through the one formatter, so every card states its closing date
+                        the same way -- and a record with none states none. */}
+                    {metaLine([
+                      row.issuer, row.country, row.cat, [row.value, "val"], row.qty,
+                      row.closingDate ? `Closes ${formatDate(row.closingDate)}` : null,
+                    ])}
                   </div>
                   <div className="fitbar">
                     <span className="fitlab">{clientName} fit</span>

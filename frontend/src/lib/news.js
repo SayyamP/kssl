@@ -18,18 +18,16 @@
  * empty panel is honest and a populated one was not.
  */
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+import { formatDate } from "../utils/formatDate.js";
 
 /* "2026-07-13" -> "13 Jul 2026". The panels print this in their `ago` slot, which
    used to hold "2 hours ago" — a freshness the fabricated rows only claimed. A
    real date is the honest thing to put there, and it is never wrong by a day the
-   way a relative label drifts. */
+   way a relative label drifts. One formatter for the whole app (utils/formatDate);
+   this is its ISO face, kept so the call sites read as what they are. */
 export function newsDate(iso) {
   if (!iso) return "";
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
-  if (!m) return String(iso);
-  return `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]} ${m[1]}`;
+  return formatDate(String(iso));
 }
 
 /* url -> the signal detail behind it, so an article can show what the pipeline

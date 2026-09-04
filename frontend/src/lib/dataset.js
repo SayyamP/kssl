@@ -8,6 +8,7 @@
 import { computeSpecEdge } from "./edge.js";
 import { wireTendersWithRealDays } from "./tenderCalc.js";
 import { titleCaseHeadline } from "./profile.js";
+import { formatDate } from "../utils/formatDate.js";
 import { logger } from "../utils/logger.js";
 
 export function wireDataset(raw) {
@@ -198,10 +199,18 @@ export function wireDataset(raw) {
         const id = `tender_${t.id}`;
         const live = hasValue(t);
         const where = [t.issuer, t.country].filter(Boolean).join(" · ");
+        /* The closing DATE, in the one house format -- not `t.deadline`, which the
+           wiring above has already rewritten into a countdown ("2 days left"). That
+           countdown was landing in the card's date slot beside signal cards that read
+           "11 Aug 2026", in the Closing fact, and in the so-what as "Closes 2 days
+           left." -- three surfaces, one field, and none of them a date. A tender with
+           no closing date on record states nothing rather than "no deadline on record"
+           in a slot that is a date everywhere else. */
+        const closes = t.closingDate ? formatDate(t.closingDate) : "";
         // No invented prose: every clause below is a stored field or omitted.
         const sowhat = [
           live ? `Published value ${t.value}.` : null,
-          t.deadline ? `Closes ${t.deadline}.` : null,
+          closes ? `Closes ${closes}.` : null,
           t.qty ? `Quantity ${t.qty}.` : null,
         ].filter(Boolean).join(" ");
         details[id] = {
@@ -212,7 +221,7 @@ export function wireDataset(raw) {
             ["Issuer", t.issuer],
             ["Country", t.country],
             ["Category", t.cat],
-            ["Closing", t.deadline],
+            ["Closing", closes],
             ["Value", live ? t.value : null],
             ["Quantity", t.qty],
           ].filter((f) => f[1] != null && String(f[1]).trim() !== ""),
@@ -233,7 +242,7 @@ export function wireDataset(raw) {
           sowhat,
           sec: t.cat || "",
           url: t.url,
-          ago: t.deadline || "",
+          ago: closes,
           tags: t.cat || "",
         };
       });

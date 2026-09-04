@@ -15,6 +15,7 @@
        the raw index and misses on exactly the cases the adapter exists to fix. */
 
 import { unescapeEntities } from "./html.js";
+import { companyCountries } from "./countryFacet.js";
 
 /* These fields are rendered as TEXT, not injected as HTML, so an entity in the record
    ("Defence &amp; Aerospace" on Kongsberg) reaches the screen as the five literal
@@ -199,6 +200,7 @@ function nameKey(s) {
    which companies are actually worth opening. */
 export function rosterOf(d) {
   const clientCid = (d.client && d.client.id) || "KSSL";
+  /* the same country expression the Products and Partnerships sidebars filter on */
   const order = (d.compOrder || []).filter((cid) => d.competitors[cid]);
   const rest = Object.keys(d.competitors).filter(
     (cid) => order.indexOf(cid) < 0,
@@ -213,6 +215,7 @@ export function rosterOf(d) {
         name: p.name,
         threat: p.threat,
         sector: p.sector,
+        countries: companyCountries(d, cid),
         /* how many of the seven backed sections this company actually fills —
            the honest "is there anything here" signal */
         filled: p.sections.filter((s) => s.rows).length,

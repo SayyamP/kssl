@@ -4,6 +4,7 @@ import ScopeChat from "../../components/scopeChat/ScopeChat";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { formatSectorName, formatCompanyName } from "../../lib/profile";
+import { companyCountries, facetOptionsByName } from "../../lib/countryFacet";
 
 /* `sector` is escaped at write time ("Defence &amp; Aerospace") and is formatted consistently here. */
 const sectorText = (co) => formatSectorName(co && co.sector);
@@ -79,14 +80,19 @@ export default function Partnerships() {
   const selCo = cid ? data.competitors[cid] : null;
   const c = selCo ? { ...selCo, id: cid } : null;
 
-  const hqOptions = useMemo(() => {
-    const set = new Set();
-    data.compOrder.forEach((k) => {
-      const co = data.competitors[k];
-      if (co && co.hq) set.add(co.hq.trim());
-    });
-    return [...set].filter(Boolean).sort();
-  }, [data]);
+  /* The rival ids this list draws from -- the same population the options describe. */
+  const rivalIds = useMemo(
+    () => data.compOrder.filter((k) => k !== (data.client?.id || "KSSL") && data.competitors[k]),
+    [data],
+  );
+  /* This select was headed "All HQ Countries" and offered the raw hq strings --
+     "Arlington, Virginia", "Falls Church, Virginia, USA" -- one option per spelling,
+     none of them a country. Same expression as the Products and Competitor sidebars
+     now, and the "All" label prints the list's own length. */
+  const hqOptions = useMemo(
+    () => facetOptionsByName(rivalIds, (k) => companyCountries(data, k)),
+    [data, rivalIds],
+  );
 
   const activeQ = (query || searchQuery || "").trim().toLowerCase();
   const tokens = activeQ.split(/\s+/).filter(Boolean);
@@ -100,7 +106,7 @@ export default function Partnerships() {
       const pNames = (co.partners || []).map((x) => x.name || x.label || "").join(" ");
       const search = `${(co.name || "").toLowerCase()} ${sectorText(co).toLowerCase()} ${(co.hq || "").toLowerCase()} ${pNames.toLowerCase()}${nsh ? " overlap" : ""}`;
       if (tokens.length > 0 && !tokens.every((tok) => search.includes(tok))) return false;
-      if (hq && (co.hq || "").toLowerCase() !== hq) return false;
+      if (hq && !companyCountries(data, k).includes(hq)) return false;
       return true;
     });
 
@@ -257,15 +263,16 @@ export default function Partnerships() {
             />
           </div>
           <select
+            aria-label="Filter competitors by country"
             className="mu-fsel"
             onChange={(e) => setHq(e.target.value)}
             style={{ width: "100%", marginTop: "8px" }}
             value={hq}
           >
-            <option value="">All HQ Countries</option>
-            {hqOptions.map((ct) => (
-              <option key={ct} value={ct.toLowerCase()}>
-                {ct}
+            <option value="">All countries ({hqOptions.length})</option>
+            {hqOptions.map((o) => (
+              <option key={o.v} value={o.v}>
+                {o.v} ({o.n})
               </option>
             ))}
           </select>

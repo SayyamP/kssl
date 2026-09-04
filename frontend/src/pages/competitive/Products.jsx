@@ -3,6 +3,7 @@ import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { productNews } from "../../lib/news";
 import { formatLabel, formatSectorName } from "../../lib/profile";
+import { companyCountries, facetOptionsByName } from "../../lib/countryFacet";
 
 // Clean company display name helper
 const cleanCompanyName = (rawName) => {
@@ -109,41 +110,17 @@ export function sameCompany(a, b) {
  * filter chips presented that guess as a fact. Each facet now comes from the value
  * the pipeline actually holds, or is null and simply does not participate in the
  * filter.
+ *
+ * The country facet is lib/countryFacet.companyCountries -- the ONE expression for
+ * "which countries is this company in", shared with the Competitor and Partnerships
+ * sidebars. This file used to derive it alone, from the hq string and
+ * global_locations; measured live on 2026-09-05 that yielded three options (India,
+ * Norway and "Virginia") over a roster whose footprint rows name 36 countries, while
+ * the Geo page advertised the footprint's count. Two derivations, two numbers.
  */
-const countryOf = (hq) => {
-  /* The pipeline writes hq as "City, Country" — the tail is the country, and a
-     string with no comma states a place, not a country. Nothing is inferred from
-     the company id. */
-  const parts = String(hq || "").split(",").map((s) => s.trim()).filter(Boolean);
-  return parts.length > 1 ? parts[parts.length - 1] : null;
-};
-
-/* The country facet, from the catalogued column first and the hq string only as a
-   fallback. hq alone offered 11 values for a 178-company roster -- only 42 companies
-   carry one at all, and three of the values it yielded ("Virginia", "Telangana",
-   "Calif.") are not countries, because a "City, Region" hq has a region in its tail.
-   competitors.global_locations is structured {url, value} written by the profile-facts
-   writer and sourced per value, and it covers 75 companies. A sourced value beats a
-   string split every time. */
-const countriesOf = (co) => {
-  const gl = Array.isArray(co.global_locations) ? co.global_locations : [];
-  const named = gl
-    .map((g) => (g && typeof g === "object" ? g.value : g))
-    .filter(Boolean)
-    .map((v) => String(v).trim());
-  /* UNION, not either/or. Taking global_locations INSTEAD of the hq country dropped the
-     one country a reader is most likely to look under: global_locations holds countries
-     a company was mentioned in, which is not where it is. Live, that made RTX
-     ("Arlington, Virginia") reachable only under Ukraine, Sikorsky ("Jupiter, FL, USA")
-     only under the Czech Republic, and Exail ("Paris, France") only under the
-     Netherlands and Belgium. Four companies lost their home country to a news mention. */
-  const one = countryOf(co.hq);
-  return [...new Set([...(one ? [one] : []), ...named])];
-};
-
-const getCompanyFilterMeta = (co) => ({
-  countries: countriesOf(co),
-  country: countriesOf(co)[0] || null,
+const getCompanyFilterMeta = (d, cid, co) => ({
+  countries: companyCountries(d, cid),
+  country: companyCountries(d, cid)[0] || null,
   /* The maker's own sector, not a bucket mapped onto it -- but normalised through the
      one shared formatter. Rendered raw, the sidebar dropdown listed the same sector six
      times ("Aerospace and Defense", "Defence", "defense technology", "defence and
@@ -179,7 +156,7 @@ export default function Products() {
       if (id === clientCid) return;
       const co = data.competitors[id];
       if (co) {
-        const meta = getCompanyFilterMeta(co);
+        const meta = getCompanyFilterMeta(data, id, co);
         list.push({
           cid: id,
           name: cleanCompanyName(co.name || id),
@@ -218,21 +195,19 @@ export default function Products() {
     setProdNewsFilter("All");
   }, [selectedProduct]);
 
-  // Unique lists for sidebar dropdown options
-  const sidebarCountries = useMemo(() => {
-    /* Every country a company is present in, not just the first -- Airbus is in five,
-       and offering only one of them made the other four unreachable by this filter. */
-    // 47 options in roster order is a list to hunt through; 11 was not.
-    const set = new Set(
-      companyRoster.flatMap((c) => c.countries || []).filter(Boolean).sort((a, b) => a.localeCompare(b)),
-    );
-    return ["all", ...Array.from(set)];
-  }, [companyRoster]);
-
-  const sidebarCategories = useMemo(() => {
-    const set = new Set(companyRoster.map((c) => c.category).filter(Boolean));
-    return ["all", ...Array.from(set)];
-  }, [companyRoster]);
+  /* Sidebar dropdown options: [{ v, n }] over the roster rows, every option backed by
+     at least one company, and the "All" label prints options.length -- so the count a
+     reader sees and the list under it are one array. Every country a company is
+     present in, not just the first: Airbus is in five, and offering only one of them
+     made the other four unreachable by this filter. */
+  const sidebarCountries = useMemo(
+    () => facetOptionsByName(companyRoster, (c) => c.countries || []),
+    [companyRoster],
+  );
+  const sidebarCategories = useMemo(
+    () => facetOptionsByName(companyRoster, (c) => c.category),
+    [companyRoster],
+  );
 
   const { searchQuery } = useAppState();
 
@@ -463,10 +438,10 @@ export default function Products() {
               style={{ width: "100%" }}
               value={sidebarCountryFilter}
             >
-              <option value="all">All Countries</option>
-              {sidebarCountries.filter((c) => c !== "all").map((c) => (
-                <option key={c} value={c}>
-                  {c}
+              <option value="all">All countries ({sidebarCountries.length})</option>
+              {sidebarCountries.map((o) => (
+                <option key={o.v} value={o.v}>
+                  {o.v} ({o.n})
                 </option>
               ))}
             </select>
@@ -479,10 +454,10 @@ export default function Products() {
               style={{ width: "100%" }}
               value={sidebarCategoryFilter}
             >
-              <option value="all">All Categories</option>
-              {sidebarCategories.filter((c) => c !== "all").map((c) => (
-                <option key={c} value={c}>
-                  {c}
+              <option value="all">All categories ({sidebarCategories.length})</option>
+              {sidebarCategories.map((o) => (
+                <option key={o.v} value={o.v}>
+                  {o.v} ({o.n})
                 </option>
               ))}
             </select>

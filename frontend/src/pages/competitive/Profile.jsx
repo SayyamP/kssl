@@ -3,6 +3,7 @@ import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
 import { companyNews } from "../../lib/news";
+import { facetOptionsByName } from "../../lib/countryFacet";
 
 // Helper function to extract clean company short name without full form or legal suffixes
 const cleanCompanyName = (rawName) => {
@@ -82,7 +83,15 @@ export default function Profile() {
   const { data } = useData();
   const { setScope, takePending, searchQuery } = useAppState();
   const [query, setQuery] = useState("");
+  const [country, setCountry] = useState("all");
   const roster = useMemo(() => rosterOf(data), [data]);
+  /* Finding T 3: no country-level filter on the competitor list. Options are the
+     countries the roster rows carry (rosterOf stamps each row through the shared
+     companyCountries), counted, and the "All" label prints the list's own length. */
+  const countryOptions = useMemo(
+    () => facetOptionsByName(roster, (r) => r.countries || []),
+    [roster],
+  );
   const [cid, setCid] = useState(() => (roster[0] ? roster[0].cid : ""));
 
   /* Opened from global search targeting one company. Without this the page took the
@@ -108,13 +117,14 @@ export default function Profile() {
 
   const list = useMemo(() => {
     const q = (query || searchQuery || "").trim().toLowerCase();
-    if (!q) return roster;
     const tokens = q.split(/\s+/).filter(Boolean);
     return roster.filter((r) => {
+      if (country !== "all" && !(r.countries || []).includes(country)) return false;
+      if (!tokens.length) return true;
       const fullText = `${r.name || ""} ${r.sector || ""} ${r.hq || ""} ${r.cid || ""}`.toLowerCase();
       return tokens.every((tok) => fullText.includes(tok));
     });
-  }, [roster, query, searchQuery]);
+  }, [roster, query, searchQuery, country]);
 
   const p = useMemo(() => (cid ? buildProfile(data, cid) : null), [data, cid]);
 
@@ -225,6 +235,20 @@ export default function Profile() {
               value={query}
             />
           </div>
+          <select
+            aria-label="Filter competitors by country"
+            className="mu-fsel"
+            onChange={(e) => setCountry(e.target.value)}
+            style={{ width: "100%", marginTop: "8px" }}
+            value={country}
+          >
+            <option value="all">All countries ({countryOptions.length})</option>
+            {countryOptions.map((o) => (
+              <option key={o.v} value={o.v}>
+                {o.v} ({o.n})
+              </option>
+            ))}
+          </select>
         </div>
         <div id="patc-list">
           {list.map((r) => (
@@ -249,7 +273,11 @@ export default function Profile() {
               </span>
             </div>
           ))}
-          {!list.length ? <div className="cp-empty">no competitor matches “{query}”</div> : null}
+          {!list.length ? (
+            <div className="cp-empty">
+              {query.trim() ? <>no competitor matches “{query}”</> : "no competitor matches this filter"}
+            </div>
+          ) : null}
         </div>
       </div>
 
