@@ -150,12 +150,25 @@ fi
 # 2. Port check before starting anything. Both replica hosts already carry other people's
 #    containers -- VPS-A runs the crawler and comprehension dashboards, the data centre runs
 #    the crawler itself -- and a port clash surfaces as a confusing compose error much later.
+#
+#    A PORT WE ALREADY HOLD IS NOT A CLASH. This file says it is idempotent and was not:
+#    the very first thing a re-run does after a successful provision is find its OWN
+#    database on $KSSL_DB_PORT and exit 4. On VPS-A that made it impossible to re-run at
+#    all -- which is how the box ended up provisioned but missing extraction/.env, with no
+#    way to finish it short of hand-writing the file. So: a port held by one of THIS
+#    environment's containers is reported and accepted; a port held by anything else is
+#    still a refusal.
 for p in "$KSSL_DB_PORT" "$KSSL_OLLAMA_PORT" "$LLMAPI_PORT"; do
-  if ss -ltn 2>/dev/null | grep -q ":$p "; then
-    echo "!! port $p is already in use on this host -- edit $ENV_FILE before continuing"; exit 4
+  ss -ltn 2>/dev/null | grep -q ":$p " || continue
+  if docker ps --filter "name=^/$KSSL_PREFIX-" --format '{{.Ports}}' 2>/dev/null | grep -q ":$p->"; then
+    echo "   port $p is held by this environment's own container -- fine"
+  else
+    echo "!! port $p is in use on this host by something that is not $KSSL_PREFIX-*."
+    echo "   Edit $ENV_FILE to pick another, or stop whatever holds it."
+    exit 4
   fi
 done
-echo "   ports $KSSL_DB_PORT/$KSSL_OLLAMA_PORT/$LLMAPI_PORT are free"
+echo "   ports $KSSL_DB_PORT/$KSSL_OLLAMA_PORT/$LLMAPI_PORT are available to $KSSL_PREFIX"
 
 # 3. The database only. frontend/backend come from the deploy, which needs an image tag;
 #    extraction stays down until someone asks for it, because these fleets share the farms

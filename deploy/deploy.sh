@@ -105,7 +105,22 @@ done
 # recreates containers whose image actually changed, so a push that didn't touch
 # extraction/ is a no-op. restart: unless-stopped + the feeder's lease reaping make a
 # rolling recreate safe (in-flight leases expire and requeue).
-if [ -f extraction/docker-compose.yml ]; then
+# A REPLICA MAY LEGITIMATELY HAVE NO EXTRACTION CONFIG. provision_env.sh brings a staging
+# or dev host up with the database only -- "extraction is intentionally NOT started", since
+# those fleets share the farms with production's -- and extraction/.env is what every
+# `docker compose` under extraction/ needs to parse at all. Without this check the block
+# below fails on such a host and, now that its failure is no longer swallowed, turns every
+# replica deploy red. It also made provisioning circular: the deploy could not run until
+# the file existed, and the file arrives with the source the deploy transfers.
+#
+# Deliberately NOT silent, and deliberately not a failure: on production the file is always
+# there, so a missing one here means someone is looking at a replica that has never been
+# given LLM credentials.
+if [ -f extraction/docker-compose.yml ] && [ ! -f extraction/.env ]; then
+  echo ">> extraction: skipped — no extraction/.env on this host."
+  echo "   That is expected on a freshly provisioned $KSSL_ENV_NAME box (the fleet is not"
+  echo "   started there by default). Run deploy/provision_env.sh $KSSL_ENV_NAME to create it."
+elif [ -f extraction/docker-compose.yml ]; then
   # The scale comes from `deploy.replicas` in extraction/docker-compose.yml -- do NOT pass
   # --scale here. This block used to read the live count and re-apply it, from before the
   # compose file carried replicas:
