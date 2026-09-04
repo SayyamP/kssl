@@ -147,8 +147,15 @@ services:
       # enrich wrote NOTHING for two days while both containers looked healthy.
       # Both nodes are still in the farm, so restoring the pool is the real fix: set
       # KSSL_SERVING_MODEL=serving-model in extraction/.env once the gateway serves it again.
-      C_MODEL: "${KSSL_SERVING_MODEL:-text-model}"
-      KSSL_MODEL: "${KSSL_SERVING_MODEL:-text-model}"
+      #
+      # THE DEFAULT IS THE SERVING NODE, not text-model. Signals and enrich are meant to
+      # run on qwen2.5:14b, which the Kharghar farm.yaml pins to DESKTOP-J9F0LTF
+      # (192.168.1.111) and the gateway serves under that name. text-model is the POOLED
+      # alias and every node behind it runs qwen2.5:7b -- so an unset KSSL_SERVING_MODEL
+      # used to swap a 14b for a 7b silently, with both containers still looking healthy,
+      # which is the same failure shape as the 400s above and just as hard to see.
+      C_MODEL: "${KSSL_SERVING_MODEL:-DESKTOP-J9F0LTF}"
+      KSSL_MODEL: "${KSSL_SERVING_MODEL:-DESKTOP-J9F0LTF}"
     # ONE filler is one request in flight, and the serving node has six slots -- it sat at
     # 0/6 while a whole card pass ran through it single file. serving_fill now CLAIMS each
     # document in serving.signal_seen (PRIMARY KEY, released on failure) before calling the
@@ -186,8 +193,15 @@ services:
       # enrich wrote NOTHING for two days while both containers looked healthy.
       # Both nodes are still in the farm, so restoring the pool is the real fix: set
       # KSSL_SERVING_MODEL=serving-model in extraction/.env once the gateway serves it again.
-      C_MODEL: "${KSSL_SERVING_MODEL:-text-model}"
-      KSSL_MODEL: "${KSSL_SERVING_MODEL:-text-model}"
+      #
+      # THE DEFAULT IS THE SERVING NODE, not text-model. Signals and enrich are meant to
+      # run on qwen2.5:14b, which the Kharghar farm.yaml pins to DESKTOP-J9F0LTF
+      # (192.168.1.111) and the gateway serves under that name. text-model is the POOLED
+      # alias and every node behind it runs qwen2.5:7b -- so an unset KSSL_SERVING_MODEL
+      # used to swap a 14b for a 7b silently, with both containers still looking healthy,
+      # which is the same failure shape as the 400s above and just as hard to see.
+      C_MODEL: "${KSSL_SERVING_MODEL:-DESKTOP-J9F0LTF}"
+      KSSL_MODEL: "${KSSL_SERVING_MODEL:-DESKTOP-J9F0LTF}"
       ENRICH_EVERY_S: "7200"
 
   # Layer B: canonical entities from the extracted spans, on a slow timer. Same-script merges;

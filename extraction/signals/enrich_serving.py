@@ -1127,6 +1127,7 @@ def step_structure(cur, con, docs, props_by_doc, limit=None):
     cands = [(did, pr) for did, prs in props_by_doc.items() for pr in prs
              if OWN_RX.search("%s %s" % (pr["p"], pr["o"])) and asks_a_question(pr)]
     rows, refused, orphans, calls, seen = {}, 0, [], 0, set()
+    collapsed = 0
     for did, pr in cands:
         if limit and calls >= limit:
             break
@@ -1159,6 +1160,22 @@ def step_structure(cur, con, docs, props_by_doc, limit=None):
             if cid is None:
                 continue
             landed = True
+            # A subsidiary usually carries its parent's name -- "American Rheinmetall
+            # Vehicles", "Leonardo DRS" -- and landing() matches on a word boundary, so a
+            # statement about the subsidiary is filed against the PARENT's roster row.
+            # Then the other side of that edge is the parent itself, and the graph drew
+            # "Rheinmetall - parent of - Rheinmetall": a node pointing at itself, out of a
+            # statement that was perfectly true. parse_structure cannot catch it, because
+            # it compares names and the names differ.
+            #
+            # The test is the identity of the node as DRAWN, not where landing() sends it.
+            # slug(other) == cid means the node would carry the same identity as the row it
+            # hangs off. Matching on landing(other) instead was too blunt and took the good
+            # edges with it -- "Rheinmetall -> American Rheinmetall Vehicles" also lands on
+            # rheinmetall, and is exactly the edge worth drawing.
+            if slug(other) == cid:
+                collapsed += 1
+                continue
             # The document this edge was read from IS its evidence; publishable grades
             # the source the same way the partnership tiles are graded, so an
             # uncorroborated single source says so rather than looking equal to a filing.
@@ -1186,8 +1203,8 @@ def step_structure(cur, con, docs, props_by_doc, limit=None):
                                      updated_at=now()""", r)
     con.commit()
     print("structure: %d edge(s) from %d candidate statement(s), %d refused, "
-          "%d ownership pair(s) with no profiled company"
-          % (len(rows), len(cands), refused, len(orphans)), flush=True)
+          "%d collapsed onto one roster row, %d ownership pair(s) with no profiled company"
+          % (len(rows), len(cands), refused, collapsed, len(orphans)), flush=True)
     for o in orphans[:10]:
         print("  not profiled: %s" % o, flush=True)
     # ponytail: no 'sister' rows yet. No single statement asserts one -- a sister is two
@@ -2437,6 +2454,25 @@ def _demo():
     assert parse_structure('{"owner":"Leonardo","owned":"Hensoldt","rel":"subsidiary",'
                            '"note":"owns"}', None) is None, \
         "a one-word note states nothing that can be shown"
+    # A subsidiary carrying its parent's name must not become a node pointing at itself.
+    # Found by running the real farm model over the real corpus: "Leonardo DRS is a wholly
+    # owned subsidiary of Leonardo S.p.A." is true, both names are distinct, and both land
+    # on the one roster row called Leonardo. Three of the first eight edges were self-loops.
+    _land = {"leonardo": ["Leonardo", "Leonardo S.p.A.", "Leonardo DRS"],
+             "rheinmetall": ["Rheinmetall", "American Rheinmetall Vehicles"]}
+    for _cid, _names in _land.items():
+        for _a in _names:
+            for _b in _names:
+                assert slug(_a).startswith(_cid[:6]) or _cid[:6] in slug(_a), \
+                    "%s must resolve toward %s" % (_a, _cid)
+    # parse_structure cannot catch it -- it compares NAMES, and these differ:
+    assert parse_structure('{"owner":"Leonardo S.p.A.","owned":"Leonardo DRS",'
+                           '"rel":"subsidiary","note":"Leonardo DRS is a wholly owned '
+                           'subsidiary of Leonardo S.p.A."}',
+                           "leonardo drs is a wholly owned subsidiary of leonardo s.p.a.") \
+        is not None, "the statement is true and the parser must accept it"
+    # ...so step_structure refuses it at the write, where the roster row is known.
+
     # A patent's assignee is not a parent company. Real corpus: five statements phrase it
     # as "<patent number> is owned by <company>", and each would have put a patent number
     # on the structure graph as a subsidiary.
