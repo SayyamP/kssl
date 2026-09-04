@@ -287,8 +287,10 @@ for (const [which, want] of [["country", WANT.openTenderCountries], ["cat", WANT
     }
   }
   if (cards.length && !bad) ok(`market feed: ${cards.length} promoted tenders carry a real date or none`);
-  /* the tender pipeline card prints the closing date, formatted once */
-  const printed = [...html.tenders.matchAll(/Closes (\d{1,2} \w+ \d{4})/g)].map((m) => m[1]);
+  /* the tender pipeline card prints the closing date, formatted once, in the Closing
+     date cell of its fixed parameter grid (an unresolved cell is class tpv na and
+     cannot match: it prints the unresolved literal, never a date) */
+  const printed = [...html.tenders.matchAll(/class="tpk">Closing date<\/span><span class="tpv">(\d{1,2} \w+ \d{4})/g)].map((m) => m[1]);
   if (printed.length !== 2) fail(`tenders: expected 2 cards to print a closing date, found ${printed.length}`);
   for (const p of printed) if (!DATE.test(p)) fail(`tenders: closing date "${p}" is not in house format`);
   /* the market report's Closes column */

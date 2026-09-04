@@ -41,6 +41,16 @@
   .tcard .ddl.urgent{color:var(--threat);font-weight:600}.tcard .ddl.soon{color:var(--watch)}.tcard .ddl.normal{color:var(--d-txt-3)}
   .tcard .meta{font-family:var(--mono);font-size:11px;color:var(--d-read);display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
   .tcard .meta .sep{color:var(--d-txt-4)}.tcard .meta .val{color:#fff;font-weight:500}
+  /* The fixed parameter grid: the same eight cells on every card, in the same order.
+     A cell holds a stored value or the classed unresolved state -- muted italic, the
+     treatment the fit bar already gives "not assessed" -- so absent and blank never
+     look alike. auto-fill keeps the order and wraps by width; long buyer names wrap
+     inside their cell, so the list never scrolls sideways. */
+  .tcard .tpgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:7px 14px;margin-bottom:9px}
+  .tcard .tpp{display:flex;flex-direction:column;gap:2px;min-width:0}
+  .tcard .tpk{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt-4)}
+  .tcard .tpv{font-family:var(--mono);font-size:11px;color:var(--d-read);line-height:1.4;overflow-wrap:anywhere;word-break:break-word}
+  .tcard .tpv.na{color:var(--d-txt-4);font-style:italic}
   .tcard .fitbar{display:flex;align-items:center;gap:9px}
   .tcard .fitlab{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:var(--d-txt-4)}
   .tcard .fittrack{flex:1;max-width:140px;height:4px;background:var(--d-bg-3)}
@@ -65,6 +75,7 @@
   .tp-asmt-sec .req b{color:var(--l-txt);font-weight:600}
   .tp-asmt-sec .kv{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:8px 0;border-bottom:1px solid var(--l-line,#e2e8f0);font-size:12px;box-sizing:border-box;width:100%}
   .tp-asmt-sec .kv:last-child{border-bottom:none}
+  .tp-asmt-sec .kv .v.na{color:var(--l-txt-4,#94a3b8);font-style:italic}
   .tp-asmt-sec .kv .k{color:var(--l-txt-3,#64748b);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;font-family:var(--mono);line-height:1.5;width:130px;flex-shrink:0}
   .tp-asmt-sec .kv .v{font-family:var(--sans);color:var(--l-txt,#0f172a);font-size:12px;line-height:1.55;text-align:left;word-break:break-word;overflow-wrap:anywhere;flex:1;min-width:0}
   .req-gloss{margin-top:10px;padding:9px 11px;background:var(--l-bg-2);border-left:2px solid var(--l-line-2);font-size:11.5px;line-height:1.5;color:var(--l-txt-3);font-style:italic}

@@ -7,7 +7,7 @@ import { gapCorrelateStrip } from "../../lib/gapModel";
 import { srcChips } from "../../lib/html";
 import { formatLabel } from "../../lib/profile";
 import { facetOptions } from "../../lib/countryFacet";
-import { formatDate } from "../../utils/formatDate";
+import { NOT_ON_RECORD, resolveTenderRow, tenderFactRows } from "../../lib/tenderRow";
 
 const fitClass = (p) => {
   const n = parseInt(p, 10);
@@ -24,31 +24,18 @@ const noticeRef = (t) => {
   const u = s.indexOf("_");
   return u > -1 ? s.slice(u + 1) : s;
 };
-const sourceName = (t) =>
-  (t && t.srcs && t.srcs[0] && t.srcs[0].label) ||
-  (t && t.url ? t.url.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : null);
 
-/* The facts a procurement notice actually carries — everything the reader needs to
-   act, drawn only from the record. Empty fields are dropped, never shown blank. */
+/* The facts of a notice: the FIXED eight (src/lib/tenderRow.js) -- each a stored value
+   or the explicit unresolved state -- then the notice reference the portal indexes it
+   by. Rows are [label, text, resolved]. Nothing is dropped for being empty: a field the
+   notice does not publish is a fact about the notice, and it used to vanish here (and
+   an empty status used to be printed as "Open", which nobody recorded). */
 const factRows = (t) => {
   if (!t) return [];
-  const statusTxt = has(t.status)
-    ? t.status.charAt(0).toUpperCase() + t.status.slice(1)
-    : t.urlKind === "award"
-      ? "Awarded"
-      : "Open";
-  return [
-    ["Category", t.cat],
-    ["Buyer", t.issuer],
-    ["Country", t.country],
-    ["Estimated value", t.value],
-    ["Quantity", t.qty],
-    /* one formatter for every printed date, so "1 Sep" and "01 Sept" cannot coexist */
-    ["Closing date", t.closingDate ? formatDate(t.closingDate) : "not published"],
-    ["Status", statusTxt],
-    ["Notice ref.", noticeRef(t)],
-    ["Source", sourceName(t)],
-  ].filter(([, v]) => has(v));
+  const rows = tenderFactRows(t);
+  const ref = noticeRef(t);
+  rows.push(["Notice ref.", has(ref) ? ref : NOT_ON_RECORD, has(ref)]);
+  return rows;
 };
 
 /* A meta line is only the parts the record carries — a null `value` used to leave
@@ -233,22 +220,16 @@ export default function Tenders({ mode = "tender" }) {
   const modeTitle =
     mode === "awarded-tenders" ? "Awarded Tenders" : mode === "closed-tenders" ? "Closed Tenders" : "Tender Pipeline";
   const report = useMemo(() => {
-    const val = (v) => (has(v) ? String(v) : "—");
-    const row = (x) => [x.title, [x.country, x.cat, x.value, x.deadline].filter(has).join(" · ")];
+    /* the same eight parameters the card shows, labelled, unresolved ones included */
+    const row = (x) => [
+      x.title,
+      resolveTenderRow(x).params.map((p) => `${p.label}: ${p.text}`).join(" · "),
+    ];
     const sections = [];
     if (t) {
       sections.push({
         h: "Selected tender",
-        rows: [
-          ["Title", val(t.title)],
-          ["Issuer", val(t.issuer)],
-          ["Country", val(t.country)],
-          ["Category", val(t.cat)],
-          ["Value", val(t.value)],
-          ["Quantity", val(t.qty)],
-          ["Deadline", val(t.deadline)],
-          ["Status", val(t.status)],
-        ],
+        rows: [["Title", t.title], ...factRows(t).map(([k, v]) => [k, v])],
       });
       if (has(t.reqNote)) sections.push({ h: "Requirement", rows: [t.reqNote] });
       if (Array.isArray(t.req) && t.req.length) sections.push({ h: "Requirements", rows: t.req });
@@ -424,14 +405,19 @@ export default function Tenders({ mode = "tender" }) {
                     <div className="ttl">{row.title}</div>
                     <span className={`ddl ${dlClass(row.dl, row.statusClass)}`}>{row.deadline}</span>
                   </div>
-                  <div className="meta">
-                    {/* The chip above is a countdown; the DATE it counts to is printed here,
-                        through the one formatter, so every card states its closing date
-                        the same way -- and a record with none states none. */}
-                    {metaLine([
-                      row.issuer, row.country, row.cat, [row.value, "val"], row.qty,
-                      row.closingDate ? `Closes ${formatDate(row.closingDate)}` : null,
-                    ])}
+                  <div className="tpgrid">
+                    {/* The SAME eight parameters on every card, in the same order, each a
+                        stored value or the explicit "not on record" state. The chip above
+                        is a countdown; the date it counts to is the Closing date cell. A
+                        one-word title ("Ammunition") is read with its buyer, country,
+                        category and portal around it, and a value the notice never
+                        published is stated as absent rather than silently dropped. */}
+                    {resolveTenderRow(row).params.map((p) => (
+                      <div className="tpp" key={p.key}>
+                        <span className="tpk">{p.label}</span>
+                        <span className={`tpv${p.value == null ? " na" : ""}`}>{p.text}</span>
+                      </div>
+                    ))}
                   </div>
                   <div className="fitbar">
                     <span className="fitlab">{clientName} fit</span>
@@ -480,11 +466,11 @@ export default function Tenders({ mode = "tender" }) {
               <div className="tp-asmt-sec">
                 <span className="eyebrow">Tender details</span>
                 <div className="tp-facts">
-                  {factRows(t).map(([k, v]) => (
+                  {factRows(t).map(([k, v, resolved]) => (
                     <div className="kv" key={k}>
                       {/* the label wears the house capitalisation, the value never does */}
                       <span className="k">{formatLabel(k)}</span>
-                      <span className="v">{v}</span>
+                      <span className={`v${resolved ? "" : " na"}`}>{v}</span>
                     </div>
                   ))}
                 </div>
