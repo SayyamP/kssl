@@ -821,23 +821,32 @@ def backfill(q, floor=None, scan=None, dry=False):
     floor = BACKFILL_FLOOR if floor is None else int(floor)
     scan = BACKFILL_SCAN if scan is None else int(scan)
     band = {"min_class": LIVE_MIN_CLASS, "max_class": LIVE_MAX_CLASS, "cap": LIVE_CAP}
-    out = {"ready": 0, "want": 0, "nolive": 0, "scanned": 0, "promoted": 0,
+    out = {"ready": 0, "other": 0, "want": 0, "nolive": 0, "scanned": 0, "promoted": 0,
            "hi": None, "lo": None, "why": ""}
+    # `ready` IS NOT A SCALAR, and treating it as one is how the first version of this failed
+    # in production: promote_deferred filled the whole 400-row shortfall with class-0 rows,
+    # which only the oversize pool (min_class=0) can claim, and the 182 farm workers went on
+    # printing "nothing eligible" beside a queue that now looked full. A floor is only
+    # meaningful against the population that can actually claim it, so it is counted with the
+    # SAME predicate the gate backfill promotes into -- band in, band out.
+    band_where = ("class BETWEEN %(min_class)s AND %(max_class)s AND chars <= %(cap)s")
     with q.cursor() as c:
-        c.execute("SELECT count(*) FROM extract_queue WHERE state='ready'")
+        c.execute("SELECT count(*) FROM extract_queue WHERE state='ready' AND " + band_where,
+                  band)
         out["ready"] = c.fetchone()[0]
+        c.execute("SELECT count(*) FROM extract_queue WHERE state='ready' AND NOT (" +
+                  band_where + ")", band)
+        out["other"] = c.fetchone()[0]
     out["want"] = want = max(0, floor - out["ready"])
+    # 1. Rows deferred only because nothing was RUNNING. Free and correct under any gate policy,
+    #    so they go first -- but against THEIR OWN shortfall. They land outside the live band
+    #    (class 0, the oversize lane), so they neither compete with the gate backfill for the
+    #    budget nor count towards satisfying it.
+    want_other = max(0, floor - out["other"])
+    if want_other and not dry:
+        out["nolive"] = promote_deferred(q, want_other)
     if not want:
-        out["why"] = "ready %d >= floor %d" % (out["ready"], floor)
-        return out
-
-    # 1. Rows deferred only because nothing was RUNNING. Free, and correct under any gate
-    #    policy, so they are spent before any gate row is reconsidered.
-    if not dry:
-        out["nolive"] = promote_deferred(q, want)
-    want -= out["nolive"]
-    if want <= 0:
-        out["why"] = "filled from no-live-node"
+        out["why"] = "in-band ready %d >= floor %d" % (out["ready"], floor)
         return out
 
     # 2. Score a batch of never-examined gate rows. Refusing to run without the dataset is the
@@ -874,7 +883,8 @@ def backfill(q, floor=None, scan=None, dry=False):
             c.execute(BACKFILL_PROMOTE_SQL, dict(band, lim=want))
             out["promoted"] = len(c.fetchall())
         q.commit()
-    out["why"] = "ready %d -> want %d" % (out["ready"], out["want"])
+    out["why"] = "in-band ready %d (+%d out of band) -> want %d" % (
+        out["ready"], out["other"], out["want"])
     return out
 
 
@@ -1539,15 +1549,19 @@ def _demo():
 
     class _FakeCur:
         """Just enough cursor to prove the guard. Counts what SQL would have run."""
-        def __init__(self, ready, log):
-            self.ready, self.log = ready, log
+        def __init__(self, ready, other, log):
+            self.ready, self.other, self.log = ready, other, log
         def __enter__(self):
             return self
         def __exit__(self, *a):
             return False
         def execute(self, sql, args=None):
             self.log.append(sql.strip().split()[0].upper())
-            self._r = [(self.ready,)] if "count(*)" in sql else []
+            if "count(*)" in sql:
+                # the second COUNT is the negated band -- "NOT (" is the only difference
+                self._r = [(self.other if "NOT (" in sql else self.ready,)]
+            else:
+                self._r = []
         def executemany(self, sql, seq):
             self.log.append("MANY")
         def fetchone(self):
@@ -1556,23 +1570,38 @@ def _demo():
             return self._r
 
     class _FakeQ:
-        def __init__(self, ready):
-            self.ready, self.log = ready, []
+        def __init__(self, ready, other=0):
+            self.ready, self.other, self.log = ready, other, []
         def cursor(self):
-            return _FakeCur(self.ready, self.log)
+            return _FakeCur(self.ready, self.other, self.log)
         def commit(self):
             pass
 
-    # Above the floor it must do NOTHING but count -- this runs every feeder cycle forever,
-    # and it must never touch a row while the fleet has work.
-    q = _FakeQ(500)
+    # BOTH bands above the floor: do nothing but count. This runs every feeder cycle forever
+    # and must never touch a row while every pool has work. Both bands, not one -- 16 of the 198
+    # workers claim only class 0, and a healthy in-band queue says nothing about them.
+    q = _FakeQ(500, other=500)
     r = backfill(q, floor=400)
     assert r["want"] == 0 and r["promoted"] == 0 and r["nolive"] == 0, r
-    assert q.log == ["SELECT"], "backfill wrote to the queue while ready was above the floor"
+    assert set(q.log) == {"SELECT"}, "backfill wrote to the queue while every pool had work"
+    # ...but a full in-band queue must NOT stop the oversize pool being fed. Those 16 workers
+    # idle silently: nothing about `ready` being 500 tells you class 0 is empty.
+    q = _FakeQ(500, other=0)
+    r = backfill(q, floor=400)
+    assert r["want"] == 0, r
+    assert "UPDATE" in q.log, "in-band work must not starve the class-0 pool"
     # Below the floor it asks for exactly the shortfall, never for the whole backlog.
     q = _FakeQ(120)
     r = backfill(q, floor=400, dry=True)
     assert r["want"] == 280, r
+    # THE PRODUCTION FAILURE, stated as an invariant. `ready` is counted per BAND: 378 rows
+    # sitting in `ready` that this band cannot claim (class 0, the oversize lane) must leave the
+    # shortfall untouched. The first version counted them and let 182 farm workers idle beside a
+    # queue that looked full.
+    q = _FakeQ(0, other=378)
+    r = backfill(q, floor=400, dry=True)
+    assert r["want"] == 400, "out-of-band ready rows must not satisfy this band's floor: %r" % r
+    assert r["other"] == 378, r
     print("ok  backfill: %d-row floor, score survives the reason round trip, "
           "no-op above the floor" % BACKFILL_FLOOR)
 
@@ -1696,10 +1725,10 @@ def main():
         b = backfill(q, floor=a.backfill_floor)
         band = ("" if b["hi"] is None
                 else "  promoted scores %d..%d" % (b["hi"], b["lo"]))
-        print("backfill: ready %d, want %d -> %d from no-live-node + %d from the gate "
-              "(%d newly scored)%s [%s]"
-              % (b["ready"], b["want"], b["nolive"], b["promoted"], b["scanned"],
-                 band, b["why"]))
+        print("backfill: in-band ready %d, want %d -> %d from the gate (%d newly scored)%s; "
+              "%d out-of-band promoted from no-live-node [%s]"
+              % (b["ready"], b["want"], b["promoted"], b["scanned"], band,
+                 b["nolive"], b["why"]))
     if a.reap:
         with q.cursor() as c:
             c.execute(REAP, {"max_attempts": MAX_ATTEMPTS})
