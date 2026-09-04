@@ -587,13 +587,6 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
         if not admit:
             not_competitor += 1
             why_counts[why.split(" (")[0]] = why_counts.get(why.split(" (")[0], 0) + 1
-            # Not adding the row is not the same as removing it. This step rebuilds only
-            # ord < REV_ORD0 and its INSERT is ON CONFLICT DO NOTHING, so a refused company
-            # already sitting in revive_partners' range survives every pass untouched --
-            # which is why Accenture stayed on the dashboard after the gate shipped. A
-            # refusal is a verdict about the company, so it applies wherever its row is.
-            cur.execute("DELETE FROM serving.competitors "
-                        "WHERE comp_id=%s AND origin='pipeline'", (slug(name),))
             continue
         # dated recent docs -> update lines (recency rule: updates are CLAIMS)
         updates = []
