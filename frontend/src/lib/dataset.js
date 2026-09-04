@@ -7,7 +7,7 @@
    `window`, so the app can re-fetch and re-wire without a reload. */
 import { computeSpecEdge } from "./edge.js";
 import { wireTendersWithRealDays } from "./tenderCalc.js";
-import { titleCaseHeadline } from "./profile.js";
+import { titleCaseHeadline, formatProductName, tidySeparators } from "./profile.js";
 import { logger } from "../utils/logger.js";
 
 export function wireDataset(raw) {
@@ -29,8 +29,13 @@ export function wireDataset(raw) {
     });
     const mapValues = (obj, fn) =>
       Object.fromEntries(Object.entries(obj || {}).map(([k, v]) => [k, fn(v)]));
+    // `driver` arrives as "Elroy Air," on one row; the trailing comma is not a name
     d.innovations = mapValues(d.innovations, (rows) =>
-      (rows || []).map((iv) => ({ ...iv, t: titleCaseHeadline(iv.t) })));
+      (rows || []).map((iv) => ({
+        ...iv,
+        t: titleCaseHeadline(iv.t),
+        driver: typeof iv.driver === "string" ? tidySeparators(iv.driver) : iv.driver,
+      })));
     d.competitorNews = mapValues(d.competitorNews, (rows) =>
       (rows || []).map((n) => ({ ...n, title: titleCaseHeadline(n.title) })));
     // the drill-down behind a card carries its own copy of the headline
@@ -45,22 +50,50 @@ export function wireDataset(raw) {
        comparison; casing it at those four render sites is how "nag carrier" and "Nag
        Carrier" ended up on the same screen.
 
-       titleCaseHeadline, NOT formatLabel. formatLabel lower-cases every word outside a
+       formatProductName, NOT formatLabel. formatLabel lower-cases every word outside a
        fixed acronym list, which is right for a field LABEL and wrong for a product:
-       it splits on the hyphen and prints "Ak-203". titleCaseHeadline raises only and
-       eats no acronym, so AK-203, K10, YFQ-44A and BrahMos survive it.
+       it splits on the hyphen and prints "Ak-203". The product rule raises only and
+       eats no acronym, so AK-203, K10, YFQ-44A and BrahMos survive it -- and a listed
+       acronym typed in lower case ("uav swarms") comes out whole (T 20).
 
        Stored text untouched -- display rule only. */
     const caseProduct = (p) => {
-      if (typeof p === "string") return titleCaseHeadline(p);
+      if (typeof p === "string") return formatProductName(p);
       if (p && typeof p === "object" && typeof p.name === "string") {
-        return { ...p, name: titleCaseHeadline(p.name) };
+        return { ...p, name: formatProductName(p.name) };
       }
       return p;
     };
     // competitors is a MAP keyed by comp_id, not an array -- mapValues, not .map()
-    d.competitors = mapValues(d.competitors, (c) =>
-      c && Array.isArray(c.products) ? { ...c, products: c.products.map(caseProduct) } : c);
+    d.competitors = mapValues(d.competitors, (c) => {
+      if (!c || typeof c !== "object") return c;
+      const out = { ...c };
+      if (Array.isArray(c.products)) out.products = c.products.map(caseProduct);
+      /* A partner label stored as "Saab," joins into a list as "Saab,, Foo" -- the
+         double comma of FE 31. The id is the join key; the label is only printed. */
+      if (Array.isArray(c.partners)) {
+        out.partners = c.partners.map((p) =>
+          p && typeof p.label === "string" ? { ...p, label: tidySeparators(p.label) } : p);
+      }
+      return out;
+    });
+
+    /* THE MATCHUP TABLE spells the same product a third way. `comp` is "Company ·
+       Product" and `bf` is "KSSL · Product", printed raw by the matchup list, the
+       dossier and the Positioning header, while the Products page derives its heading
+       from the same string through its own formatter -- so "NAMICA (Nag carrier)" sat
+       on one screen and "Namica (Nag Carrier)" on the next (FE 33). Case the product
+       segment here, once. The company segment and `compBy` are the join keys and are
+       left exactly as stored. */
+    const caseSegment = (s) => {
+      if (typeof s !== "string" || !s.trim()) return s;
+      const i = s.lastIndexOf("·");
+      return i < 0 ? formatProductName(s) : `${s.slice(0, i + 1)} ${formatProductName(s.slice(i + 1))}`;
+    };
+    d.matchups = mapValues(d.matchups, (m) =>
+      m && typeof m === "object"
+        ? { ...m, comp: caseSegment(m.comp), bf: caseSegment(m.bf), anchor: caseSegment(m.anchor) }
+        : m);
   } catch (e) {
     logger.warn("wiring:headlineCase", e);
   }

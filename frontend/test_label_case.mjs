@@ -43,6 +43,34 @@ eq(formatLabel("bmp-2 upgrade"), "BMP-2 Upgrade", "platform designation keeps it
 eq(formatLabel("mk1 turret"), "MK1 Turret", "MK1, not Mk1");
 eq(formatLabel("r&d"), "R&D", "ampersand acronym");
 
+/* --- FE 12 / FE 34 / T 20: an acronym is whole, a designation keeps its own case ---
+ * These are the real sector strings from serving.competitors.sector and the real
+ * company/product strings the acceptance sheet named. formatLabel lower-cased every
+ * word it did not know, so "ARI" printed as "Ari" and "UAVs" as "UAVS" in the sector
+ * dropdown while the profile heading printed them correctly. */
+eq(formatLabel("ARI"), "ARI", "FE 34: a three-letter company acronym is not calmed to 'Ari'");
+eq(formatLabel("sam systems"), "SAM Systems", "T 20: a defence acronym typed in lower case is raised whole");
+eq(formatLabel("Unmanned Aerial Vehicles (UAVs), Counter-Unmanned Aircraft Systems (C-UAS)"),
+   "Unmanned Aerial Vehicles (UAVs), Counter-Unmanned Aircraft Systems (C-UAS)",
+   "FE 12: a plural acronym keeps its small s -- UAVs, not UAVS and not Uavs");
+eq(formatLabel("armored vehicles, MRAPs, counter-drone systems"),
+   "Armored Vehicles, MRAPs, Counter-Drone Systems", "FE 12: MRAPs");
+eq(formatLabel("Synthetic Aperture Radar (SAR) satellites, Intelligence, Surveillance and Reconnaissance (ISR)"),
+   "Synthetic Aperture Radar (SAR) Satellites, Intelligence, Surveillance And Reconnaissance (ISR)",
+   "FE 12: SAR and ISR survive inside brackets");
+eq(formatLabel("C4ISR systems"), "C4ISR Systems", "alphanumeric acronym");
+eq(formatLabel("P3TS military satellite navigation receiver"),
+   "P3TS Military Satellite Navigation Receiver",
+   "FE 32: a designation with a digit in it keeps its own case, list or no list");
+eq(formatLabel("IP67 rated"), "IP67 Rated", "designation");
+eq(formatLabel("Defence &amp; Aerospace, Maritime Systems, Simulation &amp; Training"),
+   "Defence & Aerospace, Maritime Systems, Simulation & Training", "entity decoded");
+
+/* --- FE 31: a stray separator is not a word --- */
+eq(formatLabel("Naval,, Land Defense"), "Naval, Land Defence", "FE 31: a double comma collapses to one");
+eq(formatLabel("Naval , Land Defense"), "Naval, Land Defence", "a floating comma is reattached");
+eq(formatLabel("Naval Defense,"), "Naval Defence", "a trailing comma is dropped");
+
 /* --- Pascal case: a connector is capitalised wherever it sits --- */
 eq(formatLabel("and beyond"), "And Beyond", "leading connector");
 eq(formatLabel("air and land"), "Air And Land", "middle connector is capitalised too");
@@ -61,4 +89,4 @@ eq(formatSectorName(""), "Defence & Aerospace", "sector keeps its default");
 eq(formatSectorName("naval systems"), "Naval Systems", "sector still formats");
 
 if (bad) { console.log(`\n${bad} failure(s)`); process.exit(1); }
-console.log("ok - formatLabel, 22 cases, one rule for Product and Competitive alike");
+console.log("ok - formatLabel, 36 cases, one rule for Product and Competitive alike");
