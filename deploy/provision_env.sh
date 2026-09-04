@@ -71,8 +71,12 @@ KSSL_WEB_MEM=1g
 KSSL_LLM_CPUS=2
 KSSL_LLM_MEM=4g
 KSSL_LLM_THREADS=4
-# Placeholders: neither environment is published to the internet -- both are reached over
-# SSH or from the box itself -- but compose refuses to interpolate a missing variable.
+# KSSL_DOMAIN starts as a placeholder because a replica is reachable over SSH until
+# someone decides to publish it. To give this environment a real URL, set KSSL_DOMAIN to a
+# hostname that already resolves to THIS box -- both VPS hosts answer on their provider
+# hostname (srv<id>.hstgr.cloud), so that usually needs no DNS work -- then run traefik
+# from /docker/traefik and recreate frontend+backend. Both sit behind the basicauth
+# middleware below, so publishing does not mean exposing.
 KSSL_DOMAIN=$ENVN.local
 KSSL_ACME_EMAIL=admin@i3softlab.com
 KSSL_SERVE_ORIGIN=http://127.0.0.1:$((LLMAPI_PORT - 10))
@@ -81,10 +85,11 @@ KSSL_OLLAMA=http://127.0.0.1:$KSSL_OLLAMA_PORT
 KSSL_MODEL=qwen2.5:7b
 KSSL_VPS_MODEL=qwen2.5:7b
 KSSL_MODELS_DIR=/opt/kssl/models
-KSSL_BASIC_AUTH=$ENVN:\$apr1\$placeholder
+KSSL_BASIC_AUTH=$BASIC_ESC
 TAG=latest
 EOF
-  echo "   wrote .env with a freshly generated database password"
+  echo "   wrote .env with a freshly generated database password and basic-auth credential"
+  BASIC_PW_NOTICE="$BASIC_PW"
 fi
 
 # 1b. The EXTRACTION environment file. Separate from the app's .env because the fleet is
@@ -102,6 +107,25 @@ if [ -f extraction/.env ]; then
   echo "   extraction/.env exists, leaving it alone"
 else
   umask 077
+  # THE BASIC-AUTH CREDENTIAL, GENERATED FOR REAL. This used to write the literal
+  # placeholder `$ENVN:\$apr1\$placeholder`, and compose's .env interpolation then read
+  # `$apr1` and `$placeholder` as variables and substituted empty strings -- so traefik
+  # received `staging:` with no hash at all, on a middleware that guards BOTH the UI and
+  # the API. A replica carrying production's data behind an auth header that cannot
+  # succeed is worse than no auth, because it looks protected.
+  #
+  # Hence: a real password, a real hash, and every `$` doubled, which is what compose
+  # needs to leave the hash alone. bcrypt where htpasswd exists, apr1 otherwise -- traefik
+  # accepts both. The password is printed ONCE, at the end of this run, because it is not
+  # recoverable from the hash.
+  BASIC_PW="$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c 24)"
+  if command -v htpasswd >/dev/null 2>&1; then
+    BASIC_LINE="$(htpasswd -nbB kssl "$BASIC_PW")"
+  else
+    BASIC_LINE="kssl:$(openssl passwd -apr1 "$BASIC_PW")"
+  fi
+  BASIC_ESC="$(printf '%s' "$BASIC_LINE" | sed 's/\$/$$/g')"
+
   # `|| true` because grep exits 1 on no match and this script runs under `set -e`: a
   # pre-existing .env written by hand may spell the line differently, and dying here with
   # no message is worse than the empty-password check two lines down.
@@ -200,6 +224,10 @@ echo "   extraction compose parses"
 cat <<EOF
 
 >> $ENVN is provisioned. Next:
+${BASIC_PW_NOTICE:+
+   WRITE THIS DOWN -- it is not recoverable from the hash and is not printed again:
+       $ENVN basic auth:  kssl / $BASIC_PW_NOTICE
+}
 
    1. load production's data:
         DUMP_FILE=/tmp/prod.dump ./deploy/sync_from_prod.sh $ENVN
