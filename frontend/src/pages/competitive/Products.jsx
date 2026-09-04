@@ -3,6 +3,8 @@ import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { productNews } from "../../lib/news";
 import { formatLabel, formatSectorName } from "../../lib/profile";
+import Thumb from "../../components/thumb/Thumb.jsx";
+import SourceLink from "../../components/sourceLink/SourceLink.jsx";
 
 // Clean company display name helper
 const cleanCompanyName = (rawName) => {
@@ -600,12 +602,12 @@ export default function Products() {
               </h2>
 
               <div style={{ fontSize: "12px", color: "var(--d-txt-3)", fontWeight: "600" }}>
-                Source Publisher: <span style={{ color: "#f87171" }}><span className="src-dot"></span>{activeProdArticle.source}</span>
+                <SourceLink url={activeProdArticle.url} source={activeProdArticle.source} color="#f87171" />
               </div>
 
               {activeProdArticle.image && (
                 <div style={{ width: "100%", maxHeight: "340px", overflow: "hidden", borderRadius: "6px", background: "var(--d-bg-2)" }}>
-                  <img src={activeProdArticle.image} alt={activeProdArticle.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  <Thumb src={activeProdArticle.image} alt={activeProdArticle.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                 </div>
               )}
 
@@ -828,7 +830,7 @@ export default function Products() {
                       tabIndex={0}
                     >
                       <div style={{ position: "relative", width: "100%", height: "200px", overflow: "hidden", background: "var(--d-bg-1)" }}>
-                        <img src={topProdStory.image || undefined} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        <Thumb src={topProdStory.image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                         <span style={{ position: "absolute", left: "12px", bottom: "12px", background: "#b5341f", color: "#fff", fontFamily: "var(--mono)", fontSize: "10px", fontWeight: "700", letterSpacing: ".1em", padding: "3px 8px", borderRadius: "3px" }}>
                           TOP STORY
                         </span>
@@ -873,7 +875,7 @@ export default function Products() {
                         role="button"
                         tabIndex={0}
                       >
-                        <img src={item.image} alt="News Thumb" style={{ width: "90px", height: "75px", borderRadius: "6px", objectFit: "cover", flexShrink: 0, background: "var(--d-bg-1)" }} />
+                        <Thumb src={item.image} alt="News Thumb" style={{ width: "90px", height: "75px", borderRadius: "6px", objectFit: "cover", flexShrink: 0, background: "var(--d-bg-1)" }} />
                         <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
                           <div style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f87171", fontWeight: "600" }}>
                             {item.category} · {item.ago}
