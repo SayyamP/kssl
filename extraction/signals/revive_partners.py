@@ -29,6 +29,7 @@ import psycopg2
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
+import roster                                                  # noqa: E402
 from source_tiers import domain as st_domain, publishable      # noqa: E402
 from revive_matchups import (load_docs, norm, index_df, DF,     # noqa: E402
                              COMMON)
@@ -566,11 +567,10 @@ def write(cur, con, keep, newco, rkeep):
     # every pipeline row they see; both were taught to stop at REV_ORD0 so the two
     # writers cannot take each other's rows with them.
     # Carry interim OSINT columns across this rebuild too (see enrich_serving.step_companies).
-    cur.execute("""SELECT comp_id, leadership, facilities, hq FROM serving.competitors
-                     WHERE origin='pipeline' AND ord >= %s
-                       AND (leadership IS NOT NULL OR facilities IS NOT NULL)""",
-                (REV_ORD0,))
-    _carry = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
+    # roster.CARRIED_COLUMNS -- the SAME list enrich uses. This file kept its own copy
+    # of three column names; two lists is how the next column gets forgotten by exactly
+    # one of the two writers, which is what happened to `sales`.
+    _carry = roster.carry_snapshot(cur, "origin='pipeline' AND ord >= %s", (REV_ORD0,))
     cur.execute("DELETE FROM serving.competitors WHERE origin='pipeline' AND ord >= %s",
                 (REV_ORD0,))
     for i, (cid, m) in enumerate(sorted(newco.items())):
@@ -582,15 +582,7 @@ def write(cur, con, keep, newco, rkeep):
                        ON CONFLICT (comp_id) DO NOTHING""",
                     (cid, REV_ORD0 + i, m["name"], m["dir"], m["sector"], m["hq"],
                      json.dumps(m["srcs"][:4])))
-    for cid, (ld, fac, hq0) in _carry.items():
-        cur.execute("""UPDATE serving.competitors
-                         SET leadership = COALESCE(%s::jsonb, leadership),
-                             facilities = COALESCE(%s::jsonb, facilities),
-                             hq         = COALESCE(NULLIF(hq,''), %s)
-                       WHERE comp_id=%s AND origin='pipeline'""",
-                    (json.dumps(ld) if ld is not None else None,
-                     json.dumps(fac) if fac is not None else None,
-                     hq0, cid))
+    roster.carry_restore(cur, _carry)
     for cid, plist in keep.items():
         # keep whatever the pipeline itself found; replace only revived entries
         cur.execute("SELECT partners FROM serving.competitors WHERE comp_id=%s "

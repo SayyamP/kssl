@@ -66,6 +66,7 @@ _st_spec = _ilu.spec_from_file_location(
     "engine_source_tiers", str(HERE.parent / "engine" / "source_tiers.py"))
 _st = _ilu.module_from_spec(_st_spec); _st_spec.loader.exec_module(_st)  # type: ignore
 publishable = _st.publishable  # noqa: E402  (ONE source bar, shared)
+import roster  # noqa: E402  (the curated roster, shared with serving_fill)
 from aliases import (  # noqa: E402  (ONE identity layer, shared with serving_fill)
     canonical as canon_name, client_led, fold as fold_name, has_proper_name,
     is_client,
@@ -278,6 +279,21 @@ def merge_candidates(names):
     """One identity per company: aliases.merge folds legal suffixes, the client
     group's spellings, known alias pairs, then word-boundary containment."""
     return alias_merge(names)
+def apply_roster_allowlist(cur, merged):
+    """Filter the candidate companies to the curated roster before profiling.
+
+    The rule lives in roster.py because serving_fill needs the same one: it decides
+    whether a card may be called a threat. Two implementations drifting apart is how a
+    company lands on the Competitor tab with all its news filed as watch.
+
+    Advisory -- no table or an empty one means no opinion, and the roster is whatever
+    the corpus mentioned, exactly as before.
+    """
+    kept = roster.allows(merged, roster.keys(cur))
+    if len(kept) != len(merged):
+        print("companies: allowlist kept %d of %d candidate(s)"
+              % (len(kept), len(merged)), flush=True)
+    return kept
 
 
 def company_mentions(aliases, docs, props_by_doc):
@@ -966,12 +982,20 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
     # the corpus has none) across the rebuild. This step DELETEs+re-INSERTs pipeline
     # competitors from the corpus and its INSERT does not carry those columns, so
     # without this snapshot every enrich pass silently wipes them (the Adani-empty bug).
-    cur.execute("""SELECT comp_id, leadership, facilities, hq FROM serving.competitors
-                     WHERE origin='pipeline'
-                       AND (leadership IS NOT NULL OR facilities IS NOT NULL)""")
-    _carry = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
+    # roster.CARRIED_COLUMNS is the single list; the old inline one named three columns
+    # and `sales` was not among them, so the harvest wrote annual revenue and the next
+    # pass deleted it -- 0 of 42 on the tab for a field that had already been extracted.
+    _carry = roster.carry_snapshot(cur)
     # Own range only: revive_partners writes companies the crawl never profiled at
     # ord >= REV_ORD0. A blanket delete took them, and their ties, with it.
+    # Snapshot the WHOLE row, not just the interim columns above. The roster is rebuilt
+    # from zero every pass and a company reappears only if its ONE profile call succeeds,
+    # so a farm timeout silently deleted curated rivals: Leonardo sat at 84 signal cards
+    # and no competitor row, and the Competitor tab disagreed with its own feed. The
+    # carry-forward after the INSERT puts a curated row back when its call fails.
+    cur.execute("""SELECT comp_id, to_jsonb(c) FROM serving.competitors c
+                    WHERE origin='pipeline' AND ord < %s""", (REV_ORD0,))
+    _prev = {r[0]: r[1] for r in cur.fetchall()}
     cur.execute("DELETE FROM serving.competitors WHERE origin='pipeline' AND ord < %s",
                 (REV_ORD0,))
     cur.execute("SELECT company FROM serving.signal_card WHERE origin='pipeline'")
@@ -986,6 +1010,10 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
     merged = merge_candidates(candidates)
     print("companies: %d candidate(s) after merge (%d card compan(ies), %d raw)"
           % (len(merged), len(card_companies), len(candidates)), flush=True)
+    # Filter BEFORE profiling: every survivor costs one LLM profile call, and the run
+    # that prompted this was making 324 of them to build a 425-company roster nobody
+    # asked for.
+    merged = apply_roster_allowlist(cur, merged)
 
     patterns, _comp = load_terms()
     cutoff, cur_year = recent_cutoff()
@@ -1122,16 +1150,32 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
                      r["site"], json.dumps(r["srcs"]),
                      json.dumps(r["products"]),
                      p.get("threat_note")))
+    # Put back any CURATED company this pass failed to rebuild. Only allowlisted names:
+    # a company nobody chose to track should still fall off when the corpus stops
+    # mentioning it -- this protects the curated roster, it does not freeze the table.
+    _rk = roster.keys(cur)
+    carried = 0
+    if _rk:
+        for _cid, _row in _prev.items():
+            if not roster.on_roster(_row.get("name") or "", _rk):
+                continue
+            cur.execute("SELECT 1 FROM serving.competitors WHERE comp_id=%s", (_cid,))
+            if cur.fetchone():
+                continue
+            cur.execute("""INSERT INTO serving.competitors
+                           SELECT (jsonb_populate_record(
+                                     NULL::serving.competitors, %s::jsonb)).*
+                           ON CONFLICT (comp_id) DO NOTHING""",
+                        (json.dumps(_row),))
+            carried += cur.rowcount
+    if carried:
+        print("companies: carried %d curated row(s) forward (not rebuilt this pass)"
+              % carried, flush=True)
+
     # Restore the snapshotted interim columns onto the freshly-rebuilt rows.
-    for cid, (ld, fac, hq0) in _carry.items():
-        cur.execute("""UPDATE serving.competitors
-                         SET leadership = COALESCE(%s::jsonb, leadership),
-                             facilities = COALESCE(%s::jsonb, facilities),
-                             hq         = COALESCE(NULLIF(hq,''), %s)
-                       WHERE comp_id=%s AND origin='pipeline'""",
-                    (json.dumps(ld) if ld is not None else None,
-                     json.dumps(fac) if fac is not None else None,
-                     hq0, cid))
+    _restored = roster.carry_restore(cur, _carry)
+    if _restored:
+        print("companies: restored curated columns on %d row(s)" % _restored, flush=True)
     con.commit()
     print("companies: %d written, %d refused, %d skipped no-props, %d not a company, "
           "%d not a competitor, %d over limit"
