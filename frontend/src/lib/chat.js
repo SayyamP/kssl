@@ -314,7 +314,12 @@ export function groundedAnswer(d, question, ctx) {
   const company = matchCompany(q) || (vague && selPillar === "Partnerships" ? sel : null);
   if (company && kb.competitors[company]) {
     const c = kb.competitors[company];
-    const prods = [...new Set(c.products)].slice(0, 8);
+    // products are objects now; a Set of objects dedupes by reference, so this
+    // listed the same product twice and printed each as [object Object].
+    const prods = [
+      ...new Set((c.products || []).map((x) => (typeof x === "string" ? x : x && x.name))
+        .filter(Boolean)),
+    ].slice(0, 8);
     const markets = [...new Set(kb.geo.filter((g) => g.company === company).map((g) => g.country))];
     const mu = kb.matchups.filter((m) =>
       m.competitor.toLowerCase().includes(company.split(" ")[0].toLowerCase()),

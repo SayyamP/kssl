@@ -159,7 +159,7 @@ COMMENT ON COLUMN serving.competitors.center IS 'Map centre for the company view
 COMMENT ON COLUMN serving.competitors.partners IS 'Named partners.';
 COMMENT ON COLUMN serving.competitors.site IS 'Official website.';
 COMMENT ON COLUMN serving.competitors.srcs IS 'Documents the profile was built from.';
-COMMENT ON COLUMN serving.competitors.products IS 'Named products. Generic nouns are not product names.';
+COMMENT ON COLUMN serving.competitors.products IS 'Named products, as objects: {id, name, category?, source?, source_url?}. Generic nouns are not product names. No description or image key -- this pipeline has no source for either, and absent beats invented. Reference-origin rows predate the shape and still hold bare strings; readers take both.';
 COMMENT ON COLUMN serving.competitors."threatNote" IS 'The measurement behind the threat rating, stated so the rating can be checked.';
 COMMENT ON COLUMN serving.competitors.origin IS 'pipeline or reference.';
 COMMENT ON COLUMN serving.competitors.updated_at IS 'When the row was last written.';

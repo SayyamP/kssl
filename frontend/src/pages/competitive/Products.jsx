@@ -328,14 +328,22 @@ export default function Products() {
       });
 
       (co.products || []).forEach((pName) => {
-        const name = typeof pName === "string" ? pName : (pName.name || pName.n || "");
+        const obj = typeof pName === "string" ? { name: pName } : pName || {};
+        const name = obj.name || obj.n || "";
         if (name && !seen.has(name.toLowerCase())) {
           seen.add(name.toLowerCase());
           prods.push({
-            id: `co-prod-${name}`,
+            id: obj.id ? `co-prod-${obj.id}` : `co-prod-${name}`,
             name: formatTitleCase(name),
             company: selectedCompany.name,
-            category: formatCategoryTitle(co.sector),
+            /* The product's OWN band when the record carries one. This used to be the
+               company's sector for every product it makes, so a firm's radars and its
+               trucks came out under one label and the category filter could not
+               separate them. co.sector remains the fallback for the reference archive,
+               whose products are still bare strings. */
+            category: formatCategoryTitle(obj.category || co.sector),
+            source: obj.source || "",
+            sourceUrl: obj.source_url || "",
             specs: {},
             reason: "",
           });

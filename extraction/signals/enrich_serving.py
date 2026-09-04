@@ -435,6 +435,61 @@ def usable_update(url, title, patterns, props_t):
     return is_relevant(patterns, title, props_t)
 
 
+def product_names(products):
+    """Products are STORED as objects ({id, name, category, source, source_url}); every
+    Python consumer -- rate_threat, step_matchups, the competitor gate -- wants the name.
+    One conversion at the read boundary rather than isinstance checks scattered over four
+    call sites, and tolerant of the bare-string form the reference archive still holds
+    and is never rebuilt into."""
+    out = []
+    for pr in products or []:
+        nm = pr if isinstance(pr, str) else (pr or {}).get("name") or ""
+        nm = str(nm).strip()
+        if nm:
+            out.append(nm)
+    return out
+
+
+def product_rows(names, use, docs):
+    """[{id, name, category?, source?, source_url?}] -- the product list as objects.
+
+    KSSL VPS_DB.docx asks products to carry id, name, category, description, image,
+    source and source_url. Four of those this pipeline can fill from what it already
+    holds; `description` and `image` it cannot, and they are absent rather than empty --
+    a product blurb the corpus never wrote is the kind of plausible filler this
+    dashboard removed once already.
+
+    `category` is a real gain, not a rename: the Products page banded every product by
+    its COMPANY's sector, so a firm's radars and its trucks came out with one label.
+    categorise_product reads the product name against the KSSL bands instead.
+
+    `source_url` is the document whose statement actually named the product -- the same
+    statements the profile was built from, so the citation is the evidence, not a guess.
+    """
+    key_label = {k: v for v, k in REF["CAT_KEY"].items()}
+    out, seen = [], set()
+    for nm in names or []:
+        key = slug(nm)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        row = {"id": key, "name": esc(nm)}
+        band = categorise_product(nm)
+        if band:
+            row["category"] = key_label.get(band, band)
+        rx = word_rx(nm)
+        for did, pr in use or []:
+            blob = ("%s %s %s %s" % (pr["s"], pr["p"], pr["o"], pr["q"])).lower()
+            if rx.search(blob):
+                d = docs.get(did) or {}
+                if d.get("url"):
+                    row["source_url"] = d["url"]
+                    row["source"] = d.get("source")
+                break
+        out.append(row)
+    return out
+
+
 def rate_threat(products, n_docs):
     """A MEASURED threat rating with the measurement attached, replacing a constant:
     every rival used to be stored 'high', which is not a rating. Inputs are countable
@@ -521,7 +576,7 @@ def load_profiles(cur):
     cur.execute("""SELECT comp_id, ord, name, dir, hq, products
                      FROM serving.competitors WHERE origin='pipeline' ORDER BY ord""")
     return [{"comp_id": r[0], "ord": r[1], "name": r[2], "dir": r[3], "hq": r[4],
-             "products": r[5] or []} for r in cur.fetchall()]
+             "products": product_names(r[5])} for r in cur.fetchall()]
 
 
 def step_companies(cur, con, docs, props_by_doc, limit=None):
@@ -661,6 +716,10 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
                 break
         rows.append({"name": name, "prof": prof, "updates": updates,
                      "upd_html": upd_html,
+                     # built HERE because `use` -- the statements this profile was read
+                     # from -- is in scope only inside this loop; the INSERT below is a
+                     # second pass over `rows` and no longer has them.
+                     "products": product_rows(prof["products"], use, docs),
                      "srcs": srcs[:8], "site": site})
 
     rows.sort(key=lambda r: (0 if r["prof"]["dir"] == "rival" else 1,
@@ -679,7 +738,7 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
                      json.dumps(r["upd_html"] if r["updates"] else []),
                      json.dumps({"id": cid, "label": r["name"]}),
                      r["site"], json.dumps(r["srcs"]),
-                     json.dumps([esc(x) for x in p["products"]]),
+                     json.dumps(r["products"]),
                      p.get("threat_note")))
     # Restore the snapshotted interim columns onto the freshly-rebuilt rows.
     for cid, (ld, fac, hq0) in _carry.items():
@@ -2221,6 +2280,29 @@ def _demo():
         "an untranslated note belongs in the evidence, not in the label"
     assert is_english("agreed to co-produce the Simha 4x4 in India")
     assert not is_english("k\u00f6z\u00fctti meg\u00e1llapod\u00e1s alapj\u00e1n")
+    # --- products as objects (the two boundaries) ---
+    # Read: every Python consumer wants names, and the reference archive still holds the
+    # bare-string form it was seeded with and is never rebuilt into.
+    assert product_names(["Carl-Gustaf M4"]) == ["Carl-Gustaf M4"], "the archive's shape"
+    assert product_names([{"id": "cg", "name": "Carl-Gustaf M4"}]) == ["Carl-Gustaf M4"]
+    assert product_names([{"id": "x"}, {"name": "  "}, None, ""]) == [], \
+        "a product with no name is not a product"
+    assert product_names(None) == []
+    # Write: id and name always; the rest only where there is something behind them.
+    _use = [("d1", {"s": "Saab", "p": "delivers", "o": "the Carl-Gustaf M4",
+                    "q": "Saab delivers the Carl-Gustaf M4 to Latvia"})]
+    _docs = {"d1": {"url": "https://ex/a", "source": "example.com", "title": "t"}}
+    _pr = product_rows(["Carl-Gustaf M4", "Carl-Gustaf M4", "Unmentioned Thing"],
+                       _use, _docs)
+    assert [x["id"] for x in _pr] == ["carl-gustaf-m4", "unmentioned-thing"], \
+        "the same product named twice is one row, not two cards"
+    assert _pr[0]["source_url"] == "https://ex/a" and _pr[0]["source"] == "example.com", \
+        "the statement that named the product is its citation"
+    assert "source_url" not in _pr[1], \
+        "no statement named it, so there is no source to claim"
+    assert not any("description" in x or "image" in x for x in _pr), \
+        "the spec asks for both; this pipeline has neither, and absent beats invented"
+
     # --- step 2b: corporate structure ---
     ohay = ("nexter systems is a subsidiary of knds, which holds 51% of the company")
     o = parse_structure('{"owner":"KNDS","owned":"Nexter Systems","rel":"subsidiary",'
