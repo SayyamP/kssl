@@ -82,7 +82,7 @@ case "${1:-worker}" in
     # which is what makes `migrate` safe to point at production.
     if [ "$(psql "$DSN" -Atc "SELECT to_regclass('serving.competitors') IS NULL")" = "t" ]; then
       log "empty database: applying base schema"
-      for f in "$HERE"/db/*.sql; do
+      for f in "$HERE"/db/[0-9][0-9]_*.sql; do
         log "  apply $(basename "$f")"
         psql "$DSN" -v ON_ERROR_STOP=1 -q -f "$f"
       done
@@ -97,7 +97,7 @@ case "${1:-worker}" in
     # second ADD CONSTRAINT is an error, not a no-op.
     if [ "$(psql "$DSN" -Atc "SELECT NOT EXISTS (SELECT 1 FROM schema_version)")" = "t" ]; then
       log "recording the schema on disk as this database's starting point"
-      for f in "$HERE"/db/*.sql "$HERE"/db/migrations/*.sql; do
+      for f in "$HERE"/db/[0-9][0-9]_*.sql "$HERE"/db/migrations/*.sql; do
         [ -e "$f" ] || continue
         psql "$DSN" -q -c "INSERT INTO schema_version(filename)
                            VALUES ('$(basename "$f")') ON CONFLICT DO NOTHING"
