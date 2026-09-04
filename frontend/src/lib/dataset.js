@@ -36,6 +36,31 @@ export function wireDataset(raw) {
     // the drill-down behind a card carries its own copy of the headline
     d.details = mapValues(d.details, (x) =>
       x && x.title ? { ...x, title: titleCaseHeadline(x.title) } : x);
+
+    /* PRODUCT NAMES, through the same funnel and for the same reason. 63 of 124 stored
+       product names are sentence case or lower -- "air defense systems", "launched
+       effects", "tracked combat ground vehicles", "AK-203 assault rifle" -- while
+       others arrive title cased, so the portfolio reads as two lists stacked. The same
+       name is printed on the profile, the portfolio grid, the matchup list and the spec
+       comparison; casing it at those four render sites is how "nag carrier" and "Nag
+       Carrier" ended up on the same screen.
+
+       titleCaseHeadline, NOT formatLabel. formatLabel lower-cases every word outside a
+       fixed acronym list, which is right for a field LABEL and wrong for a product:
+       it splits on the hyphen and prints "Ak-203". titleCaseHeadline raises only and
+       eats no acronym, so AK-203, K10, YFQ-44A and BrahMos survive it.
+
+       Stored text untouched -- display rule only. */
+    const caseProduct = (p) => {
+      if (typeof p === "string") return titleCaseHeadline(p);
+      if (p && typeof p === "object" && typeof p.name === "string") {
+        return { ...p, name: titleCaseHeadline(p.name) };
+      }
+      return p;
+    };
+    // competitors is a MAP keyed by comp_id, not an array -- mapValues, not .map()
+    d.competitors = mapValues(d.competitors, (c) =>
+      c && Array.isArray(c.products) ? { ...c, products: c.products.map(caseProduct) } : c);
   } catch (e) {
     logger.warn("wiring:headlineCase", e);
   }
