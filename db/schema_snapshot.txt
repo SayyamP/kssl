@@ -1,0 +1,425 @@
+serving.company_source.comp_ord integer NOT NULL
+serving.company_source.company text NOT NULL
+serving.company_source.ord integer NOT NULL
+serving.company_source.origin text NOT NULL
+serving.company_source.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.company_source.url text NOT NULL
+serving.competitor_news.category text
+serving.competitor_news.comp_id text NOT NULL
+serving.competitor_news.description text
+serving.competitor_news.id bigint NOT NULL DEFAULT nextval('serving.competitor_news_id_seq'::regclass)
+serving.competitor_news.image text
+serving.competitor_news.is_trending boolean NOT NULL DEFAULT false
+serving.competitor_news.origin text NOT NULL DEFAULT 'pipeline'::text
+serving.competitor_news.published_date timestamp with time zone
+serving.competitor_news.source text
+serving.competitor_news.title text NOT NULL
+serving.competitor_news.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.competitor_news.url text
+serving.competitors.assess text
+serving.competitors.center jsonb
+serving.competitors.comp_id text NOT NULL
+serving.competitors.company_size text
+serving.competitors.dir text
+serving.competitors.facilities jsonb
+serving.competitors.global_locations jsonb
+serving.competitors.hq text
+serving.competitors.leadership jsonb
+serving.competitors.name text NOT NULL
+serving.competitors.ord integer NOT NULL
+serving.competitors.origin text NOT NULL
+serving.competitors.partners jsonb
+serving.competitors.products jsonb
+serving.competitors.sales jsonb
+serving.competitors.sector text
+serving.competitors.site text
+serving.competitors.srcs jsonb
+serving.competitors.starting_year integer
+serving.competitors.strategic_positioning text
+serving.competitors.threat text
+serving.competitors.threatNote text
+serving.competitors.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.competitors.updates jsonb
+serving.geo_comp.dir text
+serving.geo_comp.hq text
+serving.geo_comp.id text NOT NULL
+serving.geo_comp.isBf boolean
+serving.geo_comp.name text NOT NULL
+serving.geo_comp.ord integer NOT NULL
+serving.geo_comp.origin text NOT NULL
+serving.geo_comp.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.geo_presence.c text
+serving.geo_presence.comp_id text NOT NULL
+serving.geo_presence.comp_ord integer NOT NULL
+serving.geo_presence.country text NOT NULL
+serving.geo_presence.country_ord integer NOT NULL
+serving.geo_presence.geo_news jsonb
+serving.geo_presence.name text NOT NULL
+serving.geo_presence.note text
+serving.geo_presence.ord integer NOT NULL
+serving.geo_presence.origin text NOT NULL
+serving.geo_presence.qty text
+serving.geo_presence.since text
+serving.geo_presence.src text
+serving.geo_presence.srcnote text
+serving.geo_presence.stage text
+serving.geo_presence.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.geo_presence.val text
+serving.innovation.action text
+serving.innovation.area text NOT NULL
+serving.innovation.area_ord integer NOT NULL
+serving.innovation.body text
+serving.innovation.compNote text
+serving.innovation.driver text
+serving.innovation.gap text
+serving.innovation.horizon text
+serving.innovation.impact text
+serving.innovation.mat text
+serving.innovation.ord integer NOT NULL
+serving.innovation.origin text NOT NULL
+serving.innovation.sources text
+serving.innovation.t text NOT NULL
+serving.innovation.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.innovation.url text
+serving.innovation.whatsNew text
+serving.matchup.advBf jsonb
+serving.matchup.advComp jsonb
+serving.matchup.anchor text
+serving.matchup.bf text
+serving.matchup.bfBy text
+serving.matchup.cat text NOT NULL
+serving.matchup.catKey text
+serving.matchup.comp text
+serving.matchup.compBy text
+serving.matchup.country text
+serving.matchup.det jsonb
+serving.matchup.dir text
+serving.matchup.edge integer
+serving.matchup.gen boolean
+serving.matchup.global boolean
+serving.matchup.ks_thin boolean
+serving.matchup.matchup_id integer NOT NULL
+serving.matchup.news_image text
+serving.matchup.origin text NOT NULL
+serving.matchup.product_news jsonb
+serving.matchup.reason text
+serving.matchup.revenue_filter text
+serving.matchup.specs jsonb
+serving.matchup.srcs jsonb
+serving.matchup.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.matchup.verdict text
+serving.matchup.verdictH text
+serving.partner.cid text
+serving.partner.country text
+serving.partner.date text
+serving.partner.deal text
+serving.partner.id text NOT NULL
+serving.partner.image text
+serving.partner.insight text
+serving.partner.kind text
+serving.partner.label text NOT NULL
+serving.partner.mean text
+serving.partner.note text
+serving.partner.ord integer NOT NULL
+serving.partner.origin text NOT NULL
+serving.partner.ptype text
+serving.partner.rel text
+serving.partner.sig integer
+serving.partner.src text
+serving.partner.srcnote text
+serving.partner.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.patent.abstract text
+serving.patent.area text NOT NULL
+serving.patent.assignee text NOT NULL
+serving.patent.assignee_ord integer NOT NULL
+serving.patent.country text
+serving.patent.filed text
+serving.patent.granted text
+serving.patent.ipc jsonb
+serving.patent.no text NOT NULL
+serving.patent.ord integer NOT NULL
+serving.patent.origin text NOT NULL
+serving.patent.p text
+serving.patent.relev text
+serving.patent.status text
+serving.patent.threat text
+serving.patent.title text
+serving.patent.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.patent.url text
+serving.signal_card.ago text
+serving.signal_card.company text
+serving.signal_card.dir text
+serving.signal_card.id text NOT NULL
+serving.signal_card.image text
+serving.signal_card.lane text NOT NULL
+serving.signal_card.lens text
+serving.signal_card.meta text
+serving.signal_card.ord integer NOT NULL
+serving.signal_card.origin text NOT NULL
+serving.signal_card.rank text
+serving.signal_card.sec jsonb
+serving.signal_card.sowhat text
+serving.signal_card.tags text
+serving.signal_card.title text NOT NULL
+serving.signal_card.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.signal_card.url text
+serving.signal_detail.actions jsonb
+serving.signal_detail.dir text
+serving.signal_detail.facts jsonb
+serving.signal_detail.id text NOT NULL
+serving.signal_detail.kind text
+serving.signal_detail.lens jsonb
+serving.signal_detail.match jsonb
+serving.signal_detail.ord integer NOT NULL
+serving.signal_detail.origin text NOT NULL
+serving.signal_detail.pursue jsonb
+serving.signal_detail.rank text
+serving.signal_detail.suggest jsonb
+serving.signal_detail.title text NOT NULL
+serving.signal_detail.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.signal_detail.url text
+serving.signal_detail.what text
+serving.signal_detail.why text
+serving.source_registry.company text NOT NULL
+serving.source_registry.kind text
+serving.source_registry.label text
+serving.source_registry.ord integer NOT NULL
+serving.source_registry.origin text NOT NULL
+serving.source_registry.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.source_registry.url text NOT NULL
+serving.tender.cat text
+serving.tender.country text
+serving.tender.deadline text
+serving.tender.dl integer
+serving.tender.id text NOT NULL
+serving.tender.issuer text
+serving.tender.lean text
+serving.tender.leanTxt text
+serving.tender.matches jsonb
+serving.tender.ord integer NOT NULL
+serving.tender.origin text NOT NULL
+serving.tender.qty text
+serving.tender.req jsonb
+serving.tender.reqNote text
+serving.tender.srcs jsonb
+serving.tender.stage text
+serving.tender.status text
+serving.tender.title text NOT NULL
+serving.tender.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.tender.url text
+serving.tender.urlKind text
+serving.tender.value text
+serving.ui_config.key text NOT NULL
+serving.ui_config.value jsonb NOT NULL
+serving_live.company_source.comp_ord integer
+serving_live.company_source.company text
+serving_live.company_source.ord integer
+serving_live.company_source.origin text
+serving_live.company_source.updated_at timestamp with time zone
+serving_live.company_source.url text
+serving_live.competitor_news.category text
+serving_live.competitor_news.comp_id text
+serving_live.competitor_news.description text
+serving_live.competitor_news.id bigint
+serving_live.competitor_news.image text
+serving_live.competitor_news.is_trending boolean
+serving_live.competitor_news.published_date timestamp with time zone
+serving_live.competitor_news.source text
+serving_live.competitor_news.title text
+serving_live.competitor_news.updated_at timestamp with time zone
+serving_live.competitor_news.url text
+serving_live.competitors.assess text
+serving_live.competitors.center jsonb
+serving_live.competitors.comp_id text
+serving_live.competitors.company_size text
+serving_live.competitors.dir text
+serving_live.competitors.facilities jsonb
+serving_live.competitors.global_locations jsonb
+serving_live.competitors.hq text
+serving_live.competitors.leadership jsonb
+serving_live.competitors.name text
+serving_live.competitors.ord integer
+serving_live.competitors.origin text
+serving_live.competitors.partners jsonb
+serving_live.competitors.products jsonb
+serving_live.competitors.sales jsonb
+serving_live.competitors.sector text
+serving_live.competitors.site text
+serving_live.competitors.srcs jsonb
+serving_live.competitors.starting_year integer
+serving_live.competitors.strategic_positioning text
+serving_live.competitors.threat text
+serving_live.competitors.threatNote text
+serving_live.competitors.updated_at timestamp with time zone
+serving_live.competitors.updates jsonb
+serving_live.geo_comp.dir text
+serving_live.geo_comp.hq text
+serving_live.geo_comp.id text
+serving_live.geo_comp.isBf boolean
+serving_live.geo_comp.name text
+serving_live.geo_comp.ord integer
+serving_live.geo_comp.origin text
+serving_live.geo_comp.updated_at timestamp with time zone
+serving_live.geo_presence.c text
+serving_live.geo_presence.comp_id text
+serving_live.geo_presence.comp_ord integer
+serving_live.geo_presence.country text
+serving_live.geo_presence.country_ord integer
+serving_live.geo_presence.geo_news jsonb
+serving_live.geo_presence.name text
+serving_live.geo_presence.note text
+serving_live.geo_presence.ord integer
+serving_live.geo_presence.origin text
+serving_live.geo_presence.qty text
+serving_live.geo_presence.since text
+serving_live.geo_presence.src text
+serving_live.geo_presence.srcnote text
+serving_live.geo_presence.stage text
+serving_live.geo_presence.updated_at timestamp with time zone
+serving_live.geo_presence.val text
+serving_live.innovation.action text
+serving_live.innovation.area text
+serving_live.innovation.area_ord integer
+serving_live.innovation.body text
+serving_live.innovation.compNote text
+serving_live.innovation.driver text
+serving_live.innovation.gap text
+serving_live.innovation.horizon text
+serving_live.innovation.impact text
+serving_live.innovation.mat text
+serving_live.innovation.ord integer
+serving_live.innovation.origin text
+serving_live.innovation.sources text
+serving_live.innovation.t text
+serving_live.innovation.updated_at timestamp with time zone
+serving_live.innovation.url text
+serving_live.innovation.whatsNew text
+serving_live.matchup.advBf jsonb
+serving_live.matchup.advComp jsonb
+serving_live.matchup.anchor text
+serving_live.matchup.bf text
+serving_live.matchup.bfBy text
+serving_live.matchup.cat text
+serving_live.matchup.catKey text
+serving_live.matchup.comp text
+serving_live.matchup.compBy text
+serving_live.matchup.country text
+serving_live.matchup.det jsonb
+serving_live.matchup.dir text
+serving_live.matchup.edge integer
+serving_live.matchup.gen boolean
+serving_live.matchup.global boolean
+serving_live.matchup.ks_thin boolean
+serving_live.matchup.matchup_id integer
+serving_live.matchup.news_image text
+serving_live.matchup.origin text
+serving_live.matchup.product_news jsonb
+serving_live.matchup.reason text
+serving_live.matchup.revenue_filter text
+serving_live.matchup.specs jsonb
+serving_live.matchup.srcs jsonb
+serving_live.matchup.updated_at timestamp with time zone
+serving_live.matchup.verdict text
+serving_live.matchup.verdictH text
+serving_live.partner.cid text
+serving_live.partner.country text
+serving_live.partner.date text
+serving_live.partner.deal text
+serving_live.partner.id text
+serving_live.partner.image text
+serving_live.partner.insight text
+serving_live.partner.kind text
+serving_live.partner.label text
+serving_live.partner.mean text
+serving_live.partner.note text
+serving_live.partner.ord integer
+serving_live.partner.origin text
+serving_live.partner.ptype text
+serving_live.partner.rel text
+serving_live.partner.sig integer
+serving_live.partner.src text
+serving_live.partner.srcnote text
+serving_live.partner.updated_at timestamp with time zone
+serving_live.patent.abstract text
+serving_live.patent.area text
+serving_live.patent.assignee text
+serving_live.patent.assignee_ord integer
+serving_live.patent.country text
+serving_live.patent.filed text
+serving_live.patent.granted text
+serving_live.patent.ipc jsonb
+serving_live.patent.no text
+serving_live.patent.ord integer
+serving_live.patent.origin text
+serving_live.patent.p text
+serving_live.patent.relev text
+serving_live.patent.status text
+serving_live.patent.threat text
+serving_live.patent.title text
+serving_live.patent.updated_at timestamp with time zone
+serving_live.patent.url text
+serving_live.signal_card.ago text
+serving_live.signal_card.company text
+serving_live.signal_card.dir text
+serving_live.signal_card.id text
+serving_live.signal_card.image text
+serving_live.signal_card.lane text
+serving_live.signal_card.lens text
+serving_live.signal_card.meta text
+serving_live.signal_card.ord integer
+serving_live.signal_card.origin text
+serving_live.signal_card.rank text
+serving_live.signal_card.sec jsonb
+serving_live.signal_card.sowhat text
+serving_live.signal_card.tags text
+serving_live.signal_card.title text
+serving_live.signal_card.updated_at timestamp with time zone
+serving_live.signal_card.url text
+serving_live.signal_detail.actions jsonb
+serving_live.signal_detail.dir text
+serving_live.signal_detail.facts jsonb
+serving_live.signal_detail.id text
+serving_live.signal_detail.kind text
+serving_live.signal_detail.lens jsonb
+serving_live.signal_detail.match jsonb
+serving_live.signal_detail.ord integer
+serving_live.signal_detail.origin text
+serving_live.signal_detail.pursue jsonb
+serving_live.signal_detail.rank text
+serving_live.signal_detail.suggest jsonb
+serving_live.signal_detail.title text
+serving_live.signal_detail.updated_at timestamp with time zone
+serving_live.signal_detail.url text
+serving_live.signal_detail.what text
+serving_live.signal_detail.why text
+serving_live.source_registry.company text
+serving_live.source_registry.kind text
+serving_live.source_registry.label text
+serving_live.source_registry.ord integer
+serving_live.source_registry.origin text
+serving_live.source_registry.updated_at timestamp with time zone
+serving_live.source_registry.url text
+serving_live.tender.cat text
+serving_live.tender.country text
+serving_live.tender.deadline text
+serving_live.tender.dl integer
+serving_live.tender.id text
+serving_live.tender.issuer text
+serving_live.tender.lean text
+serving_live.tender.leanTxt text
+serving_live.tender.matches jsonb
+serving_live.tender.ord integer
+serving_live.tender.origin text
+serving_live.tender.qty text
+serving_live.tender.req jsonb
+serving_live.tender.reqNote text
+serving_live.tender.srcs jsonb
+serving_live.tender.stage text
+serving_live.tender.status text
+serving_live.tender.title text
+serving_live.tender.updated_at timestamp with time zone
+serving_live.tender.url text
+serving_live.tender.urlKind text
+serving_live.tender.value text
+serving_live.ui_config.key text
+serving_live.ui_config.value jsonb

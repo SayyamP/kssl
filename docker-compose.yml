@@ -16,14 +16,15 @@ services:
     volumes:
       - kssl_pgdata:/var/lib/postgresql/data
       # init scripts run in name order on a FRESH volume only
-      - ./db/schema_extracted.sql:/docker-entrypoint-initdb.d/01_schema_extracted.sql:ro
-      - ./db/schema_serving.sql:/docker-entrypoint-initdb.d/02_schema_serving.sql:ro
-      - ./db/schema_serving_live.sql:/docker-entrypoint-initdb.d/03_serving_live.sql:ro
+      - ./db/00_documents.sql:/docker-entrypoint-initdb.d/00_documents.sql:ro
+      - ./db/01_extracted.sql:/docker-entrypoint-initdb.d/01_extracted.sql:ro
+      - ./db/02_serving.sql:/docker-entrypoint-initdb.d/02_serving.sql:ro
+      - ./db/03_serving_live.sql:/docker-entrypoint-initdb.d/03_serving_live.sql:ro
       # 04 last: COMMENT ON COLUMN needs the tables to exist. PIPELINE.html reads
       # these through col_description(), so the doc documents itself from the DB.
-      - ./db/schema_comments.sql:/docker-entrypoint-initdb.d/04_comments.sql:ro
+      - ./db/04_comments.sql:/docker-entrypoint-initdb.d/04_comments.sql:ro
       # the per-stage timing schema, so a dev database matches production
-      - ./db/schema_metrics.sql:/docker-entrypoint-initdb.d/05_metrics.sql:ro
+      - ./db/05_metrics.sql:/docker-entrypoint-initdb.d/05_metrics.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d kssl"]
       interval: 5s

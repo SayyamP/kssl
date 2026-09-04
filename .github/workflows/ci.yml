@@ -40,6 +40,44 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  schema:
+    # The schema files must build the database they claim to describe. Before this job,
+    # db/*.sql was eleven columns and a table behind production -- every one of them
+    # added by a hand-applied ALTER over ssh that no file recorded.
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: kssl
+          POSTGRES_DB: kssl
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 3s --health-retries 20
+    env:
+      DSN: postgresql://postgres:kssl@127.0.0.1:5432/kssl
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply the base schema in filename order
+        # Base files only, which is what a new database gets: each migration's effect
+        # is folded back into these files in the same commit that adds the migration,
+        # so replaying migrations here would double-apply them.
+        # ponytail: this does not replay migrations against the previous schema, so a
+        # broken migration is caught by the runner's transaction at deploy time rather
+        # than here. Worth building if one ever lands badly.
+        run: |
+          for f in db/*.sql; do
+            echo "-- $f"
+            psql "$DSN" -v ON_ERROR_STOP=1 -q -f "$f"
+          done
+      - name: The result must match db/schema_snapshot.txt
+        run: |
+          ./db/schema_snapshot.sh "$DSN" > /tmp/actual.txt
+          # A schema change is fine; a schema change that was not snapshotted is not.
+          # Regenerate with:  db/schema_snapshot.sh "$KSSL_DSN" > db/schema_snapshot.txt
+          diff -u db/schema_snapshot.txt /tmp/actual.txt
+
   lint-and-test:
     runs-on: ubuntu-latest
     steps:

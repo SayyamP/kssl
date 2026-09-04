@@ -27,7 +27,7 @@ Three long-running roles from one image, hand-off through the queue in Postgres:
 |----------|---------------------------------------------------------------------------|
 | `worker` | claim → extract (farm) → store spans + done-mark in one transaction, forever |
 | `feeder` | every `FEED_EVERY_S`: sync new corpus docs → enqueue (presignal gate) → reap |
-| `migrate`| one-shot: apply `db/*.sql` (documents, extracted.*, serving.*)             |
+| `migrate`| apply the repo's `db/*.sql` then pending `db/migrations/*.sql`; safe to re-run |
 
 Why `documents` lives on VPS-B: the store writes spans **and** the queue done-mark in **one
 transaction on one connection**, so the document text, the queue, and `extracted.*` must be in the

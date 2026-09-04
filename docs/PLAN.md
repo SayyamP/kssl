@@ -19,8 +19,9 @@ React frontend + FastAPI backend + one Postgres with **two schemas**:
       contract_shapes.json     per-global shape + field union (machine-readable contract)
       contract_samples.json    two real entries per global
       db/
-        schema_extracted.sql   Postgres port of the extraction store
-        schema_serving.sql     serving tables + serving.ui_config for interface vocabulary
+        01_extracted.sql       Postgres port of the extraction store
+        02_serving.sql         serving tables + serving.ui_config for interface vocabulary
+        migrations/            dated, applied once each and recorded in schema_version
         seed_serving.py        loads reference_dataset.json into serving (demo works day one)
       backend/
         app.py                 FastAPI: GET /api/dataset assembles all 35 globals from serving

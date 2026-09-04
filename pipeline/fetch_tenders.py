@@ -1068,7 +1068,7 @@ MUTABLE = ["title", "issuer", "country", "cat", "value", "qty", "deadline", "sta
 def ensure_text_id(cur):
     """serving.tender.id was integer in the seeded schema; source-prefixed stable ids
     need text. One-time in-place migration; the dependent serving_live.tender view is
-    recreated exactly as db/schema_serving_live.sql defines it."""
+    recreated exactly as db/03_serving_live.sql defines it."""
     cur.execute("SELECT data_type FROM information_schema.columns WHERE table_schema='serving' "
                 "AND table_name='tender' AND column_name='id'")
     (dtype,) = cur.fetchone()
@@ -1455,7 +1455,7 @@ def main():
     migrated, total = write_db(final)
     if migrated:
         print("one-time migration applied: serving.tender.id integer -> text "
-              "(serving_live.tender view recreated per db/schema_serving_live.sql)")
+              "(serving_live.tender view recreated per db/03_serving_live.sql)")
     print(f"wrote {len(final)} rows -> serving.tender origin='pipeline' "
           f"(table now holds {total} pipeline rows); ord renumbered by deadline")
 

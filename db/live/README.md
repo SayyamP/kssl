@@ -4,7 +4,7 @@ A point-in-time export of the two backend schemas that serve the KSSL app, taken
 from the production Postgres on VPS1.
 
 These files are a **snapshot**, not the deployment DDL. The hand-maintained schema scripts in
-`db/schema_extracted.sql`, `db/schema_serving.sql` and `extraction/db/*.sql` remain the source of
+`db/01_extracted.sql` and `db/02_serving.sql` remain the source of
 truth for how a fresh stack is built — they are deliberately not overwritten by `pg_dump` output,
 because the dump carries index/constraint noise and a fresh deploy should not inherit it.
 

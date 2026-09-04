@@ -7,12 +7,21 @@
 # The corpus tunnel (DC Postgres -> 127.0.0.1:15432) must be up on the host; feeder reads through it.
 # The farm (LLM + GLiNER) is reached over the internet with the key in .env.
 services:
-  # One-shot: apply db/*.sql to VPS-B Postgres. `docker compose run --rm migrate`.
+  # One-shot: apply the base schema and any pending migrations to VPS-B Postgres.
+  # `docker compose run --rm migrate`. Safe to re-run: each file is applied once and
+  # recorded in schema_version.
+  #
+  # The schema is mounted, not baked in. It lives in the repo's db/ -- one tree, so it
+  # cannot drift from the one the app containers' initdb uses -- and the build context
+  # here is extraction/, which cannot reach it. So `docker run kssl-extraction migrate`
+  # on its own has no schema to apply; run it through compose.
   migrate:
     build: .
     image: kssl-extraction:latest
     env_file: .env
     network_mode: host
+    volumes:
+      - ../db:/app/db:ro
     command: ["migrate"]
     restart: "no"
 

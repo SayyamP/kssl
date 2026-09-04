@@ -4,6 +4,10 @@
 CREATE SCHEMA IF NOT EXISTS serving_live;
 CREATE OR REPLACE VIEW serving_live.company_source AS SELECT * FROM serving.company_source WHERE origin = 'pipeline';
 CREATE OR REPLACE VIEW serving_live.competitors AS SELECT * FROM serving.competitors WHERE origin = 'pipeline';
+CREATE OR REPLACE VIEW serving_live.competitor_news AS
+  SELECT id, comp_id, title, description, source, published_date, category,
+         is_trending, url, updated_at, image
+    FROM serving.competitor_news WHERE origin = 'pipeline';
 CREATE OR REPLACE VIEW serving_live.geo_comp AS SELECT * FROM serving.geo_comp WHERE origin = 'pipeline';
 CREATE OR REPLACE VIEW serving_live.geo_presence AS SELECT * FROM serving.geo_presence WHERE origin = 'pipeline';
 CREATE OR REPLACE VIEW serving_live.innovation AS SELECT * FROM serving.innovation WHERE origin = 'pipeline';

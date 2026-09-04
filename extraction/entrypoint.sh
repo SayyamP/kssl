@@ -69,12 +69,54 @@ backfill_once() {
 
 case "${1:-worker}" in
   migrate)
-    log "applying schema to KSSL_CORPUS_DSN"
-    for f in "$HERE"/db/*.sql; do
-      log "  psql -f $(basename "$f")"
-      psql "${KSSL_CORPUS_DSN:?set KSSL_CORPUS_DSN}" -v ON_ERROR_STOP=1 -f "$f"
+    # Base schema (db/00..06) once, then any pending migration (db/migrations/), each
+    # applied a single time and recorded. Before this ledger existed, migrations were
+    # hand-applied over ssh and the checked-in schema drifted eleven columns and a
+    # whole table behind the database it claimed to describe.
+    DSN="${KSSL_CORPUS_DSN:?set KSSL_CORPUS_DSN}"
+    psql "$DSN" -v ON_ERROR_STOP=1 -q -c "CREATE TABLE IF NOT EXISTS schema_version (
+        filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
+
+    # An empty database gets the base files. They are plain CREATE TABLE, not
+    # CREATE TABLE IF NOT EXISTS, so this runs exactly once in a database's life --
+    # which is what makes `migrate` safe to point at production.
+    if [ "$(psql "$DSN" -Atc "SELECT to_regclass('serving.competitors') IS NULL")" = "t" ]; then
+      log "empty database: applying base schema"
+      for f in "$HERE"/db/*.sql; do
+        log "  apply $(basename "$f")"
+        psql "$DSN" -v ON_ERROR_STOP=1 -q -f "$f"
+      done
+    fi
+
+    # Bootstrap, once. Everything on disk right now already describes this database:
+    # the base files because they were either just applied or built it before this
+    # ledger existed, and the migrations because each one's effect is folded back into
+    # those base files in the same commit that adds it. Record all of it WITHOUT
+    # replaying it. Replaying is what would break -- the base schema already carries
+    # the ui_config UNIQUE that 2026-09-02_competitor_news_writer.sql adds, and a
+    # second ADD CONSTRAINT is an error, not a no-op.
+    if [ "$(psql "$DSN" -Atc "SELECT NOT EXISTS (SELECT 1 FROM schema_version)")" = "t" ]; then
+      log "recording the schema on disk as this database's starting point"
+      for f in "$HERE"/db/*.sql "$HERE"/db/migrations/*.sql; do
+        [ -e "$f" ] || continue
+        psql "$DSN" -q -c "INSERT INTO schema_version(filename)
+                           VALUES ('$(basename "$f")') ON CONFLICT DO NOTHING"
+      done
+    fi
+
+    for f in "$HERE"/db/migrations/*.sql; do
+      [ -e "$f" ] || continue               # an empty migrations/ leaves the glob literal
+      n="$(basename "$f")"
+      if [ "$(psql "$DSN" -Atc "SELECT 1 FROM schema_version WHERE filename = '$n'")" = "1" ]; then
+        continue
+      fi
+      log "  apply $n"
+      # -1 puts the file AND its ledger row in one transaction, so a migration that
+      # fails half way leaves neither the change nor a record claiming it was applied.
+      psql "$DSN" -v ON_ERROR_STOP=1 -1 -f "$f" \
+        -c "INSERT INTO schema_version(filename) VALUES ('$n')"
     done
-    log "schema applied."
+    log "schema up to date."
     ;;
   worker)
     health_gate                       # do not claim a doc until a compute backend is proven up

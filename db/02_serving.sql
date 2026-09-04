@@ -18,8 +18,9 @@ CREATE SCHEMA IF NOT EXISTS serving;
 -- chatSuggest, client, overviewConfig, ...): describes the interface, not the
 -- world. The pipeline never writes this table.
 CREATE TABLE serving.ui_config (
-    key   text PRIMARY KEY,
-    value jsonb NOT NULL
+    key   text NOT NULL,
+    value jsonb NOT NULL,
+    CONSTRAINT ui_config_key_uniq UNIQUE (key)
 );
 
 -- Global: competitors (dict keyed by comp id; compOrder is derived from ord).
@@ -42,9 +43,42 @@ CREATE TABLE serving.competitors (
     leadership   jsonb,
     facilities   jsonb,
     sales        jsonb,
+    -- 2026-09-01. Profile-page facts the corpus can source; before these the page
+    -- invented a founding year, a headcount and a revenue line in their place.
+    starting_year         integer,
+    global_locations      jsonb,
+    company_size          text,
+    strategic_positioning text,
     origin       text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at   timestamptz NOT NULL DEFAULT now()
 );
+
+-- Per-company news for the Profile / Products / Geo panels. Every row is a signal
+-- card the pipeline already produced, dated from the article's own markup and cited;
+-- fill_competitor_news.py is the writer. `is_trending` is never set true -- nothing
+-- here measures trend, and the UI's top slot is served by the newest row.
+--
+-- The FK cascades, which is why an ALTER on this table must not run while an enrich
+-- pass is mid-transaction: step_companies deletes every pipeline competitor row and
+-- then spends minutes on LLM calls before committing, holding a lock on this table
+-- for the duration. See db/migrations/2026-09-02_competitor_news_writer.sql.
+CREATE TABLE serving.competitor_news (
+    id             bigserial PRIMARY KEY,
+    comp_id        text NOT NULL REFERENCES serving.competitors(comp_id) ON DELETE CASCADE,
+    title          text NOT NULL,
+    description    text,
+    source         text,
+    published_date timestamptz,
+    category       text,
+    is_trending    boolean NOT NULL DEFAULT false,
+    url            text,
+    image          text,
+    origin         text NOT NULL DEFAULT 'pipeline',
+    updated_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX competitor_news_comp_idx ON serving.competitor_news (comp_id, published_date DESC);
+CREATE INDEX competitor_news_trending_idx ON serving.competitor_news (is_trending, published_date DESC)
+    WHERE is_trending;
 
 -- Globals: competitiveCards / marketCards / techCards — one table, lane column.
 -- market-lane cards have no company/lens/sec/url; those stay NULL and the API
@@ -64,6 +98,7 @@ CREATE TABLE serving.signal_card (
     url        text,
     ago        text,
     tags       text,
+    image      text,           -- the article's own picture, resolved from page markup
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -115,6 +150,9 @@ CREATE TABLE serving.matchup (
     "catKey"   text,
     srcs       jsonb,
     gen        boolean,
+    revenue_filter text,
+    news_image     text,
+    product_news   jsonb,
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -190,6 +228,7 @@ CREATE TABLE serving.geo_presence (
     note        text,
     src         text,
     srcnote     text,
+    geo_news    jsonb,
     origin      text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at  timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (comp_id, country, ord)
@@ -248,6 +287,7 @@ CREATE TABLE serving.partner (
     src        text,
     srcnote    text,
     cid        text,
+    image      text,
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -273,3 +313,12 @@ CREATE TABLE serving.company_source (
     updated_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (company, ord)
 );
+
+-- NOT IN THIS FILE, ON PURPOSE. Two serving tables are created by the process that
+-- owns them, with CREATE TABLE IF NOT EXISTS at startup, and never by a migration:
+--
+--   serving.card        extraction/engine/card_writer.py  (`card_writer.py --init`)
+--   serving.signal_seen extraction/signals/serving_fill.py
+--
+-- Neither is served to the UI, so neither has a serving_live view. Listing them here
+-- as well would give each two owners and a drift of its own.
