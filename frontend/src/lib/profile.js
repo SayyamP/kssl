@@ -21,38 +21,69 @@ import { unescapeEntities } from "./html.js";
    characters. Decode once, here, rather than at each of the eight render sites. */
 const txt = (s) => unescapeEntities(s || "").trim();
 
-/* Standardized sector/industry name formatting helper */
-export function formatSectorName(rawSector) {
-  if (!rawSector) return "Defence & Aerospace";
-  let s = unescapeEntities(String(rawSector)).replace(/&amp;/g, "&").trim();
-  if (!s) return "Defence & Aerospace";
+/* The ONE capitalisation rule for every category, sector and industry label.
+ *
+ * There used to be three, and they disagreed on more than case. lib/profile.js
+ * title-cased without touching the rest of a word, so 'defense services' became
+ * 'Defense Services' here and 'Defence Services And Solutions' there; Products.jsx
+ * carried its own formatCategoryTitle with a different acronym list that lower-cased
+ * the tail; and a third helper handled product specs. The two defaults were not even
+ * spelled the same way -- 'Defence & Aerospace' against 'Defense Systems' -- so the
+ * same empty field read British in one view and American in the next.
+ *
+ * Deliberately returns "" for an empty input. The old sector formatter answered
+ * 'Defence & Aerospace', and profile.js passed the HEADQUARTERS field through it, so
+ * every competitor with no recorded HQ displayed its head office as 'Defence &
+ * Aerospace' -- 136 of 178 served competitors have no hq value. A default belongs to
+ * the field that wants one, not to the formatter every field shares. */
+const ACRONYMS = new Set([
+  "EW", "UAV", "UAVS", "UAS", "C-UAS", "C4I", "OEM", "R&D", "PSU", "MBT", "ARV",
+  "HMV", "ICV", "ATGMS", "ATGM", "BVR", "JV", "FCV", "RCWS", "LMG", "SPH", "AD",
+  "OFB", "AI", "MRO", "EO/IR", "GPS", "RF", "VTOL", "HE", "APFSDS", "ISR", "SAR",
+  "KSSL", "DRDO", "BDL", "BEL", "L&T", "IAF", "BAE", "IAI", "HAL", "JSW", "BHEL",
+  "ISRO", "ADA", "NAL", "USA", "UK", "UAE",
+  // platform designations, from the product-name formatter this replaced: without
+  // them 'BMP-2' comes back 'Bmp-2' and 'MK1' comes back 'Mk1'
+  "BMP", "APC", "IFV", "SPG", "MK1", "MK2", "MK3", "T", "LCA", "ATV",
+]);
 
-  const uppercaseAcronyms = new Set([
-    "EW", "UAV", "UAS", "C-UAS", "C4I", "OEM", "R&D", "PSU", "MBT", "ARV", "HMV", "ICV", "ATGMS", "ATGM", "BVR", "JV", "FCV", "RCWS", "LMG", "SPH", "AD", "OFB"
-  ]);
+/* Connectors stay lower-case inside a label, as ordinary title case does -- but never
+   as the first word ('And Solutions' was what made these read as machine output). */
+const SMALL = new Set(["and", "or", "of", "the", "for", "in", "on", "to", "a", "an"]);
 
-  const capitalizeToken = (token) => {
-    if (!token) return "";
-    const upperCandidate = token.toUpperCase();
-    if (uppercaseAcronyms.has(upperCandidate)) {
-      return upperCandidate;
+export function formatLabel(raw) {
+  if (!raw) return "";
+  const s = unescapeEntities(String(raw)).replace(/&amp;/g, "&").trim();
+  if (!s) return "";
+
+  const token = (word, first) => {
+    if (!word) return "";
+    /* Punctuation travels with the word in a space split, so 'defense,' never matched
+       the spelling rule and one comma was enough to leave 'Defense' on screen. Peel it
+       off, decide on the word, then put it back. */
+    const edge = word.match(/^([^A-Za-z0-9&·/-]*)(.*?)([^A-Za-z0-9&·/-]*)$/);
+    if (edge && (edge[1] || edge[3]) && edge[2]) {
+      return edge[1] + token(edge[2], first) + edge[3];
     }
-    if (token.includes("/")) {
-      return token.split("/").map(capitalizeToken).join("/");
-    }
-    if (token.includes("-")) {
-      return token.split("-").map(capitalizeToken).join("-");
-    }
-    if (token === "&") return "&";
-    if (token === "·") return "·";
-    if (token.toLowerCase() === "defense" || token.toLowerCase() === "defence") return "Defence";
-    return token.charAt(0).toUpperCase() + token.slice(1);
+    const up = word.toUpperCase();
+    if (ACRONYMS.has(up)) return up;
+    if (word.includes("/")) return word.split("/").map((w) => token(w, first)).join("/");
+    if (word.includes("-")) return word.split("-").map((w) => token(w, first)).join("-");
+    if (word === "&" || word === "·") return word;
+    const low = word.toLowerCase();
+    // one spelling of the word this whole product is about
+    if (low === "defense" || low === "defence") return "Defence";
+    if (!first && SMALL.has(low)) return low;
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
   };
 
-  return s
-    .split(/\s+/)
-    .map(capitalizeToken)
-    .join(" ");
+  return s.split(/\s+/).map((w, i) => token(w, i === 0)).join(" ");
+}
+
+/* Sector carries a default because a competitor with no sector is still in this
+   industry; headquarters and the rest use formatLabel directly and stay blank. */
+export function formatSectorName(rawSector) {
+  return formatLabel(rawSector) || "Defence & Aerospace";
 }
 
 /* Standardized company name formatting helper */
@@ -192,7 +223,10 @@ export function buildProfile(d, cid) {
     cid,
     name,
     sector: formatSectorName(c.sector),
-    hq: formatSectorName(c.hq),
+    /* NOT formatSectorName: that returns 'Defence & Aerospace' for an empty value, and
+       136 of 178 served competitors have no hq, so each of them displayed that sector
+       string as its head office. An absent headquarters must render as absent. */
+    hq: formatLabel(c.hq),
     site: c.site || "",
     /* The 2026-09-01 columns. They have to be listed here or they stop at this
        function: the Profile panel reads the profile object, not the raw competitor

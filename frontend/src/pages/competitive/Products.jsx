@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { productNews } from "../../lib/news";
-import { formatSectorName } from "../../lib/profile";
+import { formatLabel, formatSectorName } from "../../lib/profile";
 
 // Clean company display name helper
 const cleanCompanyName = (rawName) => {
@@ -12,52 +12,15 @@ const cleanCompanyName = (rawName) => {
   return name || rawName;
 };
 
-// Title Case formatter for portfolio categories & product specs
-const formatCategoryTitle = (cat) => {
-  if (!cat) return "Defense Systems";
-  let s = String(cat).replace(/&amp;/g, "&").trim();
-  const upperAcronyms = new Set(["UAV", "UAVS", "AI", "MRO", "EO/IR", "GPS", "RF", "C4I", "KSSL", "DRDO", "BDL", "BEL", "L&T"]);
-  return s
-    .split(/\s+/)
-    .map((word) => {
-      const clean = word.toUpperCase();
-      if (upperAcronyms.has(clean)) return clean;
-      if (word === "&") return "&";
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(" ");
-};
+/* Portfolio categories go through the SAME formatter as every other label.
+   This file used to carry its own, with a different acronym list and an American
+   default ('Defense Systems') against profile.js's British one, which is how the
+   Product and Competitive views ended up disagreeing on both case and spelling. */
+const formatCategoryTitle = (cat) => formatLabel(cat) || "Defence Systems";
 
-const formatTitleCase = (str) => {
-  if (!str) return "";
-  const acronyms = new Set([
-    "KSSL", "DRDO", "BDL", "BEL", "L&T", "UAV", "UAS", "IAF", "BAE", "IAI", "HAL", "JSW", "BHEL", "ISRO", "ADA", "NAL", "GPS", "EO/IR", "RF", "C4I", "AI", "MRO", "C-UAS", "VTOL", "ATGM", "BVR", "HE", "APFSDS", "T-90", "BMP-2", "MK1", "MK2"
-  ]);
-
-  const capitalizeToken = (word) => {
-    if (!word) return "";
-    const upperCandidate = word.toUpperCase();
-    if (acronyms.has(upperCandidate)) return upperCandidate;
-
-    if (word.includes("/")) {
-      return word.split("/").map(capitalizeToken).join(" / ");
-    }
-
-    if (word.includes("-")) {
-      return word.split("-").map(capitalizeToken).join("-");
-    }
-
-    if (word === "&" || word === "·") return word;
-
-    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-  };
-
-  return String(str)
-    .trim()
-    .split(/\s+/)
-    .map(capitalizeToken)
-    .join(" ");
-};
+/* Product and spec labels take the same rule. Keeping a third variant here is what
+   let the acronym lists drift apart in the first place. */
+const formatTitleCase = (str) => formatLabel(str);
 
 function nameKey(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -332,7 +295,7 @@ export default function Products() {
             id: `kssl-${name}`,
             name: formatTitleCase(name),
             company: clientName,
-            category: formatCategoryTitle(m.cat || "Defense Systems"),
+            category: formatCategoryTitle(m.cat),
             specs: specsObj,
             reason: m.reason || "",
           });
@@ -356,7 +319,7 @@ export default function Products() {
               id: `comp-${m.id || name}`,
               name: formatTitleCase(name),
               company: selectedCompany.name,
-              category: formatCategoryTitle(m.cat || "Defense Systems"),
+              category: formatCategoryTitle(m.cat),
               specs: specsObj,
               reason: m.reason || "",
             });
@@ -372,7 +335,7 @@ export default function Products() {
             id: `co-prod-${name}`,
             name: formatTitleCase(name),
             company: selectedCompany.name,
-            category: formatCategoryTitle(co.sector || "Defense Systems"),
+            category: formatCategoryTitle(co.sector),
             specs: {},
             reason: "",
           });
