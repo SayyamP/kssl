@@ -1098,6 +1098,7 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
                     (lane,))
         ords[lane] = cur.fetchone()[0] + 1
     stats = {"cards": 0, "none": 0, "thin": 0, "bad": 0, "stale": 0, "cstale": 0,
+             "claimed": 0,
              "offtopic": 0, "undated": 0, "dup": 0, "client_news": 0, "listing": 0,
              "suppressed": 0, "images": 0}
     patterns, comp_patterns = load_terms()
@@ -1124,7 +1125,22 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
             seen_money.add(mk)
 
     for did, title, source, lang, url, dset in docs:
-        cur.execute("INSERT INTO serving.signal_seen(document_id) VALUES(%s) ON CONFLICT DO NOTHING", (did,))
+        # CLAIM the document, do not merely note it. Every piece of a lease was already
+        # here -- signal_seen is a PRIMARY KEY table, the query above excludes anything in
+        # it, and an LLM failure DELETEs the row to hand the document back -- except the one
+        # line that makes it work with more than one process: nobody checked whether they
+        # won the insert. Two fillers would both take the same document, pay for the same
+        # model call twice and race to write the same card. With the check, N containers
+        # divide the queue between them and the farm sees N requests in flight instead of 1.
+        cur.execute("INSERT INTO serving.signal_seen(document_id) VALUES(%s) "
+                    "ON CONFLICT DO NOTHING", (did,))
+        if cur.rowcount == 0:
+            stats["claimed"] = stats.get("claimed", 0) + 1
+            continue
+        # Publish the claim BEFORE the slow part. Held in an uncommitted transaction until
+        # the card is written, it is invisible to the other fillers for the whole length of
+        # the model call -- which is exactly the window the claim exists to cover.
+        con.commit()
         if did in banned:
             stats["suppressed"] += 1
             continue
@@ -1267,7 +1283,7 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
               "%(undated)d with no provable date, %(offtopic)d off-portfolio, "
               "%(dup)d duplicate stor(ies), %(client_news)d client-news (not competitive), "
               "%(listing)d listing page(s), %(suppressed)d suppressed, "
-              "%(bad)d error(s)" % stats, flush=True)
+              "%(bad)d error(s), %(claimed)d taken by another filler" % stats, flush=True)
     return stats
 
 

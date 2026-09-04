@@ -140,6 +140,17 @@ services:
       # KSSL_SERVING_MODEL=serving-model in extraction/.env once the gateway serves it again.
       C_MODEL: "${KSSL_SERVING_MODEL:-text-model}"
       KSSL_MODEL: "${KSSL_SERVING_MODEL:-text-model}"
+    # ONE filler is one request in flight, and the serving node has six slots -- it sat at
+    # 0/6 while a whole card pass ran through it single file. serving_fill now CLAIMS each
+    # document in serving.signal_seen (PRIMARY KEY, released on failure) before calling the
+    # model, so N fillers divide the queue instead of duplicating it.
+    #
+    # Three, not six: enrich takes the node six-wide (KSSL_ENRICH_WORKERS) on its own timer,
+    # and the two overlap. Nine against six slots is fine -- the gateway caps each node at
+    # num_parallel and the rest queue -- but there is nothing to win above that, because the
+    # node cannot serve more than six no matter how many ask.
+    deploy:
+      replicas: ${KSSL_SIGNALS_REPLICAS:-3}
 
   # Enrichment: fill the REMAINING serving tables (competitors, matchup, geo, innovation,
   # patent, partner, tender, sources) from extracted.* via the same farm-primary LLM client

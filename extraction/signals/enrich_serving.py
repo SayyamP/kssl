@@ -41,9 +41,11 @@ Known schema deviations from the natural keys one would pick (reported, not hidd
 """
 import argparse
 import json
+import os
 import re
 import stage_timer
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -75,6 +77,15 @@ ORD0 = 1000          # pipeline ord offset -- reference rows own the low range
 REV_ORD0 = 2000      # revive_partners owns 2000+; neither writer deletes the other's
 TENDER_ID0 = 5000    # integer PK range for pipeline tenders
 MATCHUP_ID0 = 9000   # integer PK range for pipeline matchups
+
+
+# How many profile calls may be in flight at once. The serving node publishes six slots
+# (num_parallel) and this step was using exactly one of them: a rebuild walked ~200
+# companies single file while the card sat at 0/6 running. The calls are independent of
+# each other, so the only reason to serialise them was that nobody had unserialised them.
+# Default six to match the node; the gateway caps each node at num_parallel anyway, so a
+# larger number queues rather than helps.
+ENRICH_WORKERS = max(1, int(os.environ.get("KSSL_ENRICH_WORKERS", "6")))
 
 
 def _ask(prompt, npredict=600, timeout=None):
@@ -543,6 +554,14 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
     cutoff, cur_year = recent_cutoff()
     rows, refused, no_props, over_limit, calls, not_company = [], 0, 0, 0, 0, 0
     not_competitor, why_counts = 0, {}
+    # PLAN every model call first, then run them TOGETHER. The profile call IS the cost of
+    # this step -- everything around it is in-memory filtering over docs already loaded --
+    # and issuing them one at a time is why a rebuild crawls: the serving node advertises
+    # six slots and this step kept exactly one of them busy.
+    #
+    # Only the calls are parallel. Everything below stays sequential and in the SAME order
+    # as before, because the ord numbering and the client/dedup rules depend on that order.
+    plan = []
     for name, aliases in sorted(merged.items()):
         if is_force(name) or not is_one_org(name):
             not_company += 1     # a country/government/ministry/armed force, or two orgs
@@ -551,19 +570,40 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
         if not cprops:
             no_props += 1
             continue
-        if limit and calls >= limit:
+        if limit and len(plan) >= limit:
             over_limit += 1
             continue
         use = cprops[:25]
-        lines = "\n".join(prop_line(pr, docs[did]["url"]) for did, pr in use)
-        hay = " ".join("%s %s %s %s" % (pr["s"], pr["p"], pr["o"], pr["q"])
-                       for _d, pr in use).lower()
-        calls += 1
+        plan.append({
+            "name": name, "dids": dids, "use": use,
+            "lines": "\n".join(prop_line(pr, docs[did]["url"]) for did, pr in use),
+            "hay": " ".join("%s %s %s %s" % (pr["s"], pr["p"], pr["o"], pr["q"])
+                            for _d, pr in use).lower(),
+        })
+    calls = len(plan)
+
+    def _profile(item):
+        """One profile call. Returns the exception rather than raising it, so one bad
+        company cannot take the whole batch down with it."""
         try:
-            raw = _ask(PROFILE_PROMPT % (name, name, name, lines))
+            return item, _ask(PROFILE_PROMPT % (item["name"], item["name"],
+                                                item["name"], item["lines"])), None
         except Exception as e:                                    # noqa: BLE001
+            return item, None, e
+
+    if plan:
+        print("companies: %d profile call(s), %d at a time"
+              % (len(plan), min(ENRICH_WORKERS, len(plan))), flush=True)
+        with ThreadPoolExecutor(max_workers=min(ENRICH_WORKERS, len(plan))) as ex:
+            answers = list(ex.map(_profile, plan))
+    else:
+        answers = []
+
+    for item, raw, err in answers:
+        name, dids, use, hay = item["name"], item["dids"], item["use"], item["hay"]
+        if err is not None:
             refused += 1
-            print("  %s: %s" % (name, e), flush=True)
+            print("  %s: %s" % (name, err), flush=True)
             continue
         prof = parse_profile(raw, hay, name)
         if prof is None:
