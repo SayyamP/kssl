@@ -2102,11 +2102,18 @@ def categorise_product(product):
     to a neighbouring sentence (audit H7). The docstring already refused it; the code
     did it anyway."""
     hay = str(product or "").lower()
+    # THE LONGEST MATCHING KEYWORD WINS, not the first band in dict order. Returning on the
+    # first hit made the answer depend on where a band sits in the JSON, and `pav` sits above
+    # `uav` and `msl` while carrying two very broad words -- "vehicle" and "tank". So an
+    # "unmanned aerial vehicle" was filed as an Armoured Vehicle and an "anti-tank guided
+    # missile" as a tank, on the dashboard, by keyword collision. Specificity is the tie-break
+    # that fixes both without deleting the broad words that legitimately catch other products.
+    best_kw, best_key = "", None
     for key, meta in REF.get("CAT_META", {}).items():
         for kw in meta.get("kw", []):
-            if len(kw) >= 3 and _band_rx(kw).search(hay):
-                return key
-    return None
+            if len(kw) >= 3 and len(kw) > len(best_kw) and _band_rx(kw).search(hay):
+                best_kw, best_key = kw, key
+    return best_key
 
 
 def extract_specs(props_text):
@@ -2724,6 +2731,25 @@ def _demo():
         "the product NAME decides the band -- there is no context fallback left"
     # audit H7: the article's other sentences can no longer stretch a band
     assert categorise_product("ESS for submarines") != "mro"
+    # SPECIFICITY BEATS DICT ORDER. `pav` sits above `uav` and `msl` in CAT_META and carries
+    # "vehicle" and "tank", so first-match-wins filed a drone as an Armoured Vehicle and an
+    # ATGM as a tank -- visible on the dashboard, since step_matchups files a matchup by this.
+    assert categorise_product("unmanned aerial vehicle") == "uav", "a drone is not a truck"
+    assert categorise_product("anti-tank guided missile") == "msl", "an ATGM is not a tank"
+    # ...without deleting the broad words, which still catch what they are for.
+    assert categorise_product("armoured vehicle") == "pav"
+    assert categorise_product("main battle tank") == "pav"
+    # Vocabulary that was simply absent, including KSSL's OWN core business: the pc band knew
+    # "forging" but not "forged", "gun barrel" or "crankshaft", and mro knew "overhaul" but
+    # not "powertrain" or "running gear" -- the two phrases counterRules uses to describe it.
+    for term, band in (("warhead", "ammo"), ("projectile", "ammo"), ("mortar", "art"),
+                       ("turret", "pav"), ("chassis", "pav"), ("gun barrel", "pc"),
+                       ("crankshaft", "pc"), ("powertrain", "mro"), ("running gear", "mro"),
+                       ("warship", "naval")):
+        assert categorise_product(term) == band, \
+            "%r should band as %s, got %s" % (term, band, categorise_product(term))
+    # A radar and a fighter jet must STILL band as nothing -- the additions must not have
+    # widened the vocabulary into businesses KSSL is not in.
     assert categorise_product("Su-30MKI") is None and \
         categorise_product("AirMaster S radar") is None, \
         "a fighter and a radar are not KSSL categories, and no neighbouring "         "keyword may make them one"

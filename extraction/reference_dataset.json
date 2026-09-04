@@ -68023,7 +68023,9 @@
     "puls",
     "pinaka",
     "ulh",
-    "105mm"
+    "105mm",
+    "mortar",
+    "field gun"
    ],
    "desc": "Towed, mounted and self-propelled guns; rocket artillery."
   },
@@ -68040,7 +68042,10 @@
     "propellant",
     "explosive",
     "warhead fill",
-    "fuze"
+    "fuze",
+    "warhead",
+    "projectile",
+    "cartridge"
    ],
    "desc": "Large- and small-calibre ammunition, explosives and fuzes."
   },
@@ -68080,7 +68085,11 @@
     "sh-15",
     "armour",
     "8x8",
-    "4x4"
+    "4x4",
+    "turret",
+    "chassis",
+    "military truck",
+    "infantry fighting vehicle"
    ],
    "desc": "Protected mobility, APCs, armoured platforms."
   },
@@ -68090,7 +68099,10 @@
     "mro",
     "overhaul",
     "refit",
-    "upgrade programme"
+    "upgrade programme",
+    "powertrain",
+    "running gear",
+    "sustainment"
    ],
    "desc": "Armoured vehicle maintenance, repair and upgrade."
   },
@@ -68109,7 +68121,9 @@
     "auv",
     "gun mount",
     "corvette",
-    "shipyard"
+    "shipyard",
+    "warship",
+    "shipbuilding"
    ],
    "desc": "Naval guns, underwater systems, shipborne equipment."
   },
@@ -68129,7 +68143,8 @@
     "kamikaze",
     "quadcopter",
     "swarm",
-    "unmanned aerial"
+    "unmanned aerial",
+    "unmanned aircraft"
    ],
    "desc": "MALE UAVs, loitering munitions, tactical drones."
   },
@@ -68146,7 +68161,8 @@
     "iron dome",
     "air defence",
     "air defense",
-    "vshorad"
+    "vshorad",
+    "anti-tank guided"
    ],
    "desc": "Missiles, ATGMs, air-defence systems."
   },
@@ -68157,7 +68173,11 @@
     "forgings",
     "precision component",
     "aerostructure",
-    "barrel blank"
+    "barrel blank",
+    "forged",
+    "gun barrel",
+    "barrel forging",
+    "crankshaft"
    ],
    "desc": "Forged and machined defence components."
   }
