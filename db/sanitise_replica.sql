@@ -13,10 +13,11 @@
 --
 -- WHAT IT DOES NOT PROMISE. `kssl_incoming` is a real database on the replica's
 -- Postgres for the whole restore, and the copy this replaces survives as
--- `kssl_previous` until the sync after next. Anyone who already has the box's database
--- password can read both. The guarantee is narrower than "never present on the host":
--- an unsanitised database is never reachable AS `kssl`, which is the one the backend,
--- the frontend and every operator actually open.
+-- `kssl_previous` until the sync after next. If THIS file fails, that unsanitised
+-- `kssl_incoming` stays on the host until the next run drops it. Anyone who already has
+-- the box's database password can read any of them. The guarantee is narrower than
+-- "never present on the host": an unsanitised database is never reachable AS `kssl`,
+-- which is the one the backend, the frontend and every operator actually open.
 --
 -- Objects that db/*.sql does not create (extract_queue comes from route.py) are
 -- guarded with to_regclass rather than assumed: this file also runs in CI against a
@@ -97,11 +98,27 @@ CREATE TEMP TABLE _client_cards ON COMMIT DROP AS
 DELETE FROM serving.signal_detail WHERE id IN (SELECT id FROM _client_cards);
 DELETE FROM serving.signal_card   WHERE id IN (SELECT id FROM _client_cards);
 
--- NOT removed, deliberately: serving.competitors, card, partner, patent and the rest
--- cite client URLs as SOURCES for KSSL's own products, which is what the dashboard is
+-- serving.card is the SAME kind of thing and was missed on the first pass: card_text is
+-- "the rendered card, exactly as ask.py builds it" and `statements` holds propositions
+-- with evidence offsets (extraction/engine/card_writer.py). That is the client's page
+-- re-rendered, not a reference to it -- deleting the body and keeping this leaves the
+-- material behind under a different name. Keyed (document_id, run_id) so it is matched
+-- by document_id as well as by url. Created by card_writer.py rather than db/*.sql,
+-- hence the guard.
+DO $$
+BEGIN
+  IF to_regclass('serving.card') IS NOT NULL THEN
+    EXECUTE 'DELETE FROM serving.card c
+              WHERE c.document_id IN (SELECT document_id FROM _client_docs)
+                 OR c.url ~* (SELECT rx FROM _rx)';
+  END IF;
+END $$;
+
+-- NOT removed, deliberately: serving.competitors, partner, patent, matchup and the rest
+-- CITE client URLs as sources for KSSL's own products, which is what the dashboard is
 -- for. Stripping those would leave a replica that cannot show the thing it exists to
--- show. What leaves is the client's own crawled material and the cards written from
--- it; a citation is not the material.
+-- show. The line is between the client's material -- a crawled page, a card rendered
+-- from one -- and a reference to it. A citation is not the material.
 
 -- 3. PRODUCTION'S TIMINGS. metrics.* is carried for its STRUCTURE -- the backend's
 --    /api/bench endpoints read metrics.stage_run and metrics.adhoc_summary (a view
@@ -121,7 +138,7 @@ COMMIT;
 --    regex, and a regex that silently matches nothing looks exactly like a clean
 --    database. Outside the transaction so it reads committed state.
 DO $$
-DECLARE r text; n_docs int; n_extr int; n_card int; n_det int;
+DECLARE r text; n_docs int; n_extr int; n_card int; n_det int; n_srv int;
 BEGIN
   SELECT rx INTO r FROM _rx;
   IF r IS NULL OR r = '' THEN
@@ -131,9 +148,15 @@ BEGIN
   SELECT count(*) INTO n_extr FROM extracted.document    WHERE url ~* r;
   SELECT count(*) INTO n_card FROM serving.signal_card   WHERE url ~* r;
   SELECT count(*) INTO n_det  FROM serving.signal_detail WHERE url ~* r;
-  IF n_docs > 0 OR n_extr > 0 OR n_card > 0 OR n_det > 0 THEN
-    RAISE EXCEPTION 'sanitise: % document(s), % extraction row(s), % card(s) and % detail(s) survived',
-                    n_docs, n_extr, n_card, n_det;
+  IF to_regclass('serving.card') IS NOT NULL THEN
+    EXECUTE 'SELECT count(*) FROM serving.card WHERE url ~* $1' INTO n_srv USING r;
+  ELSE
+    n_srv := 0;
+  END IF;
+  IF n_docs > 0 OR n_extr > 0 OR n_card > 0 OR n_det > 0 OR n_srv > 0 THEN
+    RAISE EXCEPTION 'sanitise: % document(s), % extraction row(s), % signal card(s), '
+                    '% detail(s) and % serving.card row(s) survived',
+                    n_docs, n_extr, n_card, n_det, n_srv;
   END IF;
   RAISE NOTICE 'sanitise: clean';
 END $$;

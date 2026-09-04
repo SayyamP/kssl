@@ -65,28 +65,78 @@ if [ "${KSSL_DATA_ROLE:-}" != "replica" ]; then
   exit 3
 fi
 
-# PREFLIGHT, BEFORE ANYTHING EXPENSIVE. Both of these were once checked at the migrate
-# step, which runs at the END -- so a missing file or an unparseable compose meant a
-# multi-minute dump and restore, and then a failure. Everything knowable up front is
-# checked up front.
+PROD_SSH="${PROD_SSH:-root@62.72.59.79}"
+LOCAL_DB="${KSSL_PREFIX}-db"
+DUMP=/tmp/kssl_prod_$ENVN.dump
+
+# --- PREFLIGHT ------------------------------------------------------------------------
+# EVERYTHING KNOWABLE UP FRONT IS CHECKED UP FRONT, and the bar is deliberate: the next
+# thing this script does is put production under a full pg_dump and then spend minutes
+# restoring it. A condition discovered after that costs the whole restore AND a load on
+# prod, for a fault that a one-second check would have named. These were all once checked
+# at the migrate step, which used to be the very last thing to run.
+echo ">> [$(date -u +%H:%M:%S)] preflight"
+
 if [ ! -f "$APP/extraction/.env" ]; then
   echo "!! extraction/.env is missing, so the migrate step could not run and this sync"
   echo "   would leave $ENVN on production's schema. Run deploy/provision_env.sh $ENVN first."
   exit 8
 fi
+
 # `compose config -q` parses and interpolates the whole file without starting anything.
 # Compose applies every ${VAR:?} in the file regardless of which service is targeted, so
 # this is the only cheap way to know `run --rm migrate` will work before relying on it.
 if ! ( cd "$APP/extraction" && docker compose -f docker-compose.yml config -q ); then
-  echo "!! extraction/docker-compose.yml does not parse with this host's extraction/.env,"
-  echo "   so the migrate step at the end of this sync would fail AFTER the swap. Fix it"
-  echo "   first: every \${VAR:?...} in the compose file needs a non-empty value."
+  echo "!! extraction/docker-compose.yml does not parse with this host's extraction/.env."
+  echo "   Every \${VAR:?...} in the compose file needs a non-empty value."
   exit 8
 fi
 
-PROD_SSH="${PROD_SSH:-root@62.72.59.79}"
-LOCAL_DB="${KSSL_PREFIX}-db"
-DUMP=/tmp/kssl_prod_$ENVN.dump
+# The migrate role's target, derived here rather than at the point of use so a DSN this
+# cannot rewrite is refused before the dump instead of after it. Quotes stripped because
+# compose's env_file parser strips them and `run -e` does not: a quoted value would reach
+# psql with the quote still attached and fail to connect.
+#
+# Two -e expressions, not one with `\|`: alternation is a GNU extension to basic regex and
+# silently matches nothing elsewhere, which the guard below would report as a refusal
+# rather than as the wrong database -- but a check that always refuses is no check.
+# `dbname=kssl` mid-line and at end-of-line are the two forms.
+INC_DSN="$(sed -n 's/^KSSL_CORPUS_DSN=//p' "$APP/extraction/.env" | head -1 | tr -d '"'"'"'' \
+           | sed -e 's/\(dbname=\)kssl\([[:space:]]\)/\1kssl_incoming\2/' \
+                 -e 's/\(dbname=\)kssl$/\1kssl_incoming/')"
+case "$INC_DSN" in
+  *dbname=kssl_incoming*) : ;;
+  *) echo "!! could not point the migrate role at kssl_incoming."
+     echo "   KSSL_CORPUS_DSN in extraction/.env must be keyword form containing 'dbname=kssl'."
+     echo "   Refusing to run a migration that might target the live database."; exit 10 ;;
+esac
+
+# The image the migrate role runs. `compose run` would build it on demand -- after the
+# restore, where a build failure is expensive. Built here, cached, so the later run is a
+# start rather than a build.
+if ! ( cd "$APP/extraction" && docker compose -f docker-compose.yml build -q migrate ); then
+  echo "!! the extraction image does not build on this host, so the migrate step could not run."
+  exit 8
+fi
+
+# The database this whole script writes into. Checked before production is dumped, not
+# after: a stopped container here would otherwise mean a full dump of prod and then a
+# failure on the first docker exec.
+if [ "$(docker inspect -f '{{.State.Running}}' "$LOCAL_DB" 2>/dev/null)" != "true" ]; then
+  echo "!! $LOCAL_DB is not running. Start it first:"
+  echo "     docker compose -f docker-compose.vps.yml -f $COMPOSE_OVERLAY up -d db"
+  exit 11
+fi
+
+# psql -v substitutes the value as raw SQL text, so it is checked as a number here rather
+# than trusted from an env file -- and here rather than at the slice, which is after the
+# restore.
+if [ -n "${KSSL_SLICE_DOCS:-}" ]; then
+  case "$KSSL_SLICE_DOCS" in
+    ''|*[!0-9]*) echo "!! KSSL_SLICE_DOCS must be a positive integer, got '$KSSL_SLICE_DOCS'"; exit 9 ;;
+  esac
+fi
+echo "   preflight ok"
 
 # A dump can also be DELIVERED rather than pulled:
 #
@@ -199,7 +249,9 @@ BEGIN;
 CREATE TEMP TABLE _keep_doc ON COMMIT DROP AS
   SELECT document_id FROM public.documents   ORDER BY fetched_at DESC LIMIT :n;
 CREATE TEMP TABLE _keep_ext ON COMMIT DROP AS
-  SELECT document_id FROM extracted.document ORDER BY first_seen DESC LIMIT :n;
+  -- NULLS LAST because first_seen is DEFAULT now(), not NOT NULL: under a bare DESC a
+-- NULL sorts FIRST and would be kept in preference to a real, newer row.
+  SELECT document_id FROM extracted.document ORDER BY first_seen DESC NULLS LAST LIMIT :n;
 -- Spans, propositions and their arguments cascade from extracted.document.
 DELETE FROM extracted.document WHERE document_id NOT IN (SELECT document_id FROM _keep_ext);
 DELETE FROM public.documents   WHERE document_id NOT IN (SELECT document_id FROM _keep_doc);
@@ -236,6 +288,11 @@ fi
 # production's schema -- the same principle as restoring into kssl_incoming in the first
 # place. Same ledger runner the deploy uses (each file applied once, recorded in
 # schema_version), not a second copy of its logic.
+#
+# NOTE THE SCOPE. This is the ONLY thing that runs migrations on a replica -- deploy.sh
+# does not, on any environment. So a push to `staging` adding a db/migrations/*.sql is not
+# applied there until the next sync. A replica is on the right schema AT SYNC TIME, which
+# is less than "always".
 #
 # The DSN is the host's own, with only the database name changed, so the credentials and
 # port stay whatever provision_env.sh wrote. The guard below is not decoration: if that

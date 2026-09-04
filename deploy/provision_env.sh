@@ -105,7 +105,7 @@ else
   # `|| true` because grep exits 1 on no match and this script runs under `set -e`: a
   # pre-existing .env written by hand may spell the line differently, and dying here with
   # no message is worse than the empty-password check two lines down.
-  DB_PW="$(grep -m1 '^[[:space:]]*\(export[[:space:]]\+\)\?KSSL_DB_PASSWORD=' .env | cut -d= -f2- | tr -d '"'\''' || true)"
+  DB_PW="$(grep -Em1 '^[[:space:]]*(export[[:space:]]+)?KSSL_DB_PASSWORD=' .env | cut -d= -f2- | tr -d '"'\''' || true)"
   if [ -z "$DB_PW" ]; then
     echo "!! could not read KSSL_DB_PASSWORD out of $APP/.env -- extraction/.env would carry"
     echo "   an empty password and every migrate would fail to authenticate."

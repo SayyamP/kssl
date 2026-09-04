@@ -36,7 +36,9 @@ INSERT INTO documents (document_id,url,main_text,fetched_at,text_len) VALUES
  ('k1','https://economictimes.com/news?ref=bharatforge.com','a','2026-01-01',1),
  ('k2','https://www.kssl.info/x','b','2026-01-01',1),
  ('k3','https://www.nkssl.in/x','c','2026-01-01',1),
- ('k4','https://idrw.org/2026/01/bharatforge.com-wins-order','d','2026-01-01',1);
+ ('k4','https://idrw.org/2026/01/bharatforge.com-wins-order','d','2026-01-01',1),
+ ('k5','https://kssl.in.example.com/x','e','2026-01-01',1),
+ ('k6','HTTP://WWW.KSSL.IN:443/x','f','2026-01-01',1);
 INSERT INTO extracted.extraction_run (run_id) VALUES ('r1');
 INSERT INTO extracted.document (document_id,url,text,text_sha256,n_chars) VALUES
  ('d1','https://www.bharatforge.com/defence','x',repeat('a',64),1),
@@ -60,6 +62,19 @@ INSERT INTO serving.signal_detail (id,ord,title,url,origin) VALUES
  ('pl_d2',2,'Rival wins order','https://idrw.org/a','pipeline');
 -- A citation is not the client's material: these SOURCE a KSSL product and must stay.
 INSERT INTO serving.competitors (comp_id,ord,name,origin) VALUES ('bharat-forge',1,'Bharat Forge','pipeline');
+-- serving.card is created by card_writer.py, not db/*.sql, so the test creates it the
+-- same way the real database gets it. card_text is the client's page re-rendered.
+CREATE TABLE serving.card (
+  document_id TEXT NOT NULL, run_id TEXT NOT NULL, title TEXT, source_id TEXT,
+  language TEXT, url TEXT, n_chars INTEGER NOT NULL, n_spans INTEGER NOT NULL,
+  n_props INTEGER NOT NULL, card_text TEXT NOT NULL, spans JSONB NOT NULL,
+  statements JSONB NOT NULL, built_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (document_id, run_id));
+INSERT INTO serving.card (document_id,run_id,url,n_chars,n_spans,n_props,card_text,spans,statements) VALUES
+ ('d1','r1','https://www.bharatforge.com/defence',1,0,0,'rendered client page','[]','[]'),
+ -- matched by document_id even though its url column is null
+ ('d3','r1',NULL,1,0,0,'rendered client page','[]','[]'),
+ ('d2','r1','https://idrw.org/a',1,0,0,'rendered rival news','[]','[]');
 SQL
 
 psql "$D" -q -v ON_ERROR_STOP=1 -f "$HERE/sanitise_replica.sql" > /dev/null
@@ -73,7 +88,7 @@ check() {  # check <name> <sql> <expected>
   else echo "  FAIL $1 -- expected '$3', got '$got'"; fail=1; fi
 }
 check "the client's own pages are gone from the corpus" \
-      "select coalesce(string_agg(document_id,',' order by document_id),'') from documents" "d2,k1,k2,k3,k4"
+      "select coalesce(string_agg(document_id,',' order by document_id),'') from documents" "d2,k1,k2,k3,k4,k5"
 check "and their extraction output with them" \
       "select coalesce(string_agg(document_id,',' order by document_id),'') from extracted.document" "d2,k1"
 check "a client row whose body had already rolled off is caught by url, not by the join" \
@@ -82,6 +97,11 @@ check "a client domain in a third party's QUERY STRING is not a client page" \
       "select count(*) from documents where document_id='k1'" "1"
 check "kssl.info and nkssl.in are different hosts and survive" \
       "select count(*) from documents where document_id in ('k2','k3')" "2"
+check "kssl.in as a leading LABEL of another host is that other host, and survives" \
+      "select count(*) from documents where document_id='k5'" "1"
+check "an uppercase scheme and an explicit port are still the client's host, and go" \
+      "select count(*) from documents where document_id='k6'" "0"
+
 check "a client domain in a third party's PATH is not a client page" \
       "select count(*) from documents where document_id='k4'" "1"
 check "spans cascade -- no orphan evidence left pointing at a deleted document" \
@@ -96,6 +116,8 @@ check "production's stage timings do not become this environment's" \
       "select count(*) from metrics.stage_run" "0"
 check "a citation is not the material -- competitor rows sourcing a client page stay" \
       "select count(*) from serving.competitors where comp_id='bharat-forge'" "1"
+check "the rendered card text of a client page is material, not a citation" \
+      "select coalesce(string_agg(document_id,',' order by document_id),'') from serving.card" "d2"
 check "everything else survives -- this sanitises, it does not empty" \
       "select count(*) from documents where url like '%idrw%'" "2"
 
