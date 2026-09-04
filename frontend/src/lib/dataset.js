@@ -10,9 +10,44 @@ import { wireTendersWithRealDays } from "./tenderCalc.js";
 import { titleCaseHeadline } from "./profile.js";
 import { logger } from "../utils/logger.js";
 
+/* THE PIPELINE ESCAPES, AND SO DOES THE RENDERER, SO EVERY AMPERSAND IS ESCAPED TWICE.
+
+   extraction/signals/serving_fill.py stores `esc(card["title"])` and `esc(card["sowhat"])`
+   -- html.escape at WRITE time, from a period when the UI injected raw strings. The
+   React app escapes again at render (and the string builders call escAll), so the
+   reader is shown the entity itself: "Protected &amp; Armoured Vehicles",
+   "UAVs &amp; Drones", "Larsen &amp; Toubro".
+
+   Measured on production: 132 of the 133 sowhat values containing an ampersand hold the
+   five-character entity, and 11 of 12 titles. The `tags` column, written without esc(),
+   holds a real "&" -- which is how it is known to be the writer and not the corpus (the
+   corpus itself is clean: 0 of 5,000 document texts carry it).
+
+   ONLY `&amp;` is decoded here, deliberately. A blanket unescape would be unsafe: chat.js
+   interpolates tender and signal titles straight into markup without escaping, so
+   turning a stored `&lt;` back into `<` would hand it an injection point. A bare `&`
+   cannot open a tag, so this decode cannot make anything renderable that was not
+   already. Fixing the writer is the real repair and is a separate change -- it moves a
+   security boundary and needs chat.js hardened first.
+
+   URLs benefit too: a query string carrying `&amp;` is a broken link, not a styling
+   nit. */
+function decodeAmp(v) {
+  if (typeof v === "string") return v.indexOf("&amp;") < 0 ? v : v.split("&amp;").join("&");
+  if (Array.isArray(v)) return v.map(decodeAmp);
+  if (v && typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype) {
+    const out = {};
+    for (const k of Object.keys(v)) out[k] = decodeAmp(v[k]);
+    return out;
+  }
+  return v;
+}
+
 export function wireDataset(raw) {
   // shallow clone the containers we mutate; the leaf objects are ours after a fetch
-  const d = { ...raw };
+  // decodeAmp first: every later rule (casing, promotion, grouping) should see the text
+  // the reader will see, not a text with entities standing in for characters.
+  const d = decodeAmp({ ...raw });
 
   /* ONE capitalisation for every headline in the app, applied at the single point they
      all enter it. Doing it here rather than at the render sites is the whole point: the
