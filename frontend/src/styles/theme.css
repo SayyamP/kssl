@@ -67,3 +67,18 @@
     font-size: max(12px, inherit);
   }
 
+
+/* The live-source marker. Four "Source Publisher:" lines and a partner card printed a
+   a literal red-circle emoji for this, which renders in whatever colour the viewer's emoji font picks
+   and ignores the palette entirely. A styled element takes the page's own accent and
+   scales with the type around it. */
+.src-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-right: 6px;
+  vertical-align: baseline;
+  flex-shrink: 0;
+}

@@ -1015,7 +1015,7 @@ export function createPartners(d) {
               `${esc(card.excerpt)}` +
             `</div>` +
             `<span style="font-size: 11px; color: #3d3d39; margin-top: auto;">` +
-              `🔴 ${esc(card.source)} ✓` +
+              `<span class="src-dot"></span>${esc(card.source)}` +
             `</span>` +
           `</div>` +
         `</div>`;
@@ -1250,8 +1250,8 @@ export function createPartners(d) {
       const isShared = p.koel || p.shared || (p.rows && p.rows.some((r) => r.koel || r.shared));
       const isOverlap = !!isShared;
       const statusBadge = isOverlap
-        ? `<span style="font-family: var(--mono); font-size: 9.5px; background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;">🔴 Overlapping Partner</span>`
-        : `<span style="font-family: var(--mono); font-size: 9.5px; background: rgba(34, 197, 94, 0.12); color: #16a34a; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;">🟢 Direct Partner</span>`;
+        ? `<span style="font-family: var(--mono); font-size: 9.5px; background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;">Overlapping Partner</span>`
+        : `<span style="font-family: var(--mono); font-size: 9.5px; background: rgba(34, 197, 94, 0.12); color: #16a34a; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;">Direct Partner</span>`;
 
       const kindText = esc(p.kind || p.ptype || REL_LABEL[p.rel] || "Partner");
       const noteText = esc(p.note || p.insight || "Strategic defense manufacturing and supply tie.");

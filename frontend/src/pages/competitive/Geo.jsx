@@ -601,27 +601,6 @@ export default function Geo() {
                   zIndex: 30,
                 }}
               >
-                {/* UNITS SOLD / CONTRACTED BADGE */}
-                {prod ? (
-                  <div
-                    style={{
-                      background: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)",
-                      border: "1px solid #38bdf8",
-                      borderRadius: "5px",
-                      padding: "4px 10px",
-                      fontSize: "11px",
-                      fontFamily: "var(--mono)",
-                      fontWeight: "700",
-                      color: "#38bdf8",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    <span>📦 Units / Scale: {prod.qty || "Active"}{prod.val && prod.val !== "estimate" ? ` (${prod.val})` : ""}</span>
-                  </div>
-                ) : null}
 
                 {back ? (
                   <button

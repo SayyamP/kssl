@@ -311,7 +311,7 @@ export default function Profile() {
 
             {/* Publisher Source */}
             <div style={{ fontSize: "12px", color: "#6b6a63", fontWeight: "600" }}>
-              Source Publisher: <span style={{ color: "#b5341f" }}>🔴 {activeArticle.source} ✓</span>
+              Source Publisher: <span style={{ color: "#b5341f" }}><span className="src-dot"></span>{activeArticle.source}</span>
             </div>
 
             {/* Banner Image */}
@@ -497,7 +497,7 @@ export default function Profile() {
                           <p className="ln-story-desc">{topStory.excerpt}</p>
                           <div className="ln-story-foot">
                             <span style={{ fontSize: "11px", color: "var(--d-txt-2)", fontWeight: "600" }}>
-                              🔴 {topStory.source} ✓
+                              <span className="src-dot"></span>{topStory.source}
                             </span>
                             <span style={{ fontSize: "12px", color: "#f0593c", fontWeight: "600" }}>
                               Read Full Article →
@@ -553,7 +553,7 @@ export default function Profile() {
                       {/* Trending Now */}
                       <div className="ln-widget">
                         <div className="ln-widget-h">
-                          📈 TRENDING NOW
+                          TRENDING NOW
                         </div>
                         <div>
                           {companyArticles.slice(0, 5).map((t, idx) => (
