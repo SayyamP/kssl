@@ -32,7 +32,9 @@ export default function Overview({
   }, [selected, onSelectionChange]);
 
   const cfg = data.overviewConfig[pillarKey] || data.overviewConfig.competitive;
-  const feed = useMemo(() => buildFeed(cfg, seqMode), [cfg, seqMode]);
+  // `data` is a dependency because the sort now reads the same date the card prints,
+  // which lives in data.details, not on the card
+  const feed = useMemo(() => buildFeed(cfg, seqMode, data), [cfg, seqMode, data]);
 
   // a pillar change or a re-sequence drops the selection, same as the original's
   // "collapsed until a signal is clicked" reset

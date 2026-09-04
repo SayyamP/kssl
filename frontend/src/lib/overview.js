@@ -20,34 +20,60 @@ export const SEQ_OPTIONS = [
   ["category", "By domain"],
 ];
 
-/* parse a date-ish 'ago' field ('07 Mar 2026', 'Jun 2026', '2h ago') into a sortable
-   number; newer = higher */
-function monthVal(ago) {
-  if (!ago) return 0;
-  const months = {
-    jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
-    jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
-  };
-  const m = ago.toLowerCase().match(/([a-z]{3})\s*(\d{4})/);
-  if (m) return parseInt(m[2], 10) * 12 + (months[m[1]] || 0);
-  const y = ago.match(/(\d{4})/);
-  if (y) return parseInt(y[1], 10) * 12;
-  if (/ago/.test(ago)) return 999999; // 'Nh ago' = very recent
+const MONTHS = {
+  jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
+  jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+};
+
+/* A sortable number for a displayed date; newer = higher.
+   'DD Mon YYYY' -> 20260830, 'Mon YYYY' -> 20260900, 'Nd ago' -> most recent.
+
+   Replaces a month-precision predecessor that returned year*12+month, under which
+   '11 Aug 2026' and '30 Aug 2026' were the SAME number. Both date shapes are real:
+   serving.signal_detail states the day ('30 Aug 2026') while signal_card.ago is often
+   month-only ('Sep 2026'), so a comparator has to order across the two. A month-only
+   value takes day 0, which puts it after every dated day of that month when sorting
+   newest-first, and still ahead of the whole previous month. */
+export function dateVal(s) {
+  if (!s) return 0;
+  const t = String(s).toLowerCase().trim();
+  if (/ago\b/.test(t)) return 99999999; // '1d ago' is newer than any printed date
+  let m = t.match(/(\d{1,2})\s+([a-z]{3})[a-z]*\.?\s+(\d{4})/);
+  if (m) {
+    return parseInt(m[3], 10) * 10000 + (MONTHS[m[2]] || 0) * 100 + parseInt(m[1], 10);
+  }
+  m = t.match(/(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    return parseInt(m[1], 10) * 10000 + parseInt(m[2], 10) * 100 + parseInt(m[3], 10);
+  }
+  m = t.match(/([a-z]{3})[a-z]*\.?\s+(\d{4})/);
+  if (m) return parseInt(m[2], 10) * 10000 + (MONTHS[m[1]] || 0) * 100;
+  m = t.match(/(\d{4})/);
+  if (m) return parseInt(m[1], 10) * 10000;
   return 0;
 }
 
-/* Ordered, re-ranked and split into the groups the feed renders. */
-export function buildFeed(cfg, seqMode) {
+/* Ordered, re-ranked and split into the groups the feed renders.
+
+   `data` is what the cards are DISPLAYED with: the date on a card comes from
+   signalDate(card, data), which prefers the day-precision date in the detail panel over
+   the card's own month-only `ago`. Sorting on `ago` while printing signalDate() is what
+   produced a threat list reading Sep 2026, 11 Aug, 30 Aug, 11 Aug, 20 Aug, 4 Aug -- the
+   order was real, it just belonged to a different set of values than the ones on screen.
+   The comparator and the label have to read the same field. */
+export function buildFeed(cfg, seqMode, data) {
   const dirRank = { threat: 0, watch: 1, fav: 2 };
+  const when = (c) => dateVal(signalDate(c, data));
   let cards = (cfg.cards || []).slice();
   if (seqMode === "priority") {
     cards.sort(
       (a, b) =>
         dirRank[a.dir] - dirRank[b.dir] ||
+        when(b) - when(a) ||
         (b.sec ? b.sec.length : 0) - (a.sec ? a.sec.length : 0),
     );
   } else if (seqMode === "recency") {
-    cards.sort((a, b) => monthVal(b.ago) - monthVal(a.ago));
+    cards.sort((a, b) => when(b) - when(a));
   } else if (seqMode === "depth") {
     cards.sort(
       (a, b) =>
