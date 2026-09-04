@@ -23,8 +23,8 @@ const eq = (got, want, what) => {
 };
 
 /* --- the real values from serving.competitors.sector --- */
-eq(formatLabel("defense services and solutions"), "Defence Services and Solutions",
-   "lower-case sector is title-cased, 'and' stays small, defense -> Defence");
+eq(formatLabel("defense services and solutions"), "Defence Services And Solutions",
+   "Pascal case: every word capitalised, connectors included; defense -> Defence");
 eq(formatLabel("Defence manufacturing"), "Defence Manufacturing", "mixed case");
 eq(formatLabel("DEFENSE MANUFACTURING"), "Defence Manufacturing", "shouting is calmed");
 eq(formatLabel("Artillery · Ammunition · Small Arms"), "Artillery · Ammunition · Small Arms",
@@ -43,9 +43,10 @@ eq(formatLabel("bmp-2 upgrade"), "BMP-2 Upgrade", "platform designation keeps it
 eq(formatLabel("mk1 turret"), "MK1 Turret", "MK1, not Mk1");
 eq(formatLabel("r&d"), "R&D", "ampersand acronym");
 
-/* --- a connector is only small in the middle --- */
-eq(formatLabel("and beyond"), "And Beyond", "a leading connector is still capitalised");
-eq(formatLabel("air and land"), "Air and Land", "a middle connector is not");
+/* --- Pascal case: a connector is capitalised wherever it sits --- */
+eq(formatLabel("and beyond"), "And Beyond", "leading connector");
+eq(formatLabel("air and land"), "Air And Land", "middle connector is capitalised too");
+eq(formatLabel("ministry of defence"), "Ministry Of Defence", "of is capitalised");
 
 /* --- the empty case: a shared formatter must not invent a value --- */
 eq(formatLabel(""), "", "empty in, empty out");

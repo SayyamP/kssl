@@ -47,37 +47,37 @@ const ACRONYMS = new Set([
   "BMP", "APC", "IFV", "SPG", "MK1", "MK2", "MK3", "T", "LCA", "ATV",
 ]);
 
-/* Connectors stay lower-case inside a label, as ordinary title case does -- but never
-   as the first word ('And Solutions' was what made these read as machine output). */
-const SMALL = new Set(["and", "or", "of", "the", "for", "in", "on", "to", "a", "an"]);
+/* EVERY word is capitalised, connectors included: "Defence Services And Solutions",
+   not "... and Solutions". Conventional title case lower-cases short connectors, and
+   the first pass did that, but the house style here is Pascal case across the board --
+   one rule with no exception list is also the only version that cannot drift. */
 
 export function formatLabel(raw) {
   if (!raw) return "";
   const s = unescapeEntities(String(raw)).replace(/&amp;/g, "&").trim();
   if (!s) return "";
 
-  const token = (word, first) => {
+  const token = (word) => {
     if (!word) return "";
     /* Punctuation travels with the word in a space split, so 'defense,' never matched
        the spelling rule and one comma was enough to leave 'Defense' on screen. Peel it
        off, decide on the word, then put it back. */
     const edge = word.match(/^([^A-Za-z0-9&·/-]*)(.*?)([^A-Za-z0-9&·/-]*)$/);
     if (edge && (edge[1] || edge[3]) && edge[2]) {
-      return edge[1] + token(edge[2], first) + edge[3];
+      return edge[1] + token(edge[2]) + edge[3];
     }
     const up = word.toUpperCase();
     if (ACRONYMS.has(up)) return up;
-    if (word.includes("/")) return word.split("/").map((w) => token(w, first)).join("/");
-    if (word.includes("-")) return word.split("-").map((w) => token(w, first)).join("-");
+    if (word.includes("/")) return word.split("/").map(token).join("/");
+    if (word.includes("-")) return word.split("-").map(token).join("-");
     if (word === "&" || word === "·") return word;
     const low = word.toLowerCase();
     // one spelling of the word this whole product is about
     if (low === "defense" || low === "defence") return "Defence";
-    if (!first && SMALL.has(low)) return low;
     return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
   };
 
-  return s.split(/\s+/).map((w, i) => token(w, i === 0)).join(" ");
+  return s.split(/\s+/).map(token).join(" ");
 }
 
 /* Sector carries a default because a competitor with no sector is still in this
