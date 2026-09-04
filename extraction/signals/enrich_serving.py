@@ -538,6 +538,53 @@ _MAKES_RX = re.compile(
     r"forges|forging|shipyard|foundry|arsenal)(?!\w)", re.I)
 
 
+# THE FOURTH CLAUSE: "directly competing with KSSL". The gate above admits any defence
+# manufacturer -- which let Doodle Labs in on products ["radio systems"]. It makes
+# jam-resistant mesh radios for drones; KSSL forges barrels and builds artillery, and the two
+# never meet in a tender. Real company, real defence manufacturing, not a rival.
+#
+# The obvious test -- require a product to fall in one of KSSL's nine bands -- was measured
+# against the live table and REFUSED: the band vocabulary is brand-blind, so AeroVironment
+# ("Switchblade", "Shrike", "Puma") and Atlas Elektronik carry no category word and would be
+# deleted alongside the genuine mismatches. 77 of 150 rows would have gone, real rivals
+# among them.
+#
+# So the rule is inverted: default-allow, with positive evidence of a DIFFERENT business.
+# And it fires only when EVERY stated product is outside KSSL's world. Requiring merely one
+# was measured too -- it deleted Leonardo, which builds naval guns, on an "SPC Cloud e
+# Sicurezza" entry, and Kongsberg on a radar. `products` is not a catalogue; it is whatever
+# the recent corpus happened to mention, so one stray entry must never condemn a company.
+#
+# Precision over recall, deliberately: on the live table this removes 3 rows and keeps every
+# real competitor. Boeing and Dassault survive it, because "F-18" and "Rafale" match nothing
+# here -- catching those needs vocabulary work, not a stricter rule.
+_OUT_OF_PORTFOLIO = re.compile(
+    r"(?<!\w)("
+    r"radio|radios|transceiver|datalink|waveform|satcom|antenna|antennas"
+    r"|avionic|avionics|flight display|flight displays|cockpit"
+    r"|satellite|satellites|launch vehicle|space launch|orbital"
+    r"|radar|radars|sonar|sonars"
+    r"|fighter jet|airliner|business jet|helicopter|helicopters"
+    r"|turbofan|turboprop|jet engine|aero engine|aircraft engine"
+    r"|software|cyber|cloud|middleware"
+    r")(?!\w)", re.I)
+
+
+def out_of_portfolio(products):
+    """True when every product this company states sits outside KSSL's categories.
+
+    Two conditions, both required: nothing bands into one of the nine KSSL categories, AND
+    every single product matches a business KSSL is not in. Either alone is too blunt --
+    see the note above.
+    """
+    products = [p for p in (products or []) if (p or "").strip()]
+    if not products:
+        return False                      # no evidence either way; the products check owns this
+    if any(categorise_product(p) for p in products):
+        return False                      # it makes something KSSL makes
+    return all(_OUT_OF_PORTFOLIO.search(p) for p in products)
+
+
 def competes_with_kssl(prof):
     """-> (admit, reason). Is this profile a DIRECT DEFENCE COMPETITOR, or merely a company
     the corpus mentions near defence?
@@ -548,7 +595,7 @@ def competes_with_kssl(prof):
     sat in it with dir='other', threat NULL and an empty product list -- the model had
     already answered correctly and the code inserted the row anyway.
 
-    Three pieces of evidence are required, which is the definition of a competitor spelled
+    Four pieces of evidence are required, which is the definition of a competitor spelled
     out as code:
 
       manufacturer  -- the model, asked properly, judged it a maker of defence products
@@ -556,6 +603,8 @@ def competes_with_kssl(prof):
       capability    -- the statements name at least one product of its OWN; a company the
                        corpus never credits with a product has shown no competing capability
       not services  -- its own description is not a services business with no making in it
+      in portfolio  -- it does not make ONLY things KSSL has no product in. A radio maker
+                       is a defence manufacturer and still not a rival to a gun house.
 
     A refusal is not a deletion: the profile is still built and still counted, it simply does
     not become a competitor row. `client` is passed through untouched -- KSSL is not its own
@@ -571,6 +620,8 @@ def competes_with_kssl(prof):
     hay = "%s %s" % (prof.get("assess") or "", prof.get("sector") or "")
     if _SERVICES_RX.search(hay) and not _MAKES_RX.search(hay):
         return False, "services business, no manufacturing evidence"
+    if out_of_portfolio(prof.get("products")):
+        return False, "makes nothing KSSL makes (%s)" % ", ".join(prof["products"][:3])
     return True, "rival"
 
 
@@ -2029,6 +2080,20 @@ def is_product_name(product):
     return False
 
 
+def _band_rx(term):
+    """word_rx, but tolerant of the plural a PRODUCT LIST is written in.
+
+    Companies state product lines, not single items -- "missiles", "drones", "howitzers".
+    word_rx ends in (?!\\w), which refuses every one of them, so categorise_product returned
+    None for Adani Defence (products: ["helicopters", "missiles", ...]) and AeroVironment.
+    That is not only a gate problem: rate_threat calls the same function, so any company
+    whose products are listed in the plural has been recorded as falling in "no KSSL
+    category" and rated a weaker threat than it is. Only a trailing s/es is allowed, so a
+    longer unrelated word still cannot slip through.
+    """
+    return re.compile(r"(?<!\w)" + re.escape(term.lower()) + r"(?:e?s)?(?!\w)")
+
+
 def categorise_product(product):
     """CAT_META keyword hit on the PRODUCT NAME -> catKey band, else None (no band ->
     no matchup). The surrounding article text is NOT consulted: that fallback banded
@@ -2039,7 +2104,7 @@ def categorise_product(product):
     hay = str(product or "").lower()
     for key, meta in REF.get("CAT_META", {}).items():
         for kw in meta.get("kw", []):
-            if len(kw) >= 3 and word_rx(kw).search(hay):
+            if len(kw) >= 3 and _band_rx(kw).search(hay):
                 return key
     return None
 
@@ -2679,7 +2744,45 @@ def _demo():
     def _p(dir_, products, assess, sector=""):
         return {"dir": dir_, "products": products, "assess": assess, "sector": sector}
 
-    # 1. THE NAMED CASE. Accenture sat in serving.competitors with dir='other', threat NULL
+    # 1. PORTFOLIO OVERLAP. Every case below is a row that is in serving.competitors today.
+    #    Doodle Labs makes jam-resistant mesh radios for drones -- a defence manufacturer that
+    #    competes with KSSL in nothing.
+    doodle = _p("rival", ["radio systems"],
+                "Doodle Labs specializes in radio systems for unmanned systems operating in "
+                "contested environments, particularly jam-resistant drones.",
+                "Unmanned Systems, Radio Communications")
+    ok, why = competes_with_kssl(doodle)
+    assert not ok and "nothing KSSL makes" in why, "a radio maker is not a gun rival: %s" % why
+    assert not competes_with_kssl(_p("rival", ["demonstration satellite"], "space", "Space"))[0]
+    assert not competes_with_kssl(_p("rival", ["advanced sonar and optical sensors"],
+                                     "marine", "marine technology"))[0]
+    # ...and the SECTOR must not rescue it. Doodle Labs' sector says "Unmanned Systems"
+    # because that is the market it SELLS INTO, which is exactly not the same as competing.
+    assert not competes_with_kssl(doodle)[0], "sector text must not readmit a supplier"
+
+    # A MIXED product list must survive. One stray entry is not evidence about the company:
+    # `products` is whatever the recent corpus mentioned, not a catalogue. Requiring only one
+    # out-of-portfolio product deleted Leonardo -- which builds naval guns -- on "SPC Cloud".
+    assert competes_with_kssl(_p("rival", ["TacSAR", "SPC Cloud e Sicurezza"], "defence"))[0], \
+        "a cloud product must not delete a naval gun maker"
+    assert competes_with_kssl(_p("rival", ["NASAMS", "PROTECTOR Remote Weapon Stations",
+                                           "surveillance radars"], "defence"))[0]
+    # Brand-named products carry no category word and must NOT be read as out of portfolio.
+    assert competes_with_kssl(_p("rival", ["Switchblade", "Shrike", "Puma"], "defence"))[0], \
+        "AeroVironment is a real UAV rival, brand names and all"
+    # A company that plainly makes a KSSL product is admitted even beside a denied one.
+    assert competes_with_kssl(_p("rival", ["155mm ammunition", "radar"], "defence"))[0]
+
+    # THE PLURAL BUG behind all of this: a product LIST is written in the plural, and the
+    # band matcher refused every one of them -- so Adani Defence ("missiles") was recorded as
+    # falling in "no KSSL category", which also under-rated its threat.
+    assert categorise_product("missiles") == categorise_product("missile") == "msl"
+    assert categorise_product("drones") == categorise_product("drone") == "uav"
+    assert categorise_product("howitzers") == "art"
+    assert competes_with_kssl(_p("rival", ["helicopters", "missiles"], "defence"))[0], \
+        "Adani Defence makes missiles; the plural must not hide that"
+
+    # 2. THE NAMED CASE. Accenture sat in serving.competitors with dir='other', threat NULL
     #    and no products at all. The model had answered correctly; step_companies wrote the
     #    row regardless, because nothing ever asked whether a competitor is what this is.
     ok, why = competes_with_kssl(_p("other", [], "Accenture is involved in delivering digital "
@@ -2687,7 +2790,7 @@ def _demo():
         "information systems.", "defense services and solutions"))
     assert not ok and "not a rival" in why, "Accenture is not a competitor: %s" % why
 
-    # 2. SERVICES BUSINESSES THE MODEL CALLED 'rival'. A tightened prompt should stop these
+    # 3. SERVICES BUSINESSES THE MODEL CALLED 'rival'. A tightened prompt should stop these
     #    at the source; the guard is what makes that not merely a hope.
     saic = _p("rival", ["Mobile Protected Firepower (MPF) light tank"],
               "SAIC is a technology integrator that collaborates with other defense "
@@ -2702,13 +2805,13 @@ def _demo():
                 "and software-defined vehicle capabilities to the defense sector.")
     assert not competes_with_kssl(appint)[0], "an autonomy-software vendor is not a rival"
 
-    # 3. NO COMPETING CAPABILITY. A company the corpus never credits with a product of its
+    # 4. NO COMPETING CAPABILITY. A company the corpus never credits with a product of its
     #    own has shown nothing to compete with, however defence-related it plainly is.
     #    Denel and EUROSAM are both real defence firms and both stored with zero products.
     ok, why = competes_with_kssl(_p("rival", [], "EUROSAM is involved in missile defence."))
     assert not ok and "no product" in why, "no stated product is no evidence: %s" % why
 
-    # 4. REAL COMPETITORS ARE PRESERVED -- including ones whose evidence mentions services.
+    # 5. REAL COMPETITORS ARE PRESERVED -- including ones whose evidence mentions services.
     knds = _p("rival", ["CAESAR", "Boxer", "155mm ammunition"],
               "KNDS produces artillery systems, armoured vehicles and ammunition for "
               "European armies.", "ammunition, artillery, armoured vehicles")
@@ -2728,10 +2831,10 @@ def _demo():
              "electronic warfare systems.", "Electronics, Cybersecurity, Defence Systems")
     assert competes_with_kssl(bel)[0], "a technology area is not a services business"
 
-    # 5. THE CLIENT IS NOT A RIVAL, and passes through as it always did.
+    # 6. THE CLIENT IS NOT A RIVAL, and passes through as it always did.
     assert competes_with_kssl(_p("client", [], "KSSL is the client group."))[0]
 
-    # 6. AMBIGUOUS OUTPUT IS REFUSED, never coerced. parse_profile already maps an invented
+    # 7. AMBIGUOUS OUTPUT IS REFUSED, never coerced. parse_profile already maps an invented
     #    dir to 'other'; the gate must then keep it out rather than let 'other' mean rival.
     assert not competes_with_kssl(_p("other", ["Something"], "A defence-related firm."))[0]
     assert not competes_with_kssl({})[0] and not competes_with_kssl(None)[0]
