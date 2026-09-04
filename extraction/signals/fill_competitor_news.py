@@ -39,11 +39,15 @@ from pathlib import Path
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 
-# KSSL_DSN is what the extraction containers actually export; the other two are
+# KSSL_DSN is what the extraction containers actually export; the other three are
 # the source-tree names. Getting this wrong fails as "no such socket", which
 # reads like the database is down rather than like an unset variable.
-DSN = (os.environ.get("KSSL_DSN") or os.environ.get("KSSL_SERVING_DSN")
-       or os.environ.get("DSN") or "")
+#
+# KSSL_CORPUS_DSN is in the list because it is the ONLY one a replica has:
+# provision_env.sh generates extraction/.env with that name alone, so without it this
+# script runs on production (where both are set) and dies on staging and dev.
+DSN = (os.environ.get("KSSL_DSN") or os.environ.get("KSSL_CORPUS_DSN")
+       or os.environ.get("KSSL_SERVING_DSN") or os.environ.get("DSN") or "")
 
 # Only the publisher's own host is a source name. A card whose meta lost its
 # "from <host>" tail still has the url, and the url host is the publisher.
