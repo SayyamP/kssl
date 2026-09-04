@@ -9,6 +9,7 @@
    that are on screen somewhere else, which is what makes them auditable. */
 import { edgeVerdict } from "./edge.js";
 import { stripTags } from "./html.js";
+import { formatLabel } from "./profile.js";
 
 const MAT_LAB = {
   lab: "Lab / research",
@@ -325,7 +326,8 @@ export function groundedAnswer(d, question, ctx) {
       m.competitor.toLowerCase().includes(company.split(" ")[0].toLowerCase()),
     );
     let ans = `<b>${company}</b>`;
-    if (c.sector) ans += ` · ${c.sector}`;
+    // the same sector rule every view prints, not the raw column (FE 12)
+    if (c.sector) ans += ` · ${formatLabel(c.sector)}`;
     if (prods.length) ans += `<br><br>Products tracked: ${prods.join(", ")}`;
     if (markets.length) ans += `<br><br>Markets: ${markets.join(", ")}`;
     if (mu.length)

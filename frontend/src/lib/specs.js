@@ -5,6 +5,34 @@ import { computeSpecEdge, edgeBasis, edgeVerdict, isNumericVal } from "./edge.js
 import { escAll } from "./html.js";
 import { formatCrore } from "../utils/formatNumber.js";
 
+/* A spec value with the unit the RECORD holds for it -- and never any other.
+
+   T 7: the paired-bar rows print the unit in their label, but the product page and
+   the no-edge branch below printed the bare value, so "Max range 40+" sat beside
+   "Max range 41 km" on the product one line down. The matchup row carries the unit
+   in its own field (`u`), which is the only place a unit can honestly come from: a
+   unit read off the LABEL ("calibre, so mm") is a fabricated figure, and
+   check_no_fabrication.mjs exists for that class.
+
+   So: the stored unit, once, and only onto a value that is a plain figure -- a
+   number, a range, a bound, a plus. A value that already names a unit is left as it
+   is ("Minimum 30 minutes" under a record that says hours would otherwise print
+   "Minimum 30 minutes hours"), a placeholder is left as it is, and no unit on the
+   record means no unit on screen. The one thing removed is a unit the record
+   repeated ("over 67 km/h km/h"). */
+export function specValueWithUnit(v, u) {
+  if (v == null) return "";
+  const s = String(v).trim();
+  if (!s) return "";
+  const unit = u == null ? "" : String(u).trim();
+  if (!unit) return s;
+  const esc = unit.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const once = s.replace(new RegExp(`(${esc})(?:\\s+${esc})+$`, "i"), "$1");
+  if (new RegExp(`(^|[^A-Za-z])${esc}([^A-Za-z]|$)`, "i").test(once)) return once;
+  if (/^[<>~]?\s*\d[\d.,]*(?:\s*[-–]\s*\d[\d.,]*)?\s*\+?$/.test(once)) return `${once} ${unit}`;
+  return once;
+}
+
 function parseSpecNum(v, fallback) {
   if (v != null) {
     const m = String(v).match(/(\d+(?:\.\d+)?)/);
@@ -25,8 +53,8 @@ function specRow(s, compName) {
     return (
       `<div class="specbar"><div class="sb-label">${s.l}${s.u ? ` <span class="sb-unit">(${s.u})</span>` : ""}</div>` +
       '<div class="sb-pair">' +
-      `<div class="sb-side bf"><span class="sb-who">KSSL</span><span class="sb-num">${s.kv}${dot(kpv)}</span></div>` +
-      `<div class="sb-side comp"><span class="sb-who">${compName || "Competitor"}</span><span class="sb-num">${s.cv}${dot(cpv)}</span></div>` +
+      `<div class="sb-side bf"><span class="sb-who">KSSL</span><span class="sb-num">${specValueWithUnit(s.kv, s.u) || s.kv}${dot(kpv)}</span></div>` +
+      `<div class="sb-side comp"><span class="sb-who">${compName || "Competitor"}</span><span class="sb-num">${specValueWithUnit(s.cv, s.u) || s.cv}${dot(cpv)}</span></div>` +
       "</div></div>"
     );
   }
@@ -114,8 +142,8 @@ function specRowQual(s) {
   const cpv = s.cp || s.p;
   const kpv = s.kp || s.p;
   const has = (v) => v != null && v !== "" && v !== "—";
-  const cv = has(s.cv) ? s.cv : '<span class="sb-nosrc">not sourced</span>';
-  const kv = has(s.kv) ? s.kv : '<span class="sb-nosrc">not sourced</span>';
+  const cv = has(s.cv) ? specValueWithUnit(s.cv, s.u) : '<span class="sb-nosrc">not sourced</span>';
+  const kv = has(s.kv) ? specValueWithUnit(s.kv, s.u) : '<span class="sb-nosrc">not sourced</span>';
   return (
     `<div class="specbar"><div class="sb-label">${s.l}</div>` +
     `<div class="sb-text">` +
@@ -191,10 +219,10 @@ export function specPanelHtml(m) {
         const dot = (s.kp || s.p) === "s" || s.kv == null ? "" : kvKnown(s) ? '<span class="provdot x"></span>' : "";
         const cKnown = s.cv != null && s.cv !== "" && s.cv !== "—";
         const cChip = cKnown
-          ? `<div class="sb-chip comp">${s.cv}</div>`
+          ? `<div class="sb-chip comp">${specValueWithUnit(s.cv, s.u)}</div>`
           : '<div class="sb-chip comp undisc">not sourced</div>';
         const kChip = kvKnown(s)
-          ? `<div class="sb-chip bf">${s.kv}${dot}</div>`
+          ? `<div class="sb-chip bf">${specValueWithUnit(s.kv, s.u)}${dot}</div>`
           : '<div class="sb-chip bf undisc">KSSL — not sourced</div>';
         return (
           `<div class="specbar"><div class="sb-label">${s.l}</div><div class="sb-text">` +

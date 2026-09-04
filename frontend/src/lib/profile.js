@@ -37,24 +37,65 @@ const txt = (s) => unescapeEntities(s || "").trim();
  * Aerospace' -- 136 of 178 served competitors have no hq value. A default belongs to
  * the field that wants one, not to the formatter every field shares. */
 const ACRONYMS = new Set([
-  "EW", "UAV", "UAVS", "UAS", "C-UAS", "C4I", "OEM", "R&D", "PSU", "MBT", "ARV",
-  "HMV", "ICV", "ATGMS", "ATGM", "BVR", "JV", "FCV", "RCWS", "LMG", "SPH", "AD",
-  "OFB", "AI", "MRO", "EO/IR", "GPS", "RF", "VTOL", "HE", "APFSDS", "ISR", "SAR",
+  "EW", "UAV", "UAS", "C-UAS", "CUAS", "C4I", "C4ISR", "C4", "C2", "OEM", "R&D", "PSU",
+  "MBT", "ARV", "HMV", "ICV", "ATGM", "BVR", "JV", "FCV", "RCWS", "RWS", "LMG", "SPH",
+  "AD", "OFB", "AI", "MRO", "EO/IR", "EO", "IR", "GPS", "GNSS", "RF", "VTOL", "HE",
+  "APFSDS", "ISR", "ISTAR", "SAR", "AESA", "AIS", "SATCOM", "HUD", "FLIR", "IRST",
   "KSSL", "DRDO", "BDL", "BEL", "L&T", "IAF", "BAE", "IAI", "HAL", "JSW", "BHEL",
-  "ISRO", "ADA", "NAL", "USA", "UK", "UAE",
+  "ISRO", "ADA", "NAL", "USA", "UK", "UAE", "NATO", "HQ",
   // platform designations, from the product-name formatter this replaced: without
   // them 'BMP-2' comes back 'Bmp-2' and 'MK1' comes back 'Mk1'
   "BMP", "APC", "IFV", "SPG", "MK1", "MK2", "MK3", "T", "LCA", "ATV",
+  /* The acceptance sheet (FE 12, FE 32, FE 34, T 20): the roster and its products
+     carry these and the list did not, so the sector dropdown printed "Ari", "Mraps",
+     "Usvs" and "(Astt)" against a profile heading that printed them correctly.
+     Plurals are NOT listed -- the formatter keeps the small s itself (UAVs, MRAPs). */
+  "ARI", "SAM", "MRSAM", "LRSAM", "QRSAM", "SHORAD", "VSHORAD", "GBAD", "MANPADS",
+  "ASTT", "DSRV", "OPV", "USV", "UGV", "UUV", "AUV", "ROV", "MRAP", "FPV", "PRS",
+  "CTAS", "IHE", "HEAT", "ERA", "APS", "MLRS", "MRLS", "MBRL", "ATAGS", "FICV",
+  "LMV", "LAV", "JLTV", "ACV", "AMV", "LCH", "LAH", "HALE", "MALE", "NSM", "ESSM",
+  "THAAD", "NASAMS", "GMLRS", "MMP", "RPG", "HMG", "GPMG", "IWI", "CIWS", "ASW",
+  "AAW", "SSK", "SSN", "AIP", "SIGINT", "ELINT", "COMINT", "ECM", "ECCM", "ESM",
+  "DIRCM", "EOD", "IED", "CBRN", "NBC", "NVG", "AR",
 ]);
+
+/* A separator that separates nothing is a defect, not a word. Partner labels arrive
+   as "Saab," and "Merlin,", and one of those joined into a list prints "Saab,, Foo" --
+   the double comma reported on L&T's product content (FE 31). Collapse a repeated
+   comma, reattach a floating one, and drop one that leads or trails. A thousands
+   separator ("1,000 hp") is none of these and is untouched. */
+export function tidySeparators(raw) {
+  return String(raw == null ? "" : raw)
+    .replace(/\s+([,;])/g, "$1")
+    .replace(/([,;])(?:\s*[,;])+/g, "$1")
+    .replace(/·(?:\s*·)+/g, "·")
+    .replace(/^[\s,;·]+|[\s,;·]+$/g, "")
+    .trim();
+}
 
 /* EVERY word is capitalised, connectors included: "Defence Services And Solutions",
    not "... and Solutions". Conventional title case lower-cases short connectors, and
    the first pass did that, but the house style here is Pascal case across the board --
    one rule with no exception list is also the only version that cannot drift. */
 
+/* The listed acronym, whole, or its plural with the small s it came with: "UAVs",
+   "MRAPs", "ATGMs" -- never "UAVS", never "Uavs". Shared by the label rule and the
+   product rule so the two cannot disagree on what an acronym is.
+
+   The plural reading needs a stem of three letters or more. With two-letter stems
+   it misfires on other acronyms: "EOS" is a company, not the plural of EO, and
+   "IRS" is not two infrareds. Measured over the 482 company and partner labels in
+   the served set, that was the only misreading the rule produced. */
+const acronymForm = (word) => {
+  const up = word.toUpperCase();
+  if (ACRONYMS.has(up)) return up;
+  if (up.length > 3 && up.endsWith("S") && ACRONYMS.has(up.slice(0, -1))) return up.slice(0, -1) + "s";
+  return null;
+};
+
 export function formatLabel(raw) {
   if (!raw) return "";
-  const s = unescapeEntities(String(raw)).replace(/&amp;/g, "&").trim();
+  const s = tidySeparators(unescapeEntities(String(raw)).replace(/&amp;/g, "&"));
   if (!s) return "";
 
   const token = (word) => {
@@ -66,11 +107,15 @@ export function formatLabel(raw) {
     if (edge && (edge[1] || edge[3]) && edge[2]) {
       return edge[1] + token(edge[2]) + edge[3];
     }
-    const up = word.toUpperCase();
-    if (ACRONYMS.has(up)) return up;
+    const acr = acronymForm(word);
+    if (acr) return acr;
     if (word.includes("/")) return word.split("/").map(token).join("/");
     if (word.includes("-")) return word.split("-").map(token).join("-");
     if (word === "&" || word === "·") return word;
+    /* A word with a digit in it is a designation -- P3TS, IP67, K9, 155mm -- and its
+       case is part of the name. No list can hold every designation, and lower-casing
+       the tail of one is exactly how Eviden's receiver came to print "P3ts" (FE 32). */
+    if (/\d/.test(word)) return word;
     const low = word.toLowerCase();
     // one spelling of the word this whole product is about
     if (low === "defense" || low === "defence") return "Defence";
@@ -126,22 +171,44 @@ export function titleCaseHeadline(raw) {
     .join("");
 }
 
+/* A PRODUCT NAME is neither a label nor a headline, and it took the wrong rule on
+   each side of the same screen.
+
+   The dataset funnel cased products with titleCaseHeadline (raise only), so "nag
+   carrier" became "Nag Carrier" and "uav swarms" became "Uav Swarms". Products.jsx
+   then ran formatLabel over the SAME names, which lower-cases every word outside the
+   list: "NAMICA (Nag carrier)" printed "Namica (Nag Carrier)", Eviden's "P3TS" printed
+   "P3ts", ARI's "(ASTT)" and "(DSRV)" printed "(Astt)" and "(Dsrv)". Two rules, so the
+   heading and the line under it disagreed on one product (FE 32, FE 33, FE 34).
+
+   This is the one product rule, and it is the headline rule plus the acronym list:
+   nothing is ever lowered (a designation no list holds -- K9, YFQ-44A, BrahMos --
+   survives untouched), and a listed acronym typed in lower case is raised whole so
+   it prints in full upper case wherever it appears (T 20). Entities are decoded
+   because every site that prints a product prints it as text. */
+export function formatProductName(raw) {
+  if (!raw) return "";
+  const s = tidySeparators(unescapeEntities(String(raw)).replace(/&amp;/g, "&"));
+  if (!s) return "";
+  return titleCaseHeadline(s).replace(/[A-Za-z][A-Za-z0-9&]*/g, (w) => acronymForm(w) || w);
+}
+
 /* Sector carries a default because a competitor with no sector is still in this
    industry; headquarters and the rest use formatLabel directly and stay blank. */
 export function formatSectorName(rawSector) {
   return formatLabel(rawSector) || "Defence & Aerospace";
 }
 
-/* Standardized company name formatting helper */
+/* Standardized company name formatting helper. Reads the ONE acronym list above:
+   it used to carry its own sixteen, which is how three lists came to disagree. */
 export function formatCompanyName(rawName) {
   if (!rawName) return "";
   let s = unescapeEntities(String(rawName)).trim();
-  const acronyms = new Set(["KSSL", "DRDO", "BDL", "BEL", "L&T", "UAV", "IAF", "BAE", "IAI", "HAL", "JSW", "BHEL", "ISRO", "ADA", "NAL", "HQ"]);
   return s
     .split(/\s+/)
     .map((word) => {
-      const clean = word.toUpperCase();
-      if (acronyms.has(clean)) return clean;
+      const acr = acronymForm(word);
+      if (acr) return acr;
       if (word.includes("/")) {
         return word
           .split("/")

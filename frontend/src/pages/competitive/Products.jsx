@@ -2,14 +2,17 @@ import { useState, useMemo, useEffect } from "react";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { productNews } from "../../lib/news";
-import { formatLabel, formatSectorName } from "../../lib/profile";
+import { formatLabel, formatSectorName, formatProductName } from "../../lib/profile";
+import { specValueWithUnit } from "../../lib/specs";
+import { unescapeEntities } from "../../lib/html";
 import Thumb from "../../components/thumb/Thumb.jsx";
 import SourceLink from "../../components/sourceLink/SourceLink.jsx";
 
-// Clean company display name helper
+// Clean company display name helper. Printed as text, so the entity in
+// "Larsen &amp; Toubro" is decoded here or it reaches the heading as five characters.
 const cleanCompanyName = (rawName) => {
   if (!rawName) return "";
-  let name = rawName.split("(")[0].split("-")[0].trim();
+  let name = unescapeEntities(String(rawName)).split("(")[0].split("-")[0].trim();
   name = name.replace(/,?\s*(Private|Pvt|Limited|Ltd|Inc|Corp|Corporation)\b.*/gi, "").trim();
   return name || rawName;
 };
@@ -20,9 +23,15 @@ const cleanCompanyName = (rawName) => {
    Product and Competitive views ended up disagreeing on both case and spelling. */
 const formatCategoryTitle = (cat) => formatLabel(cat) || "Defence Systems";
 
-/* Product and spec labels take the same rule. Keeping a third variant here is what
-   let the acronym lists drift apart in the first place. */
-const formatTitleCase = (str) => formatLabel(str);
+/* Product NAMES take the product rule -- the same one the dataset funnel applies to
+   the portfolio and the matchup table -- and nothing else. This file ran formatLabel
+   over them, which lower-cases every word outside the list, so the heading here read
+   "Namica (Nag Carrier)" under a matchup that read "NAMICA (Nag carrier)", Eviden's
+   receiver read "P3ts", and ARI's "(ASTT)" read "(Astt)" (FE 32, FE 33, FE 34).
+
+   Spec VALUES take no case rule at all. A value is data: "Combined GNSS / inertial"
+   and "IP67" were printed "Combined Gnss / Inertial" and "Ip67" (FE 17). They are
+   shown as stored, with the unit the record holds for them (T 7). */
 
 function nameKey(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -290,12 +299,12 @@ export default function Products() {
           const specsObj = {};
           (m.specs || []).forEach((s) => {
             if (s && s.l && s.kv && s.kv !== "no published figure" && s.kv !== "not published") {
-              specsObj[formatCategoryTitle(s.l)] = s.kv;
+              specsObj[formatCategoryTitle(s.l)] = specValueWithUnit(s.kv, s.u);
             }
           });
           prods.push({
             id: `kssl-${name}`,
-            name: formatTitleCase(name),
+            name: formatProductName(name),
             company: clientName,
             category: formatCategoryTitle(m.cat),
             specs: specsObj,
@@ -314,12 +323,12 @@ export default function Products() {
             const specsObj = {};
             (m.specs || []).forEach((s) => {
               if (s && s.l && (s.cv || s.kv)) {
-                specsObj[formatCategoryTitle(s.l)] = s.cv || s.kv;
+                specsObj[formatCategoryTitle(s.l)] = specValueWithUnit(s.cv || s.kv, s.u);
               }
             });
             prods.push({
               id: `comp-${m.id || name}`,
-              name: formatTitleCase(name),
+              name: formatProductName(name),
               company: selectedCompany.name,
               category: formatCategoryTitle(m.cat),
               specs: specsObj,
@@ -336,7 +345,7 @@ export default function Products() {
           seen.add(name.toLowerCase());
           prods.push({
             id: obj.id ? `co-prod-${obj.id}` : `co-prod-${name}`,
-            name: formatTitleCase(name),
+            name: formatProductName(name),
             company: selectedCompany.name,
             /* The product's OWN band when the record carries one -- this used to be the
                company's sector for every product it makes, so a firm's radars and its
@@ -724,7 +733,7 @@ export default function Products() {
                           {label}
                         </span>
                         <span style={{ color: "#ffffff", fontWeight: "600" }}>
-                          {formatTitleCase(val)}
+                          {val}
                         </span>
                       </div>
                     ))}
