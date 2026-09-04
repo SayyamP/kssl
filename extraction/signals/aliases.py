@@ -23,6 +23,7 @@ answer both serving_fill.py and enrich_serving.py import:
 Kept deliberately small: the alias map holds only identities the corpus/reference data
 actually confuses -- it is not a gazetteer.
 """
+import html as _html
 import re
 import unicodedata
 
@@ -69,13 +70,38 @@ ALIASES = {
     "hanwha defense": "Hanwha Aerospace",       # merged into Hanwha Aerospace (2022)
     "hanwha defence": "Hanwha Aerospace",
     "hanwha": "Hanwha Aerospace",
+    # The roster served HII and Huntington Ingalls Industries as two rival profiles.
+    # Neither identity rule in this repo caught it: canonical() has no entry, and the
+    # frontend's sameCompany does catch it, which is the point -- two rules, each with
+    # a gap the other covers. This is the map's job.
+    "hii": "Huntington Ingalls Industries",
+    "huntington ingalls industries": "Huntington Ingalls Industries",
 }
+
+
+# Words that carry no capital inside a real name, so their case says nothing about
+# whether the string is a name or a phrase.
+_NAME_JOINERS = {"and", "of", "the", "for", "de", "di", "du", "da", "von", "van",
+                 "der", "den", "el", "al", "y", "e"}
+
+
+def unescape(name):
+    """'Larsen &amp; Toubro' -> 'Larsen & Toubro'.
+
+    serving.competitors stores that name HTML-escaped, and every identity decision
+    in this module reads the raw string. Escaped, it folds to 'larsen amp toubro',
+    which stopped matching 'L&T' -- and worse, is_description() saw the lowercase
+    'amp' as sentence case and reported a real company as a phrase. A merge run on
+    that verdict would have deleted Larsen & Toubro, its signal card and its news.
+    Entities are markup, not part of a name, so they come off first.
+    """
+    return _html.unescape(str(name or ""))
 
 
 def fold(name):
     """'Bharat Forge Ltd.' -> 'bharat forge'; 'Kalyani Straté-gic' loses accents.
     '&' survives as 'and' so 'L&T' and 'L and T' fold together."""
-    s = unicodedata.normalize("NFKD", str(name or ""))
+    s = unicodedata.normalize("NFKD", unescape(name))
     s = "".join(c for c in s if not unicodedata.combining(c)).lower()
     s = s.replace("&", " and ").replace(".", "")   # 'S.A.' -> 'sa'
     s = re.sub(r"[^a-z0-9]+", " ", s).strip()
@@ -167,6 +193,34 @@ def has_proper_name(name):
     return False
 
 
+def is_description(name):
+    """A description lifted from prose, not the name of a company.
+
+    'Israeli robotics' was served as a rival, with one product ('autonomous systems')
+    and an assessment reading "The Israeli robotics company is supplying...". The
+    source article never names the firm -- it says "an Israeli robotics company" --
+    and the extractor turned that indefinite noun phrase into a roster row.
+
+    has_proper_name() cannot catch it: 'Israeli' is capitalised, so the string does
+    carry a capitalised token. The tell is the SHAPE of the capitalisation. A named
+    organization capitalises its whole name -- Quantum Systems, Shield AI, Elbit
+    Systems, Zone 5 Technologies. A phrase carried out of a sentence keeps sentence
+    case, capital on the first word and lower case after it.
+
+    So the rule is that asymmetry, and only that: capitalised first token, lowercase
+    later one. A brand that is deliberately lowercase ('thyssenkrupp Marine Systems')
+    starts lowercase and is not touched -- which is why the rule reads the FIRST token
+    rather than counting how many are capitalised.
+
+    Measured over the 156-company roster: one hit, and it is the row this exists for.
+    """
+    toks = [t for t in re.findall(r"[^\W_]+", unescape(name), re.UNICODE)
+            if t.lower() not in _NAME_JOINERS]
+    if len(toks) < 2 or not toks[0][:1].isupper():
+        return False
+    return any(t[:1].islower() for t in toks[1:])
+
+
 def same(a, b):
     return fold(canonical(a)) == fold(canonical(b)) and bool(fold(a))
 
@@ -253,6 +307,43 @@ def _demo():
     assert has_proper_name("155mm barrels"), "an alphanumeric designator names a thing"
     assert not has_proper_name("den brasilianska regeringen")
     assert not has_proper_name("circuit cards") and not has_proper_name("logistics trucks")
+
+    # --- is_description: a phrase carried out of a sentence, not a company ---------
+    # The roster row this exists for. The article says "an Israeli robotics company"
+    # and never names the firm; has_proper_name passes it, because 'Israeli' is
+    # capitalised, so the tell has to be the shape of the capitalisation.
+    assert is_description("Israeli robotics")
+    assert is_description("Turkish shipyard") and is_description("European defence firm")
+    # real names capitalise all the way through, including the awkward ones
+    for real in ("Quantum Systems", "Shield AI", "Elbit Systems", "Zone 5 Technologies",
+                 "Bharat Electronics", "Larsen & Toubro", "Huntington Ingalls Industries",
+                 "Indo-Russian Rifles", "X-Bow Systems", "Fairbanks Morse Defense"):
+        assert not is_description(real), real
+    # a deliberately lowercase brand starts lowercase, so the rule never reads it as
+    # sentence case -- this is why the first token is checked rather than a count
+    assert not is_description("thyssenkrupp Marine Systems")
+    # joiners carry no capital in a real name and must not trip it
+    assert not is_description("Ministry of Defence".replace("Ministry", "Kongsberg"))
+    assert not is_description("Bank of the West".replace("Bank", "Rolls"))
+    # too short to have a shape
+    assert not is_description("Saab") and not is_description("") and not is_description(None)
+
+    # --- the two rows the roster served twice --------------------------------------
+    # serving.competitors stores this name escaped, and every rule here must see
+    # through that -- the merge dry run reported Larsen & Toubro as "a phrase, not a
+    # company" and would have deleted it
+    assert not is_description("Larsen &amp; Toubro")
+    assert same("L&T", "Larsen &amp; Toubro")
+    assert fold("Larsen &amp; Toubro") == fold("Larsen & Toubro")
+    assert canonical("Larsen &amp; Toubro") == "Larsen & Toubro"
+
+    assert same("HII", "Huntington Ingalls Industries")
+    assert same("BEL", "Bharat Electronics")
+    assert same("L&T", "Larsen & Toubro")
+    # and the ones that only LOOK like duplicates
+    assert not same("Bharat Dynamics", "Bharat Electronics")
+    assert not same("Elbit America", "Elbit Systems")
+    assert not same("Indra Land Vehicles", "Indra Group")
     m2 = merge({"MIL", "Military Vehicles Corp"})
     assert len(m2) == 2, "short forms never absorb by substring, whole word only"
     assert _contains_word("saab", "saab bofors") and not _contains_word("mil", "military")
