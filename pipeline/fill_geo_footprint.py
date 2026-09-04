@@ -293,8 +293,15 @@ INTENT_RX = re.compile(
     r"consider(?:s|ing)|could|may|might|would|expected|expects?|is set to|set to|"
     r"potential|offer(?:s|ed)?|bid|bidding|tender|pitch(?:ed|es)?|seeks?|seeking|hopes?|"
     r"looking to|eyes|eyeing|mulls?|envisag(?:es|ed)|target(?:s|ing)|planned|upcoming|"
-    r"future|would-be|prospective|study|feasibility|proposal|will (?:be )?(?:build|"
+    r"future|would-be|prospective|study|feasibility|proposal|vision|commitment|"
+    r"committed|aspir\w*|mission|can|journey to|will (?:be )?(?:build|"
     r"establish|set up|construct|open|produce|manufacture|invest))\b", re.I)
+# Refused whatever else the sentence says: a vision statement that mentions a delivery
+# is still a vision statement. ("delivered" in CONTRACT_RX had lifted the refusal.)
+HARD_INTENT_RX = re.compile(
+    r"\b(?:vision|commitment|committed|aspir\w*|mission|can|journey to|letter of intent|"
+    r"loi|mou|memorandum of understanding|in talks|explor(?:e|es|ing)|consider(?:s|ing)|"
+    r"feasibility|study|proposal|propos(?:es|ed))\b", re.I)
 CONTRACT_RX = re.compile(r"\b(?:awarded|contract(?:s|ed)?|order(?:ed|s)?|signed a|purchas|"
                          r"agreement to supply|inducted|delivered|handed over)\b", re.I)
 MOU_RX = re.compile(r"\b(?:mou|loi|memorandum|letter of intent)\b", re.I)
@@ -305,6 +312,7 @@ EVENT_RX = re.compile(
     r"paris air show|le bourget|dubai airshow|lima|indo ?defence|sitdef|fidae|adex|"
     r"land forces|avalon|euronaval|milipol|idef|sofex|isdef|hannover messe|bidec|edex|"
     r"shot show|sedec|saha expo|summit|forum|conference|ceremony|awards?|honou?r\w*|"
+    r"rating|certif\w*|accredit\w*|recogni\w*|prize|trophy|"
     r"conferred|medal|visit(?:ed|s|ing)?|delegation|meeting|met with|talks|dateline|"
     r"seminar|webinar|symposium|festival|carnival|gala|dinner)\b", re.I)
 BIO_RX = re.compile(r"\b(?:university|degree|alumni|alumnus|born|graduat\w*|ambassador|"
@@ -320,6 +328,16 @@ ORG_WORD_AFTER_RX = re.compile(
     r"shipbuilder|conglomerate|start-?up|partner|arms|defen[cs]e (?:company|firm|"
     r"contractor|major|giant))\b", re.I)
 # case-sensitive on purpose: "US" the country is not "us" the pronoun
+LOCAL_SUFFIX_RX = re.compile(
+    r"\s+(?:of\s+)?(?:" + "|".join(re.escape(d) for d in _dem) + "|"
+    + "|".join(re.escape(f) for f in _forms if f not in CASED) + "|"
+    + "|".join(re.escape(f) for f in _forms if f in CASED) + r"|america|deutschland|"
+    r"europe|asia|pacific|international|overseas)(?![\w-])", re.I)
+ORG_TAIL_BEFORE_RX = re.compile(
+    r"(?:Council|Group|Ltd\.?|Inc\.?|Limited|GmbH|AB|AS|Oyj|Corporation|Corp\.?|"
+    r"Company|Co\.|Systems|Industries|University|Institute|Foundation|Association|"
+    r"Ministry|Authority|Agency|Board|Bank|Partners|Holdings|Technologies|Solutions)"
+    r"\s*,\s*$")
 FIRST_PERSON_RX = re.compile(r"\b(?:[Ww]e|[Oo]ur|us|[Tt]he [Cc]ompany|[Tt]he [Gg]roup|"
                              r"[Tt]he [Cc]ompany's)\b")
 PERSON_SUBJECT_RX = re.compile(r"^(?:mr|ms|mrs|dr|shri|smt|prof|lt|col|gen|maj|capt)\b\.?",
@@ -388,7 +406,8 @@ def find_countries(sentence):
     for rx in (COUNTRY_RX, COUNTRY_CASED_RX):
         for m in rx.finditer(sentence):
             key = m.group(0)
-            canon = SURFACE.get(key) if key in CASED else SURFACE.get(key.lower())
+            # 'USA' sits in CASED but is registered lower-case; try both spellings
+            canon = SURFACE.get(key) or SURFACE.get(key.lower())
             if canon and free(m.start(), m.end()):
                 taken.append((m.start(), m.end(), canon, "name"))
     out = sorted(taken)
@@ -417,8 +436,18 @@ def locative(sentence, masked, a, b):
     after = sentence[b:b + 24]
     if NOT_LOCATIVE_AFTER_RX.match(after) or ORG_WORD_AFTER_RX.match(after):
         return False, False, "nationality of another organisation"
+    # "The British Safety Council, UK": the country tails another organisation's name
+    if ORG_TAIL_BEFORE_RX.search(sentence[:a]):
+        return False, False, "nationality of another organisation"
     place = _prep_before(masked, a, PLACE_PREP) is not None
     direc = _prep_before(masked, a, DIR_PREP) is not None
+    if not direc:
+        # the direct object of the delivery verb: "is supplying Ukraine with ..."
+        xm = None
+        for m in EXPORT_RX.finditer(masked[:a]):
+            xm = m
+        if xm is not None and a - xm.end() <= 40 and is_glue(masked[xm.end():a]):
+            direc = True
     if not (place or direc):
         return False, False, "country is not the object of a place or delivery preposition"
     return place, direc, ""
@@ -472,11 +501,14 @@ def gate(sentence, agent_rx, own_site=False, other_rx=None, polarity=None):
     if BIO_RX.search(s):
         return [Verdict(c, None, False, "biographical, diplomatic or ceremonial context")
                 for _a, _b, c, _f in mentions]
-    intent = INTENT_RX.search(s)
-    if intent and (MOU_RX.search(s) or not CONTRACT_RX.search(s)):
+    intent = HARD_INTENT_RX.search(s) or INTENT_RX.search(s)
+    if intent and (HARD_INTENT_RX.search(s) or not CONTRACT_RX.search(s)):
         return [Verdict(c, None, False, "intent or future plan, not a presence (%s)"
                         % intent.group(0).lower()) for _a, _b, c, _f in mentions]
     masked = _mask_countries(s, mentions)
+    # "Lockheed Martin Australia is headquartered in Canberra": the agent named here is
+    # a local entity, whose head office is not the parent's
+    local_entity = any(LOCAL_SUFFIX_RX.match(s[m.end():]) for m in agent_rx.finditer(s))
     out = []
     for a, b, canon, form in mentions:
         win = s[max(0, a - 90):b + 90]
@@ -487,7 +519,20 @@ def gate(sentence, agent_rx, own_site=False, other_rx=None, polarity=None):
             continue
         before = s[max(0, a - 110):a]
         if form == "force":
-            if EXPORT_RX.search(s):
+            # The force must be the RECIPIENT: "to/for the Indian Army", "ordered by the
+            # Indian MoD", "the Czech Army placed an order", "the Finnish Army's fleet".
+            # "supplying Ukraine via U.S. government assistance packages" named the US
+            # government as an intermediary and was filed as a delivery to the USA.
+            recipient = (
+                _prep_before(masked, a, r"(?:to|for|with|by|from)") is not None
+                or re.match(r"\s*(?:\([^)]{0,40}\)\s*)?(?:has |have |had |recently |also )?"
+                            r"(?:ordered|awarded|selected|contracted|procured|purchased|"
+                            r"bought|received|signed|placed|inducted|commissioned|chose|"
+                            r"acquired)", s[b:b + 60], re.I) is not None
+                or re.match(r"(?:'s|’s)\s+(?:order|contract|purchase|procurement|"
+                            r"acquisition|fleet|programme|program|requirement)",
+                            s[b:b + 30], re.I) is not None)
+            if recipient and EXPORT_RX.search(s):
                 out.append(Verdict(canon, "ex", True, "delivery/contract to the country's forces"))
             else:
                 out.append(Verdict(canon, None, False,
@@ -501,12 +546,19 @@ def gate(sentence, agent_rx, own_site=False, other_rx=None, polarity=None):
             else:
                 out.append(Verdict(canon, None, False, "facility belongs to another organisation"))
             continue
+        pre = s[max(0, a - 60):a]
+        am = None
+        for m in agent_rx.finditer(pre):
+            am = m
+        if am is not None and pre[am.end():].strip() in ("", "of"):
+            out.append(Verdict(canon, "of", True, "the company's local entity is named"))
+            continue
         place, direc, why = locative(s, masked, a, b)
         if why:
             out.append(Verdict(canon, None, False, why))
             continue
         # headquarters -- of the company itself, not of a subsidiary or a unit
-        if (place and HQ_RX.search(before[-70:])
+        if (place and HQ_RX.search(before[-70:]) and not local_entity
                 and not re.search(r"subsidiar|division|\bunit\b|branch|affiliate|arm\b",
                                   before, re.I)):
             pm = _prep_before(masked, a, PLACE_PREP)
@@ -776,7 +828,7 @@ def report(rows, refused, weak, accepted, comps, sample=15):
         print("BELOW THE SOURCE BAR (entailed, but uncorroborated): %d" % sum(weak.values()))
         for why, n in weak.most_common():
             print("   %5d  %s" % (n, why))
-    held = {(cid, ct): hits for cid, g in accepted.items()
+    held = {(cid, k): hits for cid, g in accepted.items()
             for (ct, k), hits in g.items() if ct == "__new__"}
     if held:
         print("HELD: entailed presences in countries the map cannot draw yet:")
@@ -784,7 +836,8 @@ def report(rows, refused, weak, accepted, comps, sample=15):
             for url, quote, _city, _how in hits[:2]:
                 print("   %-28s %-14s %s" % (names[cid][:28], _c, st_domain(url)))
     hqs = [(names[cid], r) for cid in rows for r in rows[cid] if r["kind"] == "hq"]
-    print("\nHQ STATED (fills hq only where it is NULL): %d" % len(hqs))
+    print("\nHQ STATED (fills hq only where it is NULL, and only when one country is "
+          "stated): %d" % len(hqs))
     for name, r in hqs:
         print("   %-28s %-28s %s" % (name[:28], (r["city"] or r["country"])[:28], st_domain(r["src"])))
     print("\nPER COMPANY:")
@@ -817,7 +870,10 @@ def apply(cur, con, rows, comps, allow_new=False):
         cur.execute("SELECT id, hq FROM serving.geo_comp WHERE id=%s", (cid,))
         have = cur.fetchone()
         hq_rows = [r for r in rows[cid] if r["kind"] == "hq" and r["city"]]
-        hq = c["hq"] or (hq_rows[0]["city"] if hq_rows else None)
+        # one head office: two stated countries is a parent and a subsidiary, or a
+        # dual-HQ group, and neither is a value to write unasked
+        hq = c["hq"] or (hq_rows[0]["city"]
+                         if len({r["country"] for r in hq_rows}) == 1 else None)
         if not have:
             cur.execute("""INSERT INTO serving.geo_comp (id, ord, name, dir, hq, "isBf", origin)
                            VALUES (%s,%s,%s,%s,%s,%s,'pipeline')""",

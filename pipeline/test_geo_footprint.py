@@ -231,6 +231,61 @@ def test_negative_polarity_refuses():
     assert not [v for v in verdicts(s, RHEIN, polarity="negative") if v.ok]
 
 
+# ---------------------------------------------------------------- found in the first dry run
+
+def test_intermediary_government_is_not_the_recipient():
+    # aviationweek.com -- the first dry run filed this as a delivery to the USA
+    s = ("The introduction of the 600M and 700M loitering munitions comes as competitor "
+         "AeroVironment is supplying Ukraine with its Switchblade loitering munitions via "
+         "U.S. government security assistance packages.")
+    av = g.rx_of(["AeroVironment"])
+    got = accepted(s, av)
+    assert ("Ukraine", "ex") in got, got
+    assert not any(c == "USA" for c, _k in got), got
+
+
+def test_local_entity_name_is_a_subsidiary_not_a_delivery():
+    # janes.com -- "Anduril Australia" was read as a contract delivered to Australia
+    s = ("Ghost Shark was originally developed under a three-year, USD100 million co-funded "
+         "research collaboration contract signed by Anduril Australia, the RAN, and the "
+         "Defence Science and Technology Group (DSTG).")
+    an = g.rx_of(g.surfaces_of("anduril", "Anduril"))
+    got = accepted(s, an)
+    assert ("Australia", "of") in got and ("Australia", "ex") not in got, got
+
+
+def test_subsidiary_head_office_is_not_the_parents_hq():
+    lm = g.rx_of(["Lockheed Martin"])
+    s = "Lockheed Martin Australia is headquartered in Canberra, Australia."
+    assert not [v for v in verdicts(s, lm) if v.ok and v.kind == "hq"]
+    s2 = "Lockheed Martin is headquartered in Bethesda, Maryland, USA."
+    assert [v for v in verdicts(s2, lm) if v.ok and v.kind == "hq"]
+
+
+def test_a_safety_rating_from_a_uk_council_is_not_a_delivery():
+    # bharatforge.com/company/about-us -- the second dry run filed this as a UK delivery
+    s = "Bharat Forge has been awarded the 'Five Star Rating' by The British Safety Council, UK."
+    assert accepted(s, CLIENT, own=True) == set()
+
+
+def test_capability_talk_is_not_a_delivery():
+    # asdnews.com, GKN/Anduril UK partnership -- "can deliver" is not "delivered"
+    s = ("With Archer’s eVTOL and rotorcraft technologies, Anduril’s autonomy, and GKN "
+         "Aerospace’s industrial capability working as one, we have a team that can deliver "
+         "the next generation of advanced aviation for the UK")
+    an = g.rx_of(g.surfaces_of("anduril", "Anduril"))
+    assert accepted(s, an) == set()
+
+
+def test_a_vision_statement_is_not_a_presence():
+    # adanidefence.com press release
+    s = ("This initiative reflects our Group’s vision of empowering India’s armed forces "
+         "with world-class capabilities that are designed, developed, and delivered in "
+         "India, for India and the world.")
+    ad = g.rx_of(g.surfaces_of("adani", "Adani Defence"))
+    assert accepted(s, ad, own=True) == set()
+
+
 def run_all():
     n = 0
     for name, fn in sorted(globals().items()):
