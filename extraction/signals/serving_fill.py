@@ -1289,9 +1289,21 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
 
 def _demo():
     cats = ["Artillery", "Ammunition"]
-    ok = parse_card('{"pillar":"competitive","title":"T","company":"C",'
-                    '"category":"Artillery","dir":"threat","sowhat":"Saab delivered 12 M4 guns."}', cats)
-    assert ok and ok["dir"] == "threat"
+    # `threat` is EARNED, not asserted by the model: parse_card grants it only for a
+    # concrete gain, in the competitive pillar, in a core KSSL line. The evidence it reads
+    # is the card's own what+title -- so a card claiming dir=threat with nothing but a
+    # placeholder title is a rival announcement, and comes back as watch. This test used to
+    # send exactly that and assert "threat", so it had been failing on every run.
+    ok = parse_card('{"pillar":"competitive","title":"Saab wins a 12-gun order",'
+                    '"company":"C","category":"Artillery","dir":"threat",'
+                    '"sowhat":"Saab delivered 12 M4 guns."}', cats)
+    assert ok and ok["dir"] == "threat", "a concrete gain in a core line is a threat"
+    # ...and the same card with no gain in its evidence is not.
+    nogain = parse_card('{"pillar":"competitive","title":"T","company":"C",'
+                        '"category":"Artillery","dir":"threat",'
+                        '"sowhat":"Saab delivered 12 M4 guns."}', cats)
+    assert nogain and nogain["dir"] == "watch", \
+        "threat without a stated gain must fall back to watch"
     # prose around the JSON is tolerated; garbage inside it is not
     assert parse_card('Sure! {"pillar":"market","title":"T","company":"C",'
                       '"category":"Artillery","dir":"watch","sowhat":"Saab delivered 12 M4 guns."} '
@@ -1365,11 +1377,17 @@ def _demo():
         The stub only had fetchall, so when article_date learned to read
         meta->>'published_at' this whole self-check began raising AttributeError instead of
         asserting -- a dead test that looked like a passing one until it was run by hand.
+
+        Then it happened AGAIN: the query grew to three columns (url, published_at,
+        fetched_at) and fetchone still handed back a 1-tuple, so the self-check died on
+        IndexError. fetchone MUST return one value per column article_date selects; if that
+        SELECT gains a column, this returns one more or the check breaks a third time.
         """
-        def __init__(self, rows, published=None):
+        def __init__(self, rows, published=None, url=None, fetched=None):
             self.rows, self.published = rows, published
+            self.url, self.fetched = url, fetched
         def execute(self, *_): pass
-        def fetchone(self): return (self.published,)
+        def fetchone(self): return (self.url, self.published, self.fetched)
         def fetchall(self): return self.rows
 
     # the crawler's proven publication date wins over anything in the body
@@ -1406,7 +1424,12 @@ def _demo():
     assert is_listing("https://brahmos.com/brahmos-in-media?page=3")
     assert is_listing("https://defence-industry.eu/tag/rheinmetall")
     assert not is_listing("https://saab.com/newsroom/press-releases/2026/saab-receives-order")
-    assert parse_date("2026 m. vasario 17 d.") == (2026, 2, None), "Lithuanian February parses"
+    # Keeps the DAY as of 5b7a68a -- "an Italian article keeps its day". This assertion
+    # still demanded the old month-only answer; it never failed visibly because the check
+    # above it was already failing and the run never reached here.
+    assert parse_date("2026 m. vasario 17 d.") == (2026, 2, 17), \
+        "Lithuanian February parses, day and all"
+    assert parse_date("2026 m. vasario") == (2026, 2, None), "no day stated, no day invented"
     assert parse_date("published 2026") == (2026, None, None), "no month word stays year-only"
     seen2 = [("kalyani strategic systems", title_tokens("KSSL and Paramount unveil Simha 4x4 armoured vehicle"))]
     assert is_dup(seen2, "Paramount/Kalyani Strategic Systems",
