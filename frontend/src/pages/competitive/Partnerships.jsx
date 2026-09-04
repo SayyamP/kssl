@@ -42,9 +42,22 @@ export default function Partnerships() {
   const [relCardIndex, setRelCardIndex] = useState(null);
   const [viewMode, setViewMode] = useState("network"); // "network" | "heatmap"
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [panCenter, setPanCenter] = useState(null);
 
   const svgRef = useRef(null);
   const drawerRef = useRef(null);
+
+  const viewBoxStr = useMemo(() => {
+    const baseW = 960;
+    const baseH = 540;
+    const w = baseW / zoomLevel;
+    const h = baseH / zoomLevel;
+    const cx = panCenter ? panCenter.x : baseW / 2;
+    const cy = panCenter ? panCenter.y : baseH / 2;
+    const x = Math.max(0, Math.min(baseW - w, cx - w / 2));
+    const y = Math.max(0, Math.min(baseH - h, cy - h / 2));
+    return `${x.toFixed(1)} ${y.toFixed(1)} ${w.toFixed(1)} ${h.toFixed(1)}`;
+  }, [zoomLevel, panCenter]);
 
   useEffect(() => {
     setRelCardIndex(null);
@@ -114,6 +127,28 @@ export default function Partnerships() {
       view: "Partnerships",
       selection: `${c.name} ↔ ${p.label}`,
     });
+
+    // Auto-zoom to selected cluster
+    const svg = svgRef.current;
+    if (svg) {
+      const nodeEl = svg.querySelector(`.pg-node[data-id="${CSS.escape(pid)}"]`);
+      if (nodeEl) {
+        const circle = nodeEl.querySelector("circle:not([fill*='url(#pg'])") || nodeEl.querySelector("circle");
+        if (circle) {
+          const nx = parseFloat(circle.getAttribute("cx") || "480");
+          const ny = parseFloat(circle.getAttribute("cy") || "270");
+          setPanCenter({ x: nx, y: ny });
+          setZoomLevel(1.55);
+        }
+      }
+    }
+  };
+
+  const deselectPartner = () => {
+    setTie(null);
+    setMode("syn");
+    setPanCenter(null);
+    setZoomLevel(1);
   };
 
   /* Highcharts network graph feature: clicking any bubble isolates that bubble and its
@@ -324,10 +359,7 @@ export default function Partnerships() {
                 <button
                   type="button"
                   className="pg-tb-btn"
-                  onClick={() => {
-                    setZoomLevel(1);
-                    setTie(null);
-                  }}
+                  onClick={deselectPartner}
                   title="Reset View"
                 >
                   ⟲
@@ -339,27 +371,24 @@ export default function Partnerships() {
             id="pg-svg"
             preserveAspectRatio="xMidYMid meet"
             ref={svgRef}
-            viewBox={`${480 - 480 / zoomLevel} ${270 - 270 / zoomLevel} ${960 / zoomLevel} ${540 / zoomLevel}`}
+            viewBox={viewBoxStr}
             dangerouslySetInnerHTML={{ __html: c ? partners.graphSvg(c) : "" }}
             onClick={(e) => {
               const g = e.target.closest(".pg-node");
               if (!g) {
-                // Clicked on empty canvas -> clear dimming and un-dim all bubbles
-                setTie(null);
-                setMode("syn");
+                // Clicked on empty canvas -> clear dimming and auto-zoom back to normal view
+                deselectPartner();
                 return;
               }
               if (g.classList.contains("comp") || g.classList.contains("center-root")) {
-                // Clicked central root OEM -> reset dimming
-                setTie(null);
-                setMode("syn");
+                // Clicked central root OEM -> reset
+                deselectPartner();
               } else {
                 const nodeId = g.getAttribute("data-id") || g.getAttribute("data-parent");
                 if (!nodeId) return;
                 if (tie === nodeId) {
-                  // Toggle off when clicking already selected bubble -> un-dim all
-                  setTie(null);
-                  setMode("syn");
+                  // Toggle off when clicking already selected bubble -> un-dim all & zoom out
+                  deselectPartner();
                 } else {
                   selectPartner(nodeId);
                 }
