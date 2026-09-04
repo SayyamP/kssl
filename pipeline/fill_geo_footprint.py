@@ -267,12 +267,21 @@ HQ_RX = re.compile(r"\b(?:headquarter(?:s|ed)|head office|registered office|"
 # across the world including US" is not a delivery to the US.
 PLACE_PREP = r"(?:in|at|across|throughout|within|near|outside|into)"
 DIR_PREP = r"(?:to|for|into|from|with|by)"
-GLUE_TOKEN = (r"(?:the|and|or|both|also|its|our|their|five|four|six|three|two|seven|eight|"
-              r"nine|ten|\d+|countries|country|markets?|regions?|nations?|such|as|key|"
-              r"principal|including|namely|like|of|western|eastern|northern|southern|"
-              r"central|north|south|east|west|new|state|province|region|city|"
-              r"[A-Z][\w'’.-]*|,|:|;|–|-)")
-GLUE_RX = re.compile(r"^(?:\s*" + GLUE_TOKEN + r")*\s*$")
+# Checked token by token, NOT as one nested-quantifier regex over the gap: the first
+# version, ^(?:\s*(?:a|b|[A-Z]\w*|...))*$, backtracked exponentially on a long gap that
+# did not match, and the dry run burned twenty CPU-minutes in that loop.
+GLUE_TOKEN_RX = re.compile(
+    r"(?:the|and|or|both|also|its|our|their|five|four|six|three|two|seven|eight|"
+    r"nine|ten|\d+|countries|country|markets?|regions?|nations?|such|as|key|"
+    r"principal|including|namely|like|of|western|eastern|northern|southern|"
+    r"central|north|south|east|west|new|state|province|region|city|"
+    r"[A-Z][\w'’.-]*|X+)")
+
+
+def is_glue(gap):
+    """Only list glue, a capitalised place name or a compass word between the
+    preposition and the country (X runs are masked country names)."""
+    return all(GLUE_TOKEN_RX.fullmatch(tok) for tok in re.findall(r"[^\s,:;–-]+", gap))
 
 # Refusals.
 NEG_RX = re.compile(r"\b(?:not|no|never|cancel(?:led|ed|s)?|withdr(?:ew|awn|aws)|denied|"
@@ -398,8 +407,7 @@ def _prep_before(masked, pos, preps):
     rx = re.compile(r"\b" + preps + r"\b", re.I)
     best = None
     for m in rx.finditer(masked[:pos]):
-        gap = masked[m.end():pos].replace("X", "Xx")
-        if GLUE_RX.match(gap):
+        if is_glue(masked[m.end():pos]):
             best = m
     return best
 
@@ -519,7 +527,7 @@ def gate(sentence, agent_rx, own_site=False, other_rx=None, polarity=None):
                 abs_pos = lo + m.start()
                 gap = re.sub(r"\b(?:spread|located|sited|situated|across|in|at|throughout)\b",
                              "", masked[abs_pos + len(m.group(0)):a])
-                if a - abs_pos <= 110 or GLUE_RX.match(gap):
+                if a - abs_pos <= 110 or is_glue(gap):
                     fm, fpos = m, abs_pos
             if fm is not None:
                 if (_owner_before(s, fpos, agent_rx, other_rx, agent_pos)
@@ -703,7 +711,9 @@ def mine(cur, comps, verbose=True):
     rows = props_for(cur, rx_of(sorted(all_surf)))
     if verbose:
         print("%d proposition(s) whose subject names a roster company" % len(rows))
-    for did, url, subj, pred, obj, place, pol, mod, quote in rows:
+    for i, (did, url, subj, pred, obj, place, pol, mod, quote) in enumerate(rows):
+        if verbose and i and i % 10000 == 0:
+            print("  ... %d statement(s) judged" % i, flush=True)
         if not is_company_subject(subj):
             refused["subject is a person or product, not the company"] += 1
             continue
