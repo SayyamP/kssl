@@ -52,6 +52,14 @@ elif [ "$KSSL_ENV_NAME" != "prod" ]; then
   echo "   the repository ones, which point at PRODUCTION. Run deploy/provision_env.sh on the"
   echo "   intended machine first, and give the GitHub Environment its own VPS_HOST."
   exit 5
+else
+  # Production is the one environment allowed onto an unstamped host -- VPS-B was
+  # provisioned years before this marker existed, so demanding one would lock prod out
+  # of its own deploy. Stamp it here instead of over ssh by hand: after the first
+  # production deploy the guard above is armed on VPS-B too, and the fallback case it
+  # exists for -- a staging or dev Environment with no host secrets of its own -- is
+  # refused rather than landing on production under kssl-stg- names.
+  echo "prod" > "$MARKER"
 fi
 
 echo ">> environment: $KSSL_ENV_NAME  prefix=$KSSL_PREFIX  overlay=$COMPOSE_OVERLAY"
@@ -112,6 +120,34 @@ if [ -f extraction/docker-compose.yml ]; then
   # 2026-09-02 ("sorry, too many clients already") and silently overrode every replicas:
   # value in the compose file.
   #
+  # THE OVERLAY. extraction/ is a separate compose project, so the app's $COMPOSE_OVERLAY
+  # does not reach it -- it needs its own, and without one a staging deploy applies the
+  # BASE file's replicas: 54 + 128 + 16 workers on VPS-A, a box already carrying the
+  # crawler and comprehension dashboards, all of them sharing prod's kssl-db connection
+  # budget. prod has no extraction/docker-compose.prod.yml and is meant not to: the base
+  # file IS production's fleet, so this resolves to the exact command prod ran before --
+  # verified on VPS-B: no COMPOSE_FILE in its extraction/.env and no override file.
+  #
+  # if/then, not `[ -f x ] && EX+=(...)`: under `set -e` a false test as the last command
+  # of a line exits the script, which on PROD -- the one environment with no overlay --
+  # would end the deploy right here, silently, reporting success.
+  #
+  # A box-local override is picked up AUTOMATICALLY by a bare `docker compose`, and naming
+  # any -f explicitly turns that off. rsync has no --delete, so one could be sitting on a
+  # host from a hand-run experiment and would silently drop out of the fleet definition.
+  # Named explicitly here, with the environment overlay LAST so it still wins.
+  EX=(docker compose -f docker-compose.yml)
+  for o in docker-compose.override.yml docker-compose.override.yaml \
+           compose.override.yml compose.override.yaml; do
+    if [ -f "extraction/$o" ]; then
+      echo "   note: box-local $o is in effect"
+      EX+=(-f "$o")
+    fi
+  done
+  if [ -f "extraction/docker-compose.$KSSL_ENV_NAME.yml" ]; then
+    EX+=(-f "docker-compose.$KSSL_ENV_NAME.yml")
+  fi
+
   # ...AND ONLY WHEN THE EXTRACTION SOURCE ACTUALLY CHANGED. `up -d` replaces every
   # extraction role, and the enrich rebuild is a 1.5-2 hour pass that starts over from
   # nothing when its container is replaced. So ANY push recreated the fleet, including
@@ -135,14 +171,20 @@ if [ -f extraction/docker-compose.yml ]; then
     echo ">> extraction unchanged ($running containers up) — not recreating."
     echo "   An enrich rebuild or a worker's in-flight document survives this deploy."
   else
-    echo ">> extraction: rebuild + recreate (scale from compose replicas)"
-    if ( cd extraction && docker compose build && docker compose up -d ); then
-      # Stamped only AFTER a successful recreate, so a failed deploy retries next time
-      # instead of recording a hash for containers that never came up.
-      echo "$new_hash" > "$stamp"
-    else
-      echo "!! extraction recreate reported an error — see 'docker compose -f extraction/docker-compose.yml logs'"
+    echo ">> extraction: rebuild + recreate as $KSSL_ENV_NAME (scale from compose replicas)"
+    # NOT swallowed. This printed a warning and returned 0, so a deploy that left the fleet
+    # down still went green -- the frontend and backend are the visible half, and the half
+    # that produces the data they serve failed silently. It matters more with the hash
+    # guard above, not less: a swallowed failure now also leaves the stamp unwritten, so
+    # the next deploy retries and the one after that, each reporting success.
+    if ! ( cd extraction && "${EX[@]}" build && "${EX[@]}" up -d ); then
+      echo "!! extraction recreate FAILED. frontend+backend ARE live at $SHA; the fleet is not."
+      echo "   cd /opt/kssl/app/extraction && ${EX[*]} logs --tail=50"
+      exit 1
     fi
+    # Stamped only AFTER a successful recreate, so a failed deploy retries next time
+    # instead of recording a hash for containers that never came up.
+    echo "$new_hash" > "$stamp"
   fi
 fi
 
