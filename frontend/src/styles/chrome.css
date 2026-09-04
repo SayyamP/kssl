@@ -112,20 +112,133 @@
     border-color: #666;
   }
 
+  .subhead-toast.warn {
+    color: var(--d-txt-2);
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.35);
+  }
+
+  /* ============ REPORT SHEET (Copy / Export fallback) ============
+     Opens when the clipboard or a file download is unavailable: the text is shown
+     selected so the reader can copy it by hand, with a line saying why. */
+  .sheet-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .sheet {
+    width: min(760px, 100%);
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    background: var(--d-bg-1);
+    border: 1px solid var(--d-line-2);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .sheet-h {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .sheet-note {
+    font-family: var(--mono);
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--d-txt-2);
+    border-left: 2px solid rgba(245, 158, 11, 0.6);
+    padding: 4px 10px;
+  }
+  .sheet-text {
+    flex: 1;
+    min-height: 260px;
+    resize: vertical;
+    background: var(--d-bg);
+    border: 1px solid var(--d-line);
+    border-radius: 4px;
+    color: var(--d-txt);
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.5;
+    padding: 10px;
+    outline: none;
+  }
+
+  /* ============ PRINT ============
+     The app is a fixed-height, scroll-inside-panels shell; printing the DOM printed one
+     viewport of it. What prints is the view's published report (SubHead's PrintSheet),
+     which is the same content Copy Summary renders. Nothing else is shown on paper. */
+  .print-sheet { display: none; }
   @media print {
-    .topbar, .subhead-actions, .mchat, .sidebar, .mchat-toggle {
-      display: none !important;
-    }
-    body, html, #root, .shell {
+    html, body {
+      position: static !important;
       height: auto !important;
+      width: auto !important;
       overflow: visible !important;
       background: #fff !important;
       color: #000 !important;
     }
-    .subhead {
-      border-bottom: 2px solid #000 !important;
-      background: transparent !important;
+    #root {
+      display: block !important;
+      height: auto !important;
+      overflow: visible !important;
     }
+    #root > *:not(.subhead), .subhead > *:not(.print-sheet) {
+      display: none !important;
+    }
+    .subhead {
+      display: block !important;
+      height: auto !important;
+      padding: 0 !important;
+      border: none !important;
+      background: transparent !important;
+      overflow: visible !important;
+    }
+    .print-sheet {
+      display: block;
+      color: #000;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 11pt;
+      line-height: 1.45;
+    }
+    .print-sheet .ps-brand {
+      font-family: "Courier New", monospace;
+      font-size: 9pt;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+      color: #444;
+    }
+    .print-sheet h1 { font-size: 18pt; margin: 4pt 0 2pt; }
+    .print-sheet h2 {
+      font-size: 10pt;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      margin: 14pt 0 4pt;
+      padding-bottom: 2pt;
+      border-bottom: 1px solid #000;
+    }
+    .print-sheet .ps-meta, .print-sheet .ps-sub {
+      font-family: "Courier New", monospace;
+      font-size: 9pt;
+      color: #333;
+    }
+    .print-sheet .ps-row {
+      display: grid;
+      grid-template-columns: 34% 1fr;
+      gap: 8pt;
+      padding: 2pt 0;
+      border-bottom: 1px dotted #bbb;
+      break-inside: avoid;
+    }
+    .print-sheet .ps-k { color: #444; }
+    .print-sheet .ps-line { padding: 2pt 0; }
   }
   /* The feed's filter row. Each CONTROL stays on one line (a pill never breaks
      mid-word); the ROW wraps. Both rows used to be `flex-wrap:nowrap !important`, and
@@ -298,9 +411,25 @@
     border-radius: 3px;
     letter-spacing: .05em;
   }
-  .topbar-search-item-badge.comp { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
-  .topbar-search-item-badge.tender { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
-  .topbar-search-item-badge.signal { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+  .topbar-search-item-badge.competitors { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+  .topbar-search-item-badge.products { background: rgba(168, 85, 247, 0.2); color: #c4b5fd; }
+  .topbar-search-item-badge.tenders { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+  .topbar-search-item-badge.signals { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+  .topbar-search-item-badge.innovations { background: rgba(236, 72, 153, 0.18); color: #f9a8d4; }
+  /* the miss names what it searched, so an empty list is a verdict and not a blank */
+  .topbar-search-scope {
+    margin-top: 4px;
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--d-txt-4);
+  }
+  .topbar-search-foot {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    color: var(--d-txt-4);
+    padding: 8px 14px 4px;
+    border-top: 1px solid var(--d-line);
+  }
   .topbar-search-item-title {
     font-size: 12.5px;
     font-weight: 500;

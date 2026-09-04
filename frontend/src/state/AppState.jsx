@@ -126,6 +126,15 @@ export function AppStateProvider({ children }) {
   /* Global search query state used by the top bar to filter the currently open page's rows live */
   const [searchQuery, setSearchQuery] = useState("");
 
+  /* What the open view is showing, published by the view itself for the header's
+     Copy Summary / Export JSON / Print Report. See lib/report.js for the shape. Null
+     when the view has not published one; the header then says so rather than reaching
+     for another view's data. Withdrawn by the publishing view's own unmount (see
+     useHeaderReport) -- NOT by an effect here on `view`: a parent's effects run after
+     its children's, so a clear-on-navigate up here would fire after the new page had
+     already published and wipe it. */
+  const [headerReport, setHeaderReport] = useState(null);
+
   /* Cleared on navigation. The box filters the page in view, so carrying a query across
      a page change silently filtered the next page's rows -- a reader who searched
      "drone" on Overview then opened Products found a near-empty sidebar and nothing
@@ -150,8 +159,10 @@ export function AppStateProvider({ children }) {
       takePending,
       searchQuery,
       setSearchQuery,
+      headerReport,
+      setHeaderReport,
     }),
-    [pillar, view, setPillar, chatCtx, scoped, setScope, jumpTo, pending, takePending, searchQuery],
+    [pillar, view, setPillar, chatCtx, scoped, setScope, jumpTo, pending, takePending, searchQuery, headerReport],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
@@ -161,4 +172,14 @@ export function useAppState() {
   const value = useContext(AppStateContext);
   if (!value) throw new Error("useAppState must be used within AppStateProvider");
   return value;
+}
+
+/* A view publishes its report with this. `report` must be memoised by the caller --
+   a fresh object every render would republish every render. Unmounting withdraws it. */
+export function useHeaderReport(report) {
+  const { setHeaderReport } = useAppState();
+  useEffect(() => {
+    setHeaderReport(report || null);
+    return () => setHeaderReport(null);
+  }, [report, setHeaderReport]);
 }

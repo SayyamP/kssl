@@ -472,7 +472,8 @@ export function viewMetaFor(d) {
     },
     products: {
       title: "Products",
-      cnt: "Competitor & client products catalog across tracked defense categories",
+      /* British spelling and singular "catalogue", as every other heading (FE 18) */
+      cnt: "Competitor & client product catalogue across tracked defence categories",
       filters: false,
     },
     positioning: {

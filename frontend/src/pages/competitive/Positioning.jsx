@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import MatchupList from "../../components/matchupList/MatchupList";
 import MatchupDossier from "../../components/matchupDossier/MatchupDossier";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 
 /* Positioning: every rating-matched KSSL-vs-rival pair, and the dossier for the one
@@ -60,6 +60,59 @@ export default function Positioning() {
   }, [takePending]);
 
   const m = selected ? data.matchups[selected] : null;
+
+  /* What the header's Copy / Export / Print act on: the open matchup -- its verdict,
+     every spec row as served, both advantage lists -- or, with nothing selected, the
+     list of class-matched pairs. */
+  const clientShort = (data.client && data.client.short) || "KSSL";
+  const report = useMemo(() => {
+    if (m) {
+      const val = (v) => (v == null || v === "" ? "—" : String(v));
+      return {
+        title: `${m.comp} vs ${m.bf}`,
+        subtitle: `${m.cat || ""} · edge index ${m.edge == null ? "not measured" : `${m.edge}/100`}`,
+        sections: [
+          { h: "Verdict", rows: [m.verdict || "No verdict on file."] },
+          {
+            h: `Specifications (${m.compBy || "rival"} vs ${clientShort})`,
+            rows: (m.specs || []).map((s) => [s.l, `${val(s.cv)} vs ${val(s.kv)}${s.u ? ` ${s.u}` : ""}`]),
+          },
+          { h: `${clientShort} advantages`, rows: m.advBf || [] },
+          { h: "Competitor strengths", rows: m.advComp || [] },
+          { h: "Pairing logic", rows: m.reason ? [m.reason] : [] },
+        ],
+        payload: {
+          id: selected,
+          category: m.cat || null,
+          competitor: m.comp || null,
+          competitorBy: m.compBy || null,
+          client: m.bf || null,
+          country: m.country || null,
+          edge: m.edge == null ? null : m.edge,
+          specs: m.specs || [],
+          advantagesClient: m.advBf || [],
+          advantagesCompetitor: m.advComp || [],
+          verdict: m.verdict || null,
+        },
+      };
+    }
+    const all = Object.entries(data.matchups || {});
+    return {
+      title: "Positioning",
+      subtitle: `${all.length} class-matched pairs · none selected`,
+      sections: [{ h: "Class-matched pairs", rows: all.map(([, x]) => [x.comp, `${x.bf} · ${x.cat}`]) }],
+      payload: {
+        pairs: all.map(([id, x]) => ({
+          id,
+          category: x.cat || null,
+          competitor: x.comp || null,
+          client: x.bf || null,
+          edge: x.edge == null ? null : x.edge,
+        })),
+      },
+    };
+  }, [m, selected, data.matchups, clientShort]);
+  useHeaderReport(report);
 
   return (
     <div className={`pos-view v-positioning ${m ? "has-sel" : "no-sel"}`}>

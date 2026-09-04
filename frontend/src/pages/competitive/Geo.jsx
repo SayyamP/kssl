@@ -3,7 +3,7 @@ import { marketNews } from "../../lib/news";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import ScopeChat from "../../components/scopeChat/ScopeChat";
 import GeoMap, { servedGeoCountries } from "../../components/geoMap/GeoMap";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { srcChips, attr, escAll } from "../../lib/html";
 import Thumb from "../../components/thumb/Thumb.jsx";
@@ -122,6 +122,79 @@ export default function Geo() {
 
   const prods = pair ? geo.productsFor(pair.cid, pair.country) : [];
   const prod = prodIndex !== null && prods ? prods[prodIndex] : null;
+
+  /* What the header's Copy / Export / Print act on: whichever of the four resolutions
+     is on screen -- a company in a country (with the open product), a company's
+     countries, a country's companies -- read straight from geoData. */
+  const report = useMemo(() => {
+    const compName = (id) => {
+      const co = (data.geoComps || []).find((x) => x.id === id);
+      return co ? co.name : id;
+    };
+    const nd = (v) => (v && v !== "n/d" ? String(v) : "—");
+    const prodRow = (p) => [p.name, [p.stage, p.qty, p.val, p.since].filter((v) => v && v !== "n/d").join(" · ")];
+    const plural = (k, w) => `${k} ${w}${k === 1 ? "" : "s"}`;
+    if (pair) {
+      const rows = geo.productsFor(pair.cid, pair.country);
+      return {
+        title: `${compName(pair.cid)} in ${pair.country}`,
+        subtitle: `${plural(rows.length, "product")} on record`,
+        sections: [
+          prod
+            ? {
+                h: prod.name,
+                rows: [
+                  ["Stage", nd(prod.stage)],
+                  ["Quantity", nd(prod.qty)],
+                  ["Value", nd(prod.val)],
+                  ["Since", nd(prod.since)],
+                  prod.note ? ["Note", prod.note] : null,
+                  prod.srcnote ? ["Source", prod.srcnote] : null,
+                ].filter(Boolean),
+              }
+            : null,
+          { h: "Products in this market", rows: rows.map(prodRow) },
+        ].filter(Boolean),
+        payload: { cid: pair.cid, company: compName(pair.cid), country: pair.country, selected: prod || null, products: rows },
+      };
+    }
+    if (resolved.kind === "countries") {
+      const byCountry = (data.geoData || {})[resolved.cid] || {};
+      const rows = Object.entries(byCountry).map(([ct, ps]) => [ct, plural((ps || []).length, "product")]);
+      return {
+        title: `${compName(resolved.cid)} · markets`,
+        subtitle: plural(rows.length, "country").replace("countrys", "countries"),
+        sections: [{ h: "Countries", rows }],
+        payload: { cid: resolved.cid, company: compName(resolved.cid), countries: byCountry },
+      };
+    }
+    if (resolved.kind === "competitors") {
+      const present = Object.entries(data.geoData || {}).filter(([, by]) => by && by[resolved.country]);
+      return {
+        title: `${resolved.country} · competitors present`,
+        subtitle: plural(present.length, "company").replace("companys", "companies"),
+        sections: [{ h: "Competitors", rows: present.map(([id, by]) => [compName(id), plural(by[resolved.country].length, "product")]) }],
+        payload: {
+          country: resolved.country,
+          competitors: present.map(([id, by]) => ({ cid: id, company: compName(id), products: by[resolved.country] })),
+        },
+      };
+    }
+    /* nothing selected: every company with a footprint, and how many countries it is in */
+    const all = Object.entries(data.geoData || {}).map(([id, by]) => [id, Object.keys(by || {})]);
+    return {
+      title: "Geo Footprint",
+      subtitle: `${plural(all.length, "company").replace("companys", "companies")} · no competitor or country selected`,
+      sections: [
+        {
+          h: "Companies by footprint",
+          rows: all.map(([id, countries]) => [compName(id), plural(countries.length, "country").replace("countrys", "countries")]),
+        },
+      ],
+      payload: { companies: all.map(([id, countries]) => ({ cid: id, company: compName(id), countries })) },
+    };
+  }, [pair, prod, resolved, geo, data]);
+  useHeaderReport(report);
 
   // selecting a product scopes the panel chat to it
   useEffect(() => {

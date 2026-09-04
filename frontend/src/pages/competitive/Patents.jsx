@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import { useData } from "../../state/DataProvider";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useHeaderReport } from "../../state/AppState";
 import {
   searchPatents,
   patCompBody,
@@ -85,6 +85,40 @@ export default function Patents() {
   useEffect(() => {
     setCatFilter("");
   }, [cid]);
+
+  /* What the header's Copy / Export / Print act on: the filings the open lens lists,
+     under the category filter in force, with the search status stated -- an empty
+     list says whether it is empty or still loading. */
+  const report = useMemo(() => {
+    const recRow = (r) => [
+      r.title || r.id || "untitled",
+      [r.assignee, r.status, r.granted || r.filed, r.jurisdiction].filter(Boolean).join(" · "),
+    ];
+    const res = lens === "rival" ? compRes : techRes;
+    const recs = res ? res.results || [] : [];
+    const shown = lens === "rival" && catFilter ? recs.filter((r) => r.techArea === catFilter) : recs;
+    const subject = lens === "rival" ? (data.competitors[cid] || {}).name || cid : area || "";
+    const status = res ? res.status : "loading";
+    return {
+      title: `Patents · ${subject}`,
+      subtitle: `${shown.length} filing${shown.length === 1 ? "" : "s"}${catFilter ? ` · ${catFilter}` : ""} · ${status}`,
+      sections: [
+        {
+          h: lens === "rival" ? `Filings by ${subject}` : `Filings in ${subject}`,
+          rows: shown.length ? shown.map(recRow) : [`No filings on record (${status}).`],
+        },
+      ],
+      payload: {
+        lens,
+        competitor: lens === "rival" ? cid : null,
+        technology: lens === "rival" ? null : area,
+        filter: catFilter || null,
+        status,
+        filings: shown,
+      },
+    };
+  }, [lens, cid, area, catFilter, compRes, techRes, data.competitors]);
+  useHeaderReport(report);
 
   const compList = data.compOrder.filter(
     (k) =>

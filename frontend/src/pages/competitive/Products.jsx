@@ -1,16 +1,13 @@
 import { useState, useMemo, useEffect } from "react";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
-import { productNews } from "../../lib/news";
+import { companyNews, productNews } from "../../lib/news";
 import { formatLabel, formatSectorName, formatProductName } from "../../lib/profile";
 import { specValueWithUnit } from "../../lib/specs";
 import { unescapeEntities } from "../../lib/html";
 import { companyCountries, facetOptionsByName } from "../../lib/countryFacet";
 import Thumb from "../../components/thumb/Thumb.jsx";
 import SourceLink from "../../components/sourceLink/SourceLink.jsx";
-
-// Clean company display name helper. Printed as text, so the entity in
-// "Larsen &amp; Toubro" is decoded here or it reaches the heading as five characters.
 const cleanCompanyName = (rawName) => {
   if (!rawName) return "";
   let name = unescapeEntities(String(rawName)).split("(")[0].split("-")[0].trim();
@@ -145,7 +142,7 @@ const getCompanyFilterMeta = (d, cid, co) => ({
 
 export default function Products() {
   const { data } = useData();
-  const { setScope } = useAppState();
+  const { setScope, jumpTo, takePending } = useAppState();
 
   const clientCid = (data.client && data.client.id) || "KSSL";
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
@@ -205,6 +202,29 @@ export default function Products() {
     setActiveProdArticle(null);
     setProdNewsFilter("All");
   }, [selectedProduct]);
+
+  /* Opened from the global search with {cid | company, productName}. A matchup names
+     its maker by display name, so `company` is resolved against the roster with the
+     same join the catalogue uses; the product itself is selected a render later, once
+     that company's catalogue has been derived (see the effect on companyProducts). */
+  const [pendingProduct, setPendingProduct] = useState(null);
+  useEffect(() => {
+    const p = takePending("products");
+    if (!p) return;
+    let cid = p.cid || null;
+    if (!cid && p.company) {
+      const row = companyRoster.find((r) => sameCompany(p.company, r.name));
+      if (row) cid = row.cid;
+    }
+    if (cid && (cid === clientCid || (data.competitors || {})[cid])) {
+      setSelectedCid(cid);
+      setSelectedProduct(null);
+      setProductSearch("");
+      setCategoryFilter("all");
+    }
+    if (p.productName) setPendingProduct(String(p.productName));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takePending]);
 
   /* Sidebar dropdown options: [{ v, n }] over the roster rows, every option backed by
      at least one company, and the "All" label prints options.length -- so the count a
@@ -342,6 +362,14 @@ export default function Products() {
     return prods;
   }, [data, selectedCid, clientCid, clientName, selectedCompany.name]);
 
+  useEffect(() => {
+    if (pendingProduct === null) return;
+    const want = nameKey(pendingProduct);
+    const hit = companyProducts.find((p) => nameKey(p.name) === want);
+    if (hit) setSelectedProduct(hit);
+    setPendingProduct(null);
+  }, [pendingProduct, companyProducts]);
+
   // Product categories for selected company
   const categories = useMemo(() => {
     const set = new Set(companyProducts.map((p) => p.category).filter(Boolean));
@@ -370,7 +398,10 @@ export default function Products() {
   const groupedProducts = useMemo(() => {
     const groups = {};
     filteredCompanyProducts.forEach((p) => {
-      const cat = p.category || "Defense Systems";
+      /* British spelling, as formatCategoryTitle's own default -- this literal was the
+         one American one left, so a product with no band grouped under "Defense
+         Systems" beside "Defence Systems" headings everywhere else (FE 18). */
+      const cat = p.category || "Defence Systems";
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(p);
     });
@@ -422,6 +453,85 @@ export default function Products() {
   const feedProdArticles = useMemo(() => {
     return filteredProdArticles.filter((a) => a.id !== (topProdStory && topProdStory.id));
   }, [filteredProdArticles, topProdStory]);
+
+  /* How many articles the COMPANY has. When none names the product, the news section
+     says so and offers the company's feed by name -- as a door to the profile page, not
+     as product news. Company articles presented as product news was the fault the
+     product filter was written to remove. */
+  const companyNewsCount = useMemo(
+    () => (selectedCompany.isClient ? 0 : companyNews(data, selectedCompany.cid).length),
+    [data, selectedCompany],
+  );
+
+  /* What the header's Copy / Export / Print act on: the open product's specification
+     sheet and the sourced articles naming it, or the company's catalogue as filtered.
+     Every field is the record's own; a product with no specs says so. */
+  const report = useMemo(() => {
+    if (selectedProduct) {
+      const specRows = Object.entries(selectedProduct.specs || {}).map(([k, v]) => [k, formatTitleCase(v)]);
+      const newsRows = productNewsArticles.map((a) => [a.title, [a.source, a.ago, a.category].filter(Boolean).join(" · ")]);
+      return {
+        title: `${selectedCompany.name} - ${selectedProduct.name}`,
+        subtitle: `${selectedProduct.category} · product technical specification`,
+        sections: [
+          {
+            h: "Technical specifications",
+            rows: specRows.length ? specRows : [`No specifications are held for ${selectedProduct.name}.`],
+          },
+          selectedProduct.reason ? { h: "Pairing logic", rows: [selectedProduct.reason] } : null,
+          {
+            h: `Latest news naming ${selectedProduct.name} (${productNewsArticles.length})`,
+            rows: newsRows.length ? newsRows : ["No sourced article names this product."],
+          },
+        ].filter(Boolean),
+        payload: {
+          company: selectedCompany.name,
+          cid: selectedCompany.cid,
+          product: {
+            name: selectedProduct.name,
+            category: selectedProduct.category,
+            specs: selectedProduct.specs || {},
+            source: selectedProduct.source || null,
+            sourceUrl: selectedProduct.sourceUrl || null,
+          },
+          news: productNewsArticles.map((a) => ({
+            title: a.title,
+            source: a.source || null,
+            date: a.date || null,
+            category: a.category || null,
+            url: a.url || null,
+          })),
+        },
+      };
+    }
+    const groups = Object.entries(groupedProducts);
+    return {
+      title: `${selectedCompany.name} Product Portfolio`,
+      subtitle:
+        `${filteredCompanyProducts.length} of ${companyProducts.length} products` +
+        (productSearch ? ` matching "${productSearch}"` : "") +
+        (categoryFilter !== "all" ? ` · ${categoryFilter}` : ""),
+      sections: groups.map(([cat, list]) => ({
+        h: cat,
+        rows: list.map((p) => {
+          const n = Object.keys(p.specs || {}).length;
+          return [p.name, n ? `${n} spec field${n === 1 ? "" : "s"}` : "no specs held"];
+        }),
+      })),
+      payload: {
+        company: selectedCompany.name,
+        cid: selectedCompany.cid,
+        products: filteredCompanyProducts.map((p) => ({
+          name: p.name,
+          category: p.category,
+          specs: p.specs || {},
+          source: p.source || null,
+          sourceUrl: p.sourceUrl || null,
+        })),
+      },
+    };
+  }, [selectedProduct, selectedCompany, productNewsArticles, groupedProducts, filteredCompanyProducts, companyProducts, productSearch, categoryFilter]);
+  useHeaderReport(report);
 
   useEffect(() => {
     setScope("products", { selection: `${selectedCompany.name} Products` }, {
@@ -786,6 +896,58 @@ export default function Products() {
                     </button>
                   ))}
                 </div>
+
+                {/* FE 15: with no article naming the product the section rendered a bare
+                    "All Product News" pill over an empty grid, which reads as static.
+                    The empty case is now stated, and the one real door -- the company's
+                    own feed, on its profile page -- is offered by count. A filter that
+                    matches nothing is stated separately, so it does not read as "no
+                    news" for the product. */}
+                {productNewsArticles.length === 0 ? (
+                  <div
+                    style={{
+                      marginBottom: "16px",
+                      padding: "14px 16px",
+                      background: "var(--d-bg-2)",
+                      border: "1px solid var(--d-line)",
+                      borderRadius: "8px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: "14px",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ fontSize: "12.5px", color: "var(--d-txt-2)", lineHeight: "1.5" }}>
+                      No sourced article in the corpus names {selectedProduct.name}. Company news is not
+                      shown here as product news.
+                    </div>
+                    {companyNewsCount > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => jumpTo("competitive", "profile", { cid: selectedCompany.cid })}
+                        style={{
+                          background: "var(--d-bg-3)",
+                          border: "1px solid var(--d-txt-4)",
+                          color: "#fff",
+                          padding: "8px 14px",
+                          borderRadius: "6px",
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        View {companyNewsCount} {selectedCompany.name} {companyNewsCount === 1 ? "story" : "stories"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : filteredProdArticles.length === 0 ? (
+                  <div style={{ marginBottom: "16px", padding: "12px 16px", background: "var(--d-bg-2)", border: "1px solid var(--d-line)", borderRadius: "8px", fontSize: "12.5px", color: "var(--d-txt-2)" }}>
+                    No {prodNewsFilter} article names {selectedProduct.name}; {productNewsArticles.length} other
+                    {productNewsArticles.length === 1 ? " story does" : " stories do"}.
+                  </div>
+                ) : null}
 
                 {/* 3-Column Product News Dashboard Grid */}
                 <div

@@ -120,7 +120,14 @@ const stubs = {
     return { searchQuery: "", setScope() {}, takePending() { return null; }, jumpTo() {},
              pillar: "competitive", view: "products", setView() {}, setChatCtx() {} };
   }
-  export const RAIL = {}; export const PILLARS = []; export const isOverview = () => false;`,
+  export const RAIL = {}; export const PILLARS = []; export const isOverview = () => false;
+  /* Every page publishes its Copy/Export/Print payload through this hook. It is a no-op
+     here: this test is about what the filters OFFER, and a real implementation would
+     drag the whole header report in. It must exist, though -- five pages import it, and
+     without it the bundle this test builds does not link. */
+  export function useHeaderReport() {}
+  export const PILLAR_LABEL = { competitive: "Competitive", market: "Market",
+                                technology: "Technology" };`,
 };
 const entry = `
   import React from "react";
