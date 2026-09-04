@@ -4,6 +4,7 @@ import { useData } from "../../state/DataProvider";
 import { productNews } from "../../lib/news";
 import { formatLabel, formatSectorName } from "../../lib/profile";
 import Thumb from "../../components/thumb/Thumb.jsx";
+import SourceLink from "../../components/sourceLink/SourceLink.jsx";
 
 // Clean company display name helper
 const cleanCompanyName = (rawName) => {
@@ -601,7 +602,7 @@ export default function Products() {
               </h2>
 
               <div style={{ fontSize: "12px", color: "var(--d-txt-3)", fontWeight: "600" }}>
-                Source Publisher: <span style={{ color: "#f87171" }}><span className="src-dot"></span>{activeProdArticle.source}</span>
+                <SourceLink url={activeProdArticle.url} source={activeProdArticle.source} color="#f87171" />
               </div>
 
               {activeProdArticle.image && (

@@ -4,6 +4,7 @@ import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
 import { companyNews } from "../../lib/news";
 import Thumb from "../../components/thumb/Thumb.jsx";
+import SourceLink from "../../components/sourceLink/SourceLink.jsx";
 
 // Helper function to extract clean company short name without full form or legal suffixes
 const cleanCompanyName = (rawName) => {
@@ -312,7 +313,7 @@ export default function Profile() {
 
             {/* Publisher Source */}
             <div style={{ fontSize: "12px", color: "#6b6a63", fontWeight: "600" }}>
-              Source Publisher: <span style={{ color: "#b5341f" }}><span className="src-dot"></span>{activeArticle.source}</span>
+              <SourceLink url={activeArticle.url} source={activeArticle.source} color="#b5341f" />
             </div>
 
             {/* Banner Image */}
