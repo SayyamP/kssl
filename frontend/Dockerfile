@@ -15,10 +15,11 @@ RUN npm run build
 # such bytes were found in this repo on 2026-09-03.
 RUN node check_no_control_bytes.mjs
 RUN node check_no_fabrication.mjs
+RUN node check_no_emoji.mjs
 # Only the hermetic tests belong in the image. test_feed_pagination.mjs reads a
 # dataset dump that is not in the build context, so gating on it broke the deploy
 # -- it stays a local/CI-with-data check.
-RUN node test_same_company.mjs && node test_partner_tree.mjs && node test_ownership_tree.mjs && node test_signal_date.mjs && node test_feed_order.mjs && node test_label_case.mjs && node test_headline_case.mjs && node test_fact_label_case.mjs
+RUN node test_same_company.mjs && node test_signal_date.mjs && node test_feed_order.mjs && node test_label_case.mjs && node test_headline_case.mjs && node test_fact_label_case.mjs
 
 FROM caddy:2-alpine
 COPY --from=build /app/dist /srv

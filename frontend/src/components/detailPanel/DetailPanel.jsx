@@ -24,25 +24,27 @@ export default function DetailPanel({ detail, onClose }) {
     srcChips(detail.url ? [{ label: "", url: detail.url }] : null);
 
   /* "At a glance" is four rows out of the pipeline — Company, Category, Date, Primary
-     lens (serving_fill.py). Two more are already on the record and cost nothing:
+     lens (serving_fill.py), and this panel used to append Publisher and Stance.
 
-       Publisher — the host the article came from
-       Stance    — threat / watch / favourable, otherwise readable only as a colour
+     TASKS #16 removes three of them: Stance, Date and Publisher. None is lost to the
+     reader — each is still on screen, in the place it belongs:
 
-     The rows still missing (contract value, quantity, counterparty, programme) live
-     inside the free-text ev_quote of extracted.proposition. Pulling them out with
-     regexes HERE would be manufacturing structure from prose; they belong in
-     serving_fill.py, emitted from the typed spans that already carry their quote. */
-  const facts = (detail.facts || []).slice();
-  const known = new Set(facts.map((f) => String(f[0]).toLowerCase()));
-  let publisher = "";
-  try {
-    publisher = detail.url ? new URL(detail.url).hostname.replace(/^www\./, "") : "";
-  } catch (e) {
-    publisher = "";
-  }
-  if (publisher && !known.has("publisher")) facts.push(["Publisher", publisher]);
-  if (!known.has("stance")) facts.push(["Stance", DIR_WORD[dir] || dir]);
+       Stance     the coloured pill in this panel's own header, and the dirtag on the
+                  feed row. A word in a fact list restated what the colour already says.
+       Date       the feed row's `ago`, from signalDate(), which is the one value the
+                  card and this panel are guaranteed to agree on.
+       Publisher  the source chips at the foot of the panel, which carry the link as
+                  well as the host — a bare hostname was the same fact without the URL.
+
+     So the list keeps only what nothing else shows. The rows still missing (contract
+     value, quantity, counterparty, programme) live inside the free-text ev_quote of
+     extracted.proposition. Pulling them out with regexes HERE would be manufacturing
+     structure from prose; they belong in serving_fill.py, emitted from the typed spans
+     that already carry their quote. */
+  const DROPPED_FACTS = new Set(["stance", "date", "publisher"]);
+  const facts = (detail.facts || []).filter(
+    (f) => !DROPPED_FACTS.has(String(f[0]).trim().toLowerCase()),
+  );
 
   return (
     <div className="ctx v-overview revealed">

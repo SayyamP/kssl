@@ -83,7 +83,17 @@ function specRow(s, compName) {
    reachable — so each publisher is a link, and the tier ("manufacturer" vs
    "corroborated by N") is stated rather than implied. A value with no surviving
    source is rendered "not sourced", never as a bare dash that reads like zero. */
+/* TASKS #8: "Remove sources from specs comparison page." Off at the one function all
+   four call sites go through, rather than deleted from each -- flip this back to true
+   and the provenance returns exactly as it was.
+   Worth knowing what the switch costs, since the comment above is the page's own rule:
+   the VALUES stay sourced (nothing about extraction changes, and srcs are still on the
+   record and still shown in Competitor Detail), but the reader can no longer see WHICH
+   publisher a given number came from without leaving the comparison. */
+const SHOW_SPEC_SOURCES = false;
+
 function srcLine(urls, why, tier) {
+  if (!SHOW_SPEC_SOURCES) return "";
   if (!urls || !urls.length) return "";
   const host = (u) => {
     try {

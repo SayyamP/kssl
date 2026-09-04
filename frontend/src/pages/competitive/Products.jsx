@@ -600,7 +600,7 @@ export default function Products() {
               </h2>
 
               <div style={{ fontSize: "12px", color: "var(--d-txt-3)", fontWeight: "600" }}>
-                Source Publisher: <span style={{ color: "#f87171" }}>🔴 {activeProdArticle.source} ✓</span>
+                Source Publisher: <span style={{ color: "#f87171" }}><span className="src-dot"></span>{activeProdArticle.source}</span>
               </div>
 
               {activeProdArticle.image && (
@@ -845,7 +845,7 @@ export default function Products() {
                         </p>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px", paddingTop: "10px", borderTop: "1px solid var(--d-line)" }}>
                           <span style={{ fontSize: "11px", color: "var(--d-txt-3)", fontWeight: "600" }}>
-                            🔴 {topProdStory.source} ✓
+                            <span className="src-dot"></span>{topProdStory.source}
                           </span>
                           <span style={{ fontSize: "12px", color: "#f87171", fontWeight: "600" }}>
                             Read Full Article →
@@ -894,7 +894,7 @@ export default function Products() {
                     {/* Trending Product Intel */}
                     <div style={{ background: "var(--d-bg-2)", border: "1px solid var(--d-line)", borderRadius: "8px", padding: "14px", display: "flex", flexDirection: "column", gap: "8px" }}>
                       <div style={{ fontFamily: "var(--mono)", fontSize: "11px", fontWeight: "700", letterSpacing: ".08em", color: "var(--d-txt-3)", textTransform: "uppercase" }}>
-                        📈 TRENDING PRODUCT INTEL
+                        TRENDING PRODUCT INTEL
                       </div>
                       <div>
                         {productNewsArticles.slice(0, 4).map((t, idx) => (
@@ -916,7 +916,7 @@ export default function Products() {
                     {/* Deployment Status */}
                     <div style={{ background: "var(--d-bg-2)", border: "1px solid var(--d-line)", borderRadius: "8px", padding: "14px", display: "flex", flexDirection: "column", gap: "6px" }}>
                       <div style={{ fontFamily: "var(--mono)", fontSize: "11px", fontWeight: "700", letterSpacing: ".08em", color: "var(--d-txt-3)", textTransform: "uppercase" }}>
-                        📉 DEPLOYMENT CONTRACT SCALE
+                        DEPLOYMENT CONTRACT SCALE
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                         <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
