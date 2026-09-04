@@ -499,7 +499,7 @@ def rate_threat(products, n_docs):
     -- how many KSSL portfolio bands the company's STATED products fall into, and how
     much corpus stands behind it. Returns (threat, threatNote)."""
     key_label = {k: v for v, k in REF["CAT_KEY"].items()}
-    bands = sorted({b for b in (categorise_product(p) for p in (products or [])) if b})
+    bands = sorted({b for b in (categorise_product(p) for p in product_names(products)) if b})
     labels = [key_label.get(b, b) for b in bands]
     if len(bands) >= 2 and n_docs >= 3:
         threat = "high"
@@ -567,7 +567,22 @@ _OUT_OF_PORTFOLIO = re.compile(
     r"|fighter jet|airliner|business jet|helicopter|helicopters"
     r"|turbofan|turboprop|jet engine|aero engine|aircraft engine"
     r"|software|cyber|cloud|middleware"
+    # F1 NAVAL PLATFORMS. KSSL's naval band is "Naval guns / MRAUV" -- it SELLS a gun to a
+    # shipyard. A yard that builds the hull is a customer, not a rival, and the naval keyword
+    # bag described a navy rather than KSSL's naval line.
+    r"|frigate|destroyer|corvette|submarine|warship|patrol vessel|opv"
+    r"|shipbuilding|shipyard|surface combatant|torpedo"
+    # F2 MANNED AIRCRAFT. None of the nine bands is an aircraft. Generic words only --
+    # chasing "Rafale", "AH-1Z", "JF-17" is vocabulary whack-a-mole and belongs in the prompt.
+    r"|fighter|fighters|combat aircraft|aircraft|attack helicopter|airlifter"
     r")(?!\w)", re.I)
+
+
+# F4 EXPORT AND TRADING HOUSES. Rosoboronexport sells Kalashnikov's rifles and Mil's
+# helicopters; it manufactures nothing. Keyed on NAME and SECTOR only, never on `assess` --
+# the assess says "manufactured by Kalashnikov" and _MAKES_RX would rescue it on someone
+# else's factory.
+_TRADER_RX = re.compile(r"(?<!\w)(export|import|trading)(?!\w)", re.I)
 
 
 def out_of_portfolio(products):
@@ -615,13 +630,31 @@ _COMPONENT_RX = re.compile(
     r"|engine|engines|turbine|turbines|turboshaft|turbomotor|turbofan|turboprop|propulsion"
     r"|rocket motor|rocket motors"
     r"|bearing|bearings|actuator|actuators|valve|valves"
+    r"|gear unit|gear units|power-?pack|power-?packs|coupling|couplings|clutch|clutches"
+    r"|control system|control systems"
     r")(?!\w)", re.I)
 
 
 def sells_components(products):
-    """True when every product this company states is a part of someone else's system."""
-    products = [p for p in (products or []) if (p or "").strip()]
-    return bool(products) and all(_COMPONENT_RX.search(p) for p in products)
+    """True when the evidence shows parts and no KSSL-category system of its own.
+
+    THE ALL-PRODUCTS RULE WAS DEAD BY CONSTRUCTION. Measured on the live table: 0 of 105
+    admitted rows had an all-component product list, and in a full rebuild the clause fired
+    once. RENK Group -- named by the client as a non-competitor -- was admitted because only
+    4 of its 8 products matched, "gear units" and "power-packs" not being in the vocabulary.
+    One product line that merely SOUNDS like a system rescued every supplier.
+
+    So: parts present, and nothing that is both a system AND in one of KSSL's nine bands.
+    Requiring the BAND is what keeps this tied to what KSSL sells rather than to defence in
+    general -- it is the difference between "X-Bow states an interceptor" (bands nothing;
+    supplier) and "Nammo states artillery shells" (bands ammo; rival).
+    """
+    products = [p for p in product_names(products) if p.strip()]
+    if not products:
+        return False
+    if not any(_COMPONENT_RX.search(p) for p in products):
+        return False                                   # no supplier evidence at all
+    return not any(categorise_product(p) and not _COMPONENT_RX.search(p) for p in products)
 
 
 # THE SIXTH CLAUSE: THE PRODUCTS MUST BE ITS OWN. Palladyne AI is stored with products
@@ -655,6 +688,48 @@ def borrowed_products(prof, name=""):
     return len(claimed) == len(products)
 
 
+# THE OWNER'S OWN LIST IS GROUND TRUTH, and it was being used to FIND companies and never
+# to PROTECT them. REF.competitors and every matchup's compBy are the client saying, by hand,
+# "these are our rivals" -- 82 matchup names and 28 competitor names. Without consulting it,
+# every rule below needs a hand-written "must not touch" list, and any rule tightened for a
+# supplier eventually deletes L&T (which builds K9 Vajra but whose corpus evidence today is
+# only patrol vessels) or Leonardo (naval guns, evidenced by a cloud product).
+#
+# Pinned names skip every clause. That is the point: a clause exists to judge companies the
+# archive has no opinion about.
+def _pinned_rivals():
+    # ONLY the two lists that assert rivalry: REF.competitors, and each matchup's compBy.
+    # NOT reference_names() -- that also folds in geoComps and sourceRegistry, which say
+    # "this company appears in a country panel" and "this outlet published something", not
+    # "this is a rival". Using it shielded Hindustan Aeronautics, an aircraft OEM that
+    # competes with KSSL in none of the nine bands, purely for being on a map.
+    out = set()
+    for v in (REF.get("competitors") or {}).values():
+        n = (v or {}).get("name") or ""
+        if n and not is_client(n):
+            out.add(slug(n))
+    for m in (REF.get("matchups") or {}).values():
+        n = (m or {}).get("compBy")
+        if isinstance(n, str) and n and not is_client(n):
+            out.add(slug(n))
+    out.discard("")
+    return out
+
+
+_PINNED = None
+
+
+def archive_pinned(name):
+    """True when the client's own reference archive already names this company a rival."""
+    global _PINNED
+    if _PINNED is None:
+        try:
+            _PINNED = _pinned_rivals()
+        except Exception:                                    # noqa: BLE001
+            _PINNED = set()                                  # never fatal; the clauses still run
+    return bool(name) and slug(name) in _PINNED
+
+
 def competes_with_kssl(prof, name=""):
     """-> (admit, reason). Is this profile a DIRECT DEFENCE COMPETITOR, or merely a company
     the corpus mentions near defence?
@@ -683,21 +758,32 @@ def competes_with_kssl(prof, name=""):
     d = (prof or {}).get("dir")
     if d == "client":
         return True, "client"
+    if d == "rival" and archive_pinned(name):
+        return True, "rival (named in the client's own reference archive)"
     if d != "rival":
         return False, "not a rival (dir=%s)" % (d or "none")
-    if not (prof.get("products") or []):
+    # NORMALISE ONCE, HERE. products are STORED as objects ({id,name,category,source,...})
+    # and arrive as bare strings from parse_profile. Every clause below does a regex on each
+    # entry, and a dict raises AttributeError in out_of_portfolio -- outside any try, so it
+    # kills the whole pass. Worse when it does not raise: categorise_product str()s the dict
+    # and matches keywords against the SOURCE URL, which bands AeroVironment as UAVs because
+    # its citation link contains "drone". product_names() is the boundary; this enforces it.
+    prods = product_names(prof.get("products"))
+    if not prods:
         return False, "no product of its own in the statements"
     hay = "%s %s" % (prof.get("assess") or "", prof.get("sector") or "")
     if _SERVICES_RX.search(hay) and not _MAKES_RX.search(hay):
         return False, "services business, no manufacturing evidence"
-    if out_of_portfolio(prof.get("products")):
-        return False, "makes nothing KSSL makes (%s)" % ", ".join(prof["products"][:3])
-    if sells_components(prof.get("products")):
+    if out_of_portfolio(prods):
+        return False, "makes nothing KSSL makes (%s)" % ", ".join(prods[:3])
+    if sells_components(prods):
         return False, "supplies parts, does not field a system (%s)" % ", ".join(
-            prof["products"][:2])
+            prods[:2])
+    if _TRADER_RX.search("%s %s" % (name or "", prof.get("sector") or "")):
+        return False, "an export/trading house, not a manufacturer"
     if borrowed_products(prof, name):
         return False, "products belong to another company (%s)" % ", ".join(
-            prof["products"][:2])
+            prods[:2])
     return True, "rival"
 
 
@@ -2177,7 +2263,12 @@ def categorise_product(product):
     Defence and an AirMaster S radar as UAVs & Drones, all by a keyword that belonged
     to a neighbouring sentence (audit H7). The docstring already refused it; the code
     did it anyway."""
-    hay = str(product or "").lower()
+    # NOT str(product): on a stored product object that stringifies the whole dict, and the
+    # source_url inside it matches keywords -- "…/drone-…" banded AeroVironment as UAVs on
+    # the strength of its citation link. A non-string is a caller bug, not a category.
+    if not isinstance(product, str):
+        return None
+    hay = product.lower()
     # THE LONGEST MATCHING KEYWORD WINS, not the first band in dict order. Returning on the
     # first hit made the answer depend on where a band sits in the JSON, and `pav` sits above
     # `uav` and `msl` while carrying two very broad words -- "vehicle" and "tank". So an
@@ -2815,13 +2906,25 @@ def _demo():
     # ...without deleting the broad words, which still catch what they are for.
     assert categorise_product("armoured vehicle") == "pav"
     assert categorise_product("main battle tank") == "pav"
+    # COLLISIONS, found by banding the live table rather than by reading the list. Both
+    # keywords were there for real artillery and both caught something else entirely:
+    #   "rocket" -> "GMLRS rocket motor", "rocket motors"          propulsion components
+    #   "towed"  -> "towed low-frequency variable-depth sonar"     a sonar
+    # A rocket-motor maker was counting toward an artillery threat rating and being filed as
+    # an artillery matchup. Narrowed to phrases, which keeps what they were for.
+    for term in ("GMLRS rocket motor", "rocket motors",
+                 "towed low-frequency variable-depth sonar"):
+        assert categorise_product(term) is None, \
+            "%r must not band as artillery: %s" % (term, categorise_product(term))
+    for term in ("rocket launcher", "towed howitzer", "155mm towed gun", "Pinaka MLRS"):
+        assert categorise_product(term) == "art", "%r is artillery" % term
+
     # Vocabulary that was simply absent, including KSSL's OWN core business: the pc band knew
     # "forging" but not "forged", "gun barrel" or "crankshaft", and mro knew "overhaul" but
     # not "powertrain" or "running gear" -- the two phrases counterRules uses to describe it.
     for term, band in (("warhead", "ammo"), ("projectile", "ammo"), ("mortar", "art"),
                        ("turret", "pav"), ("chassis", "pav"), ("gun barrel", "pc"),
-                       ("crankshaft", "pc"), ("powertrain", "mro"), ("running gear", "mro"),
-                       ("warship", "naval")):
+                       ("crankshaft", "pc"), ("powertrain", "mro"), ("running gear", "mro")):
         assert categorise_product(term) == band, \
             "%r should band as %s, got %s" % (term, band, categorise_product(term))
     # A radar and a fighter jet must STILL band as nothing -- the additions must not have
@@ -2901,8 +3004,12 @@ def _demo():
     assert competes_with_kssl(_p("rival", ["Insta Steel Eagle drone solution"],
                                  "", "defence"), "Insta")[0], "a Steel Eagle is a drone"
     #     ...and one component beside a real system must never delete the system's maker.
-    assert competes_with_kssl(_p("rival", ["PROTECTOR Remote Weapon Stations", "gearboxes"],
-                                 "", "defence"), "Kongsberg")[0]
+    #     NOTE the product: a remote weapon station bands in NO KSSL category, so this used to
+    #     assert the wrong thing -- it passed only because the all-products rule could not
+    #     fire. The system has to be one KSSL actually sells for the case to mean anything.
+    assert competes_with_kssl(_p("rival", ["155mm artillery shells", "gearboxes"],
+                                 "", "defence"), "Nammo")[0], \
+        "a gearbox beside artillery shells is a rival, not a supplier"
 
     # 1c. THE PRODUCTS MUST BE ITS OWN. Palladyne AI is stored holding IAI's loitering
     #     munitions, which it partnered to market -- a software company wearing a rival's
@@ -2917,6 +3024,44 @@ def _demo():
     assert competes_with_kssl(_p("rival", ["PROTECTOR"],
         "Kongsberg\u2019s PROTECTOR remote weapon station is fielded widely.", "defence"),
         "Kongsberg Gruppen")[0], "its own possessive must not read as borrowed"
+
+    # 1d. THE CLAUSES THAT THE LIVE TABLE PROVED WERE NEEDED. Every name below was admitted
+    #     as dir='rival' in production, and each is a distinct failure mode.
+    #     RENK: the client named it a non-competitor and it was STILL admitted, because the
+    #     all-products rule needed every one of its eight products to be a component and
+    #     "gear units"/"power-packs" were not in the vocabulary.
+    renk = _p("rival", ["gear units", "transmissions", "power-packs",
+                        "hybrid propulsion systems", "suspension systems", "slide bearings"],
+              "", "Defence, Marine and Industry")
+    ok, why = competes_with_kssl(renk, "RENK Group")
+    assert not ok and "supplies parts" in why, "RENK is a gearbox house: %s" % why
+    #     X-Bow: one product that SOUNDS like a system rescued a rocket-motor maker. An
+    #     interceptor bands in no KSSL category, so it is not evidence of competing here.
+    assert not competes_with_kssl(_p("rival", ["low-cost interceptor (LCI)",
+                                               "GMLRS rocket motor"], "", ""),
+                                  "X-Bow Systems")[0]
+    #     A shipyard is a CUSTOMER for a naval gun, not a rival to one.
+    assert not competes_with_kssl(_p("rival", ["Arleigh Burke-class destroyer"], "",
+                                     "naval shipbuilding"), "Ingalls Shipbuilding")[0]
+    #     None of the nine bands is an aircraft.
+    assert not competes_with_kssl(_p("rival", ["Tejas Mk.1A light combat aircraft"], "",
+                                     "aerospace"), "Hindustan Aeronautics")[0]
+    #     An export agency manufactures nothing; it sells other companies' catalogues.
+    ok, why = competes_with_kssl(_p("rival", ["assault rifles"], "", "defense equipment export"),
+                                 "ROSOBORONEXPORT")
+    assert not ok and "trading house" in why, why
+
+    # 1e. THE ARCHIVE PIN. The client's own reference lists are ground truth, and without
+    #     consulting them every tightening eventually deletes a real rival on thin evidence:
+    #     L&T builds K9 Vajra but the corpus currently shows only patrol vessels, and Leonardo
+    #     builds naval guns but is evidenced by a cloud product.
+    assert competes_with_kssl(_p("rival", ["offshore patrol vessel"], "", "shipbuilding"),
+                              "Larsen & Toubro")[0], "the archive names L&T a rival"
+    #     ...but the pin must come from the lists that ASSERT rivalry, not from every name in
+    #     the archive. Sourcing it from reference_names() shielded an aircraft OEM for being
+    #     on a country map.
+    assert not archive_pinned("Hindustan Aeronautics"), "geoComps is not a rival list"
+    assert archive_pinned("Leonardo") and archive_pinned("Kongsberg")
 
     # 2. THE NAMED CASE. Accenture sat in serving.competitors with dir='other', threat NULL
     #    and no products at all. The model had answered correctly; step_companies wrote the
@@ -2958,8 +3103,11 @@ def _demo():
         assert competes_with_kssl(prof)[0], "a plain manufacturer must pass: %s" % prof
     # A manufacturer that ALSO sells integration work is still a manufacturer: the services
     # rule only bites when there is no making anywhere in the evidence.
-    both = _p("rival", ["Type 26 frigate"], "Babcock is a systems integrator that also "
-              "builds warships at its own shipyard.")
+    #     The product here used to be a frigate. That is no longer a KSSL category -- a yard
+    #     BUYS the naval gun KSSL sells -- so the fixture was testing the services rule with a
+    #     company the portfolio rule now refuses for an unrelated and correct reason.
+    both = _p("rival", ["155mm towed howitzer"], "Babcock is a systems integrator that also "
+              "builds artillery at its own factory.")
     assert competes_with_kssl(both)[0], "manufacturing evidence must outrank a services word"
     # Technology areas are not services. Bharat Electronics carries cybersecurity as a
     # product line and must not be disqualified for the word.

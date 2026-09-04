@@ -68015,9 +68015,7 @@
     "marg",
     "trajan",
     "gun system",
-    "towed",
     "sph",
-    "rocket",
     "mlrs",
     "chunmoo",
     "puls",
@@ -68025,7 +68023,12 @@
     "ulh",
     "105mm",
     "mortar",
-    "field gun"
+    "field gun",
+    "rocket artillery",
+    "rocket launcher",
+    "towed howitzer",
+    "towed gun",
+    "towed artillery"
    ],
    "desc": "Towed, mounted and self-propelled guns; rocket artillery."
   },
@@ -68109,21 +68112,11 @@
   "naval": {
    "label": "Marine / Naval",
    "kw": [
-    "submarine",
-    "opv",
-    "asw",
-    "sonobuoy",
     "naval",
-    "frigate",
-    "torpedo",
     "underwater",
     "marine",
     "auv",
-    "gun mount",
-    "corvette",
-    "shipyard",
-    "warship",
-    "shipbuilding"
+    "gun mount"
    ],
    "desc": "Naval guns, underwater systems, shipborne equipment."
   },
