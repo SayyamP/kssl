@@ -408,23 +408,23 @@ export default function Partnerships() {
         <div className="pg-graph-foot">
           <div className="pg-legend">
             <span className="lg">
-              <span className="nd" style={{ background: "#ffffff", boxShadow: "0 0 8px #38bdf8" }} />
+              <span className="nd" style={{ background: "#0f6f7d" }} />
               {c ? c.name : "Current Company"} (Beacon Core)
             </span>
             <span className="lg">
-              <span className="nd" style={{ background: "#f59e0b", boxShadow: "0 0 8px #f59e0b" }} />
+              <span className="nd" style={{ background: "#ab7016" }} />
               Foreign OEM / International (Amber)
             </span>
             <span className="lg">
-              <span className="nd" style={{ background: "#a855f7", boxShadow: "0 0 8px #a855f7" }} />
+              <span className="nd" style={{ background: "#8340b8" }} />
               Defence Tech & Systems (Purple)
             </span>
             <span className="lg">
-              <span className="nd" style={{ background: "#14b8a6", boxShadow: "0 0 8px #14b8a6" }} />
+              <span className="nd" style={{ background: "#0a8f70" }} />
               Domestic & Strategic (Teal)
             </span>
             <span className="lg">
-              <span className="nd" style={{ background: "#ef4444", boxShadow: "0 0 8px #ef4444" }} />
+              <span className="nd" style={{ background: "#8c2f2f" }} />
               Overlapping Partner (Red)
             </span>
           </div>
