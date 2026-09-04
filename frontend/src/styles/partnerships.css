@@ -10,7 +10,10 @@
   .v-partnerships.has-sel .pg-canvas{animation:panelSlideWide .42s cubic-bezier(.22,.61,.36,1)}
   .v-partnerships.has-sel .pg-drawer{animation:panelSlideWide .42s cubic-bezier(.22,.61,.36,1)}
   .v-partnerships.no-sel .pg-canvas,.v-partnerships.no-sel .pg-drawer{opacity:0;pointer-events:none}
-  .pg-canvas{background: radial-gradient(circle at 50% 40%, #0b1326 0%, #070a14 60%, #030408 100%);display:flex;flex-direction:column;overflow:hidden;position:relative}
+  /* Flat ground. The radial gradient put a lit pool behind the centre node, which is
+     the same glow the node fills were asked to drop, and it lifted the middle of the
+     canvas so the dark fills lost contrast exactly where the graph is busiest. */
+  .pg-canvas{background:#0b0b0d;display:flex;flex-direction:column;overflow:hidden;position:relative}
   /* competitor list items */
   .pg-comp{padding:14px 20px;border-bottom:1px solid var(--d-line);border-left:2px solid transparent;cursor:pointer;transition:background .12s}
   .pg-comp:hover{background:var(--d-bg-1)}
@@ -50,11 +53,11 @@
   .pg-edge.rel-mou{stroke:#3a4556}
   .pg-edge.rel-acq{stroke:#3a4556}
   .pg-edge.shared{stroke:#e8483a !important;stroke-width:2.5px !important;opacity:1 !important}
-  .pg-edge.hl{opacity:.95 !important;stroke-width:2.4px !important;filter:drop-shadow(0 0 6px rgba(56,189,248,.8))}
+  .pg-edge.hl{opacity:.95 !important;stroke-width:2.4px !important}
   .pg-edge.dim{opacity:.05 !important}
 
   .pg-node{cursor:pointer;transition:opacity .25s cubic-bezier(.2,.8,.2,1),filter .25s ease}
-  .pg-node:hover{filter:brightness(1.25)}
+  .pg-node:hover .net-circle{stroke-opacity:.9;stroke-width:2px}
   .pg-node.dim{opacity:.12 !important;filter:grayscale(35%) blur(.3px)}
   .pg-node.connected{opacity:.95 !important}
   .pg-node circle{transition:r .18s,stroke-width .18s,stroke .18s}
@@ -78,21 +81,22 @@
   .pg-node.ptr.govt circle{stroke-dasharray:3 2}
 
   /* Selection glow */
-  .pg-node.sel circle.core-bubble{stroke:#ffffff !important;stroke-width:3px !important;filter:drop-shadow(0 0 16px rgba(56,189,248,1)) drop-shadow(0 0 28px rgba(56,189,248,.6)) !important}
-  .pg-node.sel circle.halo{stroke:#38bdf8 !important;stroke-width:2.2px !important;opacity:.85 !important}
+  /* Selection reads as a ring, not a light source. */
+  .pg-node.sel circle.core-bubble{stroke:#e6e8ec !important;stroke-width:2.5px !important}
+  .pg-node.sel circle.halo{stroke:#8b95a5 !important;stroke-width:2.2px !important;opacity:.85 !important}
 
   /* High contrast labels matching graph wanted.jpeg */
   .lbl-ptr-title{fill:#ffffff;font-weight:700;font-size:11px;font-family:var(--mono);paint-order:stroke;stroke:#070a14;stroke-width:3.5px;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
   .lbl-ptr-sub{fill:#94a3b8;font-size:9px;font-weight:500;font-family:var(--mono);paint-order:stroke;stroke:#070a14;stroke-width:3px;pointer-events:none}
   .center-title{font-size:13px !important;font-weight:800 !important;letter-spacing:.03em}
-  .center-sub{fill:#38bdf8 !important;font-weight:700 !important;letter-spacing:.06em}
+  .center-sub{fill:#9aa4b2 !important;font-weight:700 !important;letter-spacing:.06em}
 
   /* Canvas toolbar & zoom controls */
   .pg-canvas-toolbar{position:absolute;top:10px;left:14px;right:14px;display:flex;justify-content:space-between;align-items:center;pointer-events:none;z-index:15}
   .pg-view-toggles{display:flex;gap:6px;pointer-events:auto}
   .pg-tb-pill{background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.12);color:#94a3b8;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;backdrop-filter:blur(8px);transition:all .2s ease;font-family:var(--mono)}
   .pg-tb-pill:hover{color:#f1f5f9;border-color:rgba(255,255,255,0.25)}
-  .pg-tb-pill.active{background:rgba(6,182,212,0.18);border-color:#06b6d4;color:#38bdf8;box-shadow:0 0 12px rgba(6,182,212,0.3)}
+  .pg-tb-pill.active{background:rgba(120,132,148,0.16);border-color:#7b8494;color:#d3d7de}
   .pg-zoom-box{display:flex;gap:4px;pointer-events:auto}
   .pg-tb-btn{width:26px;height:26px;background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.12);color:#cbd5e1;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;cursor:pointer;backdrop-filter:blur(8px);transition:all .2s ease;font-family:inherit}
   .pg-tb-btn:hover{background:rgba(30,41,59,0.9);border-color:rgba(255,255,255,0.3);color:#ffffff}

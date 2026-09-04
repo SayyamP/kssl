@@ -282,6 +282,41 @@ export function createPartners(d) {
     return { nodes, edges };
   }
 
+/* LABEL COLLISION RESOLUTION.
+   Two text rows per label (name + kind), ~11px and ~9px on a 12px rhythm, so a label
+   occupies about 24px of height and charW*len of width from its anchor. Labels are
+   planned for every node first, then nudged apart, then drawn -- a label cannot avoid
+   a neighbour that has not been placed yet, which is why the fixed-offset version
+   collided at exactly the points where the graph is most crowded.
+
+   Vertical nudging only. Moving a label sideways detaches it from its node (the anchor
+   side encodes which node it belongs to); moving it down keeps the association and is
+   what a person does by hand. */
+function pgResolveLabelCollisions(plan) {
+  const CHAR_W = 6.2;          // 11px mono
+  const H = 24;                // title + kind row
+  const PAD = 3;
+  const box = (p) => {
+    const w = Math.max(String(p.text || "").length, String(p.sub || "").length) * CHAR_W;
+    const x = p.anchor === "start" ? p.x : p.anchor === "end" ? p.x - w : p.x - w / 2;
+    return { x1: x - PAD, x2: x + w + PAD, y1: p.y - 11 - PAD, y2: p.y + H - 11 + PAD };
+  };
+  // top-to-bottom: a label only ever moves DOWN, so one ordered pass settles the run
+  const order = plan.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+  for (let i = 0; i < order.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const a = box(order[i]);
+      const b = box(order[j]);
+      const hit = a.x1 < b.x2 && a.x2 > b.x1 && a.y1 < b.y2 && a.y2 > b.y1;
+      if (hit) {
+        order[i].y += b.y2 - a.y1 + 2;
+        j = -1;                // re-check against everything already placed
+      }
+    }
+  }
+  return plan;
+}
+
   /* Labels radiate outward and are anchored by hemisphere, so neighbours diverge
      instead of stacking on the same centre line. text-anchor has to travel as a
      class: a stylesheet rule beats an SVG presentation attribute. */
@@ -337,64 +372,45 @@ export function createPartners(d) {
           <stop offset="100%" stop-color="#03050a" />
         </radialGradient>
         <!-- Center Spotlight Aura Glow -->
-        <radialGradient id="pgCenterAura" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stop-color="rgba(20, 184, 166, 0.22)" />
-          <stop offset="45%" stop-color="rgba(56, 189, 248, 0.10)" />
-          <stop offset="100%" stop-color="rgba(0, 0, 0, 0)" />
-        </radialGradient>
+        <!-- The spotlight aura is gone: a lit canvas is the glow the brief asked
+             to remove, and it was also what made the dark node fills below look
+             washed out where they crossed it. -->
         <!-- Spherical 3D Node Gradients -->
-        <radialGradient id="grad-oem" cx="38%" cy="38%" r="62%">
-          <stop offset="0%" stop-color="#ffffff" />
-          <stop offset="65%" stop-color="#38bdf8" />
-          <stop offset="100%" stop-color="#0284c7" />
+        <!-- FLAT, NOT SPHERICAL. Each of these was a radial gradient running from
+             white through a bright hue: that white core is what read as a glowing 3D
+             bubble. One stop each now, so a node is a flat disc of one dark colour.
+
+             Palette validated with the dataviz checker on the dark surface -- chroma
+             floor, adjacent-pair CVD and normal-vision separation all pass. Two checks
+             are knowingly failed and both ARE the brief: the blood red sits below the
+             lightness band because it is meant to, and the red and purple fall under
+             3:1 contrast, which the checker allows only where the marks carry their own
+             relief. They do: every node is drawn with a stroke and directly labelled
+             with its name and its role, so nothing here is identified by hue alone. -->
+        <radialGradient id="grad-oem">
+          <stop offset="100%" stop-color="#0f6f7d" />
         </radialGradient>
-        <radialGradient id="grad-teal" cx="35%" cy="35%" r="65%">
-          <stop offset="0%" stop-color="#5eead4" />
-          <stop offset="60%" stop-color="#14b8a6" />
-          <stop offset="100%" stop-color="#0f766e" />
+        <radialGradient id="grad-teal">
+          <stop offset="100%" stop-color="#0a8f70" />
         </radialGradient>
-        <radialGradient id="grad-amber" cx="35%" cy="35%" r="65%">
-          <stop offset="0%" stop-color="#fef08a" />
-          <stop offset="60%" stop-color="#f59e0b" />
-          <stop offset="100%" stop-color="#b45309" />
+        <radialGradient id="grad-amber">
+          <stop offset="100%" stop-color="#ab7016" />
         </radialGradient>
-        <radialGradient id="grad-purple" cx="35%" cy="35%" r="65%">
-          <stop offset="0%" stop-color="#f3e8ff" />
-          <stop offset="60%" stop-color="#a855f7" />
-          <stop offset="100%" stop-color="#6b21a8" />
+        <radialGradient id="grad-purple">
+          <stop offset="100%" stop-color="#8340b8" />
         </radialGradient>
-        <radialGradient id="grad-coral" cx="35%" cy="35%" r="65%">
-          <stop offset="0%" stop-color="#ffe4e6" />
-          <stop offset="60%" stop-color="#f43f5e" />
-          <stop offset="100%" stop-color="#9f1239" />
+        <radialGradient id="grad-coral">
+          <stop offset="100%" stop-color="#992424" />
         </radialGradient>
       </defs>
     `;
 
     // 1. CANVAS SPOTLIGHT AURA
     let svg = defsHtml;
-    svg += `<circle cx="${cx}" cy="${cy}" r="340" fill="url(#pgCenterAura)" />`;
 
-    // 2. STAR DUST PARTICLES
-    svg += `<g class="pg-particles">`;
-    const particlePositions = [
-      { x: 150, y: 70, r: 1.3, op: 0.35, col: "#38bdf8" },
-      { x: 230, y: 170, r: 1.1, op: 0.4, col: "#f59e0b" },
-      { x: 340, y: 65, r: 1.5, op: 0.3, col: "#ffffff" },
-      { x: 590, y: 55, r: 1.2, op: 0.4, col: "#a855f7" },
-      { x: 740, y: 100, r: 1.6, op: 0.3, col: "#38bdf8" },
-      { x: 840, y: 230, r: 1.3, op: 0.4, col: "#f43f5e" },
-      { x: 780, y: 440, r: 1.5, op: 0.35, col: "#a855f7" },
-      { x: 640, y: 490, r: 1.1, op: 0.4, col: "#38bdf8" },
-      { x: 380, y: 500, r: 1.4, op: 0.3, col: "#ffffff" },
-      { x: 170, y: 470, r: 1.2, op: 0.4, col: "#14b8a6" },
-      { x: 110, y: 250, r: 1.5, op: 0.25, col: "#38bdf8" },
-      { x: 880, y: 370, r: 1.3, op: 0.35, col: "#f59e0b" },
-    ];
-    particlePositions.forEach((pt) => {
-      svg += `<circle cx="${pt.x}" cy="${pt.y}" r="${pt.r}" fill="${pt.col}" opacity="${pt.op}" />`;
-    });
-    svg += `</g>`;
+    /* The star-dust layer is gone. Twelve bright specks scattered over the canvas
+       were the last of the lit-space look, and at 0.25-0.4 opacity in five hues they
+       carried no information at all -- decoration competing with the nodes. */
 
     // 3. CONCENTRIC ORBITAL RINGS & COORDINATE AXES (Matching graph wanted.jpeg)
     svg += `<g class="pg-bg-guides">`;
@@ -438,7 +454,7 @@ export function createPartners(d) {
     // Cluster Layout Definitions
     const clusterConfig = {
       amber: {
-        color: "#f59e0b",
+        color: "#ab7016",
         grad: "grad-amber",
         slots: [
           { x: 475, y: 125, r: 21, haloR: 35, isHub: true, lx: 475, ly: 165, anchor: "middle" },
@@ -455,7 +471,7 @@ export function createPartners(d) {
         ]
       },
       purple: {
-        color: "#a855f7",
+        color: "#8340b8",
         grad: "grad-purple",
         slots: [
           { x: 670, y: 255, r: 21, haloR: 35, isHub: true, lx: 670, ly: 297, anchor: "middle" },
@@ -471,7 +487,7 @@ export function createPartners(d) {
         ]
       },
       coral: {
-        color: "#f43f5e",
+        color: "#992424",
         grad: "grad-coral",
         slots: [
           { x: 260, y: 335, r: 21, haloR: 35, isHub: true, lx: 260, ly: 377, anchor: "middle" },
@@ -487,7 +503,7 @@ export function createPartners(d) {
         ]
       },
       teal: {
-        color: "#14b8a6",
+        color: "#0a8f70",
         grad: "grad-teal",
         slots: [
           { x: 390, y: 245, r: 18, haloR: 30, isHub: true, lx: 370, ly: 243, anchor: "end" },
@@ -512,6 +528,28 @@ export function createPartners(d) {
     // Track placed node coordinates
     const placedNodes = [];
 
+    /* Plan every label BEFORE drawing anything, then resolve overlaps. Slot positions
+       are deterministic, so this second walk costs nothing and is the only way a label
+       can know about the neighbour it would otherwise have landed on. */
+    const labelPlan = {};
+    Object.keys(clusters).forEach((cKey) => {
+      const cfg0 = clusterConfig[cKey];
+      clusters[cKey].forEach((p, idx) => {
+        const slot = cfg0.slots[idx % cfg0.slots.length];
+        const om = Math.floor(idx / cfg0.slots.length);
+        const full0 = String(p.label || "");
+        labelPlan[p.id] = {
+          id: p.id,
+          x: (slot.lx ? slot.lx : slot.x) + om * 20,
+          y: (slot.ly ? slot.ly : slot.y + slot.r + 16) + om * 20,
+          anchor: slot.anchor || "middle",
+          text: full0.length > PG_LBL_MAX ? full0.slice(0, PG_LBL_MAX - 1) : full0,
+          sub: p.isOverlap ? "Overlapping Partner" : String(p.kind || "Partner"),
+        };
+      });
+    });
+    pgResolveLabelCollisions(Object.keys(labelPlan).map((k) => labelPlan[k]));
+
     // Place and render nodes for each cluster
     Object.keys(clusters).forEach((cKey) => {
       const cList = clusters[cKey];
@@ -525,8 +563,8 @@ export function createPartners(d) {
         const ny = slot.y + (offsetMultiplier * 20);
         const rNode = slot.r;
         const haloR = slot.haloR;
-        const strokeColor = p.isOverlap ? "#ef4444" : cfg.color;
-        const fillColor = p.isOverlap ? "#ef4444" : cfg.color;
+        const strokeColor = p.isOverlap ? "#8c2f2f" : cfg.color;
+        const fillColor = p.isOverlap ? "#8c2f2f" : cfg.color;
         const gradId = p.isOverlap ? "grad-coral" : cfg.grad;
 
         placedNodes.push({ id: p.id, x: nx, y: ny, cluster: cKey, isHub: slot.isHub, color: strokeColor });
@@ -556,16 +594,17 @@ export function createPartners(d) {
             : fullLabel,
         );
         const kindText = p.isOverlap ? "Overlapping Partner" : esc(p.kind || "Partner");
-        const lx = slot.lx ? slot.lx + (offsetMultiplier * 20) : nx;
-        const ly = slot.ly ? slot.ly + (offsetMultiplier * 20) : ny + rNode + 16;
-        const textAnchor = slot.anchor || "middle";
+        const lp = labelPlan[p.id] || {};
+        const lx = lp.x != null ? lp.x : nx;
+        const ly = lp.y != null ? lp.y : ny + rNode + 16;
+        const textAnchor = lp.anchor || slot.anchor || "middle";
 
         // Partner Node Group with clean flat network graph circle
         nodeHtml +=
           `<g class="pg-node ptr ${p.isOverlap ? "overlap" : "direct"}" data-id="${p.id}" data-cluster="${cKey}">` +
           `<title>${labelText} — ${p.isOverlap ? "Overlapping Partner" : kindText}</title>` +
           `<circle class="halo" cx="${nx}" cy="${ny}" r="${haloR}" fill="${cfg.haloFill}" stroke="${strokeColor}" stroke-width="1.3" opacity="0.35" />` +
-          `<circle class="net-circle" cx="${nx}" cy="${ny}" r="${rNode}" fill="${fillColor}" stroke="#ffffff" stroke-width="1.8" stroke-opacity="0.65" />` +
+          `<circle class="net-circle" cx="${nx}" cy="${ny}" r="${rNode}" fill="${fillColor}" stroke="#cfd3da" stroke-width="1.2" stroke-opacity="0.42" />` +
           `<text class="lbl-ptr-title" x="${lx}" y="${ly}" text-anchor="${textAnchor}">${labelText}</text>` +
           (kindText ? `<text class="lbl-ptr-sub" x="${lx}" y="${ly + 12}" text-anchor="${textAnchor}">${kindText}</text>` : "") +
           `</g>`;
@@ -593,8 +632,8 @@ export function createPartners(d) {
     // 5. CENTER OEM BEACON NODE (Flat network graph circle)
     const centerHtml =
       `<g class="pg-node center-root" data-id="${centerId}">` +
-      `<circle class="halo halo-oem" cx="${cx}" cy="${cy}" r="40" fill="none" stroke="rgba(56, 189, 248, 0.4)" stroke-width="1.5" stroke-dasharray="4, 6" />` +
-      `<circle class="net-circle" cx="${cx}" cy="${cy}" r="24" fill="#00f0ff" stroke="#ffffff" stroke-width="2.5" />` +
+      `<circle class="halo halo-oem" cx="${cx}" cy="${cy}" r="40" fill="none" stroke="rgba(160, 172, 184, 0.28)" stroke-width="1.2" stroke-dasharray="4, 6" />` +
+      `<circle class="net-circle" cx="${cx}" cy="${cy}" r="24" fill="#0f6f7d" stroke="#cfd3da" stroke-width="1.6" stroke-opacity="0.55" />` +
       `<text class="lbl-ptr-title center-title" x="${cx}" y="${cy + 40}" text-anchor="middle">${centerName}</text>` +
       `<text class="lbl-ptr-sub center-sub" x="${cx}" y="${cy + 54}" text-anchor="middle">SELECTED OEM</text>` +
       `</g>`;

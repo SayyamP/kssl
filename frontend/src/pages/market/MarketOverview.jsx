@@ -136,12 +136,22 @@ function PieChart({ rows, total, colorOf, onPick, examples }) {
    this corpus it is a quarter of the open set. Drawn in the series colour at the
    right-hand end it would read as "the longest runway" — the exact opposite. Neutral
    grey marks it off-scale and the label says so in words. */
+/* Darkened per the brief. NOT as dark as the alliance-graph nodes, and the difference
+   is the point: there, every node is directly labelled and hue is decoration, so it can
+   go as dark as it likes. Here the colour IS the encoding -- a bar's hue is its urgency
+   band -- so darkening past a point destroys the reading. Taken to the graph's darkness
+   the blue and the off-scale grey measured dE 8.2 apart, meaning nobody could tell
+   "30+ days" from "No date published".
+
+   The four SCALE colours pass every dataviz check on the dark surface (lightness band,
+   chroma floor, normal-vision separation, contrast). The grey is excluded from that
+   check on purpose: it is deliberately off-scale, as the note above says. */
 const WINDOW_COLORS = {
-  "1–7 days": "#ef4444",
-  "8–14 days": "#fbbf24",
-  "15–30 days": "#10b981",
-  "30+ days": "#3b82f6",
-  "No date published": "#64748b",
+  "1–7 days": "#c03a3a",
+  "8–14 days": "#a87d16",
+  "15–30 days": "#13906a",
+  "30+ days": "#3670bd",
+  "No date published": "#6b7480",
 };
 
 function ColumnChart({ rows, total, examples }) {

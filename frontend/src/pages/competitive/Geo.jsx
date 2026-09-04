@@ -284,7 +284,7 @@ export default function Geo() {
     const newsCardsHtml = `
       <div style="padding: 16px 18px 24px 18px; border-top: 1px solid #e2e8f0; margin-top: 16px; background: #f8fafc;">
         <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
-          <span style="width: 7px; height: 7px; border-radius: 50%; background: #ef4444; display: inline-block;"></span>
+          <span style="width: 7px; height: 7px; border-radius: 50%; background: #992424; display: inline-block;"></span>
           <span style="font-family: var(--mono); font-size: 11px; color: #334155; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;">
             PRODUCT & MARKET NEWS INTEL (${escAll(coName)} · ${escAll(p.name)})
           </span>

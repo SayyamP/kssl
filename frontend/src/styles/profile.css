@@ -174,8 +174,8 @@
   height: 7px;
   border-radius: 50%;
   background: var(--threat-badge);
-  box-shadow: 0 0 6px var(--threat-badge);
-  animation: pulse 2s infinite;
+  /* no glow, no pulse: a dot that lights up and breathes is decoration, and the
+     threat colour already carries the meaning. */
 }
 .cp-news-list {
   max-height: 360px;
@@ -267,7 +267,6 @@
   height: 8px;
   border-radius: 50%;
   background: #f0593c;
-  box-shadow: 0 0 8px #f0593c;
 }
 .ln-heading {
   font-family: var(--mono);

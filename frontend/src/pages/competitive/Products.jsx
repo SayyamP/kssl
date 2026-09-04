@@ -568,7 +568,7 @@ export default function Products() {
             >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--d-line)", paddingBottom: "16px" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#ef4444", display: "inline-block" }} />
+                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#992424", display: "inline-block" }} />
                   <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#f87171", fontWeight: "700", letterSpacing: ".08em", textTransform: "uppercase" }}>
                     {selectedProduct.name} · {activeProdArticle.category} · {activeProdArticle.ago}
                   </span>
@@ -762,7 +762,7 @@ export default function Products() {
                 {/* Header Bar */}
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#ef4444", display: "inline-block" }} />
+                    <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: "#992424", display: "inline-block" }} />
                     <div>
                       <div style={{ fontFamily: "var(--mono)", fontSize: "14px", fontWeight: "700", letterSpacing: ".08em", color: "#ffffff", textTransform: "uppercase" }}>
                         LATEST NEWS & INTEL ON {selectedProduct.name.toUpperCase()}
