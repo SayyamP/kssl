@@ -111,9 +111,39 @@ if [ -f extraction/docker-compose.yml ]; then
   # 198, which made the next deploy's total 342. It exhausted max_connections twice on
   # 2026-09-02 ("sorry, too many clients already") and silently overrode every replicas:
   # value in the compose file.
-  echo ">> extraction: rebuild + recreate (scale from compose replicas)"
-  ( cd extraction && docker compose build && docker compose up -d ) \
-    || echo "!! extraction recreate reported an error — see 'docker compose -f extraction/docker-compose.yml logs'"
+  #
+  # ...AND ONLY WHEN THE EXTRACTION SOURCE ACTUALLY CHANGED. `up -d` replaces every
+  # extraction role, and the enrich rebuild is a 1.5-2 hour pass that starts over from
+  # nothing when its container is replaced. So ANY push recreated the fleet, including
+  # frontend-only ones. On 2026-09-04 that killed the pass three times -- twice by
+  # extraction commits, once by a partnerships-graph commit touching nothing but frontend/ --
+  # and every one of those deploys reported success. serving.matchup, serving.partner and
+  # serving.innovation had not been rebuilt since 2 September as a direct result, and no log
+  # anywhere said why.
+  #
+  # The box has no git history (rsync excludes .git), so "changed" is a content hash of the
+  # tree, not a diff. It costs 46ms over ~700 files. extraction/.env lives inside that tree
+  # and is deliberately included, so editing a secret by hand still forces a recreate.
+  stamp="$APP/.EXTRACTION_HASH"
+  new_hash=$(find extraction -type f -not -path '*/__pycache__/*' -not -name '*.pyc' -print0 \
+               | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+  # The safety net: hash matches but nothing running (a pruned image, a wiped host) must
+  # still recreate, never "succeed" onto an empty box. The extraction stack is its own
+  # compose project named after its directory, so its containers are extraction-* here.
+  running=$(docker ps -q --filter "name=extraction-" | wc -l)
+  if [ "$new_hash" = "$(cat "$stamp" 2>/dev/null)" ] && [ "$running" -gt 0 ]; then
+    echo ">> extraction unchanged ($running containers up) — not recreating."
+    echo "   An enrich rebuild or a worker's in-flight document survives this deploy."
+  else
+    echo ">> extraction: rebuild + recreate (scale from compose replicas)"
+    if ( cd extraction && docker compose build && docker compose up -d ); then
+      # Stamped only AFTER a successful recreate, so a failed deploy retries next time
+      # instead of recording a hash for containers that never came up.
+      echo "$new_hash" > "$stamp"
+    else
+      echo "!! extraction recreate reported an error — see 'docker compose -f extraction/docker-compose.yml logs'"
+    fi
+  fi
 fi
 
 docker image prune -f >/dev/null 2>&1 || true
