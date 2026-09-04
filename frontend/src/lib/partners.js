@@ -560,14 +560,12 @@ export function createPartners(d) {
         const ly = slot.ly ? slot.ly + (offsetMultiplier * 20) : ny + rNode + 16;
         const textAnchor = slot.anchor || "middle";
 
-        // Partner Node Group with 3D spherical bubble and luminous halo
+        // Partner Node Group with clean flat network graph circle
         nodeHtml +=
           `<g class="pg-node ptr ${p.isOverlap ? "overlap" : "direct"}" data-id="${p.id}" data-cluster="${cKey}">` +
           `<title>${labelText} — ${p.isOverlap ? "Overlapping Partner" : kindText}</title>` +
           `<circle class="halo" cx="${nx}" cy="${ny}" r="${haloR}" fill="${cfg.haloFill}" stroke="${strokeColor}" stroke-width="1.3" opacity="0.35" />` +
-          `<circle cx="${nx}" cy="${ny}" r="${rNode + 4}" fill="${fillColor}" opacity="0.2" />` +
-          `<circle class="core-bubble" cx="${nx}" cy="${ny}" r="${rNode}" fill="url(#${gradId})" stroke="#ffffff" stroke-width="1.8" />` +
-          `<path d="M ${nx - rNode*0.45} ${ny - rNode*0.35} A ${rNode*0.65} ${rNode*0.65} 0 0 1 ${nx + rNode*0.45} ${ny - rNode*0.35}" stroke="rgba(255,255,255,0.45)" stroke-width="1.2" fill="none" stroke-linecap="round" />` +
+          `<circle class="net-circle" cx="${nx}" cy="${ny}" r="${rNode}" fill="${fillColor}" stroke="#ffffff" stroke-width="1.8" stroke-opacity="0.65" />` +
           `<text class="lbl-ptr-title" x="${lx}" y="${ly}" text-anchor="${textAnchor}">${labelText}</text>` +
           (kindText ? `<text class="lbl-ptr-sub" x="${lx}" y="${ly + 12}" text-anchor="${textAnchor}">${kindText}</text>` : "") +
           `</g>`;
@@ -579,25 +577,24 @@ export function createPartners(d) {
       for (let j = i + 1; j < placedNodes.length; j++) {
         const n1 = placedNodes[i];
         const n2 = placedNodes[j];
-        // Connect nodes in same cluster or between adjacent hubs
         const dist = Math.hypot(n1.x - n2.x, n1.y - n2.y);
         const sameCluster = n1.cluster === n2.cluster;
         const bothHubs = n1.isHub && n2.isHub;
-        if ((sameCluster && dist < 160) || (bothHubs && dist < 240)) {
-          const linkColor = sameCluster ? n1.color : "rgba(255,255,255,0.22)";
-          const isDashed = !sameCluster;
-          edgeHtml += `<line class="pg-edge mesh-edge" data-a="${n1.id}" data-b="${n2.id}" x1="${n1.x}" y1="${n1.y}" x2="${n2.x}" y2="${n2.y}" stroke="${linkColor}" stroke-width="1.2px" opacity="${sameCluster ? "0.45" : "0.28"}" ${isDashed ? 'stroke-dasharray="3 4"' : ""} />`;
+
+        if ((sameCluster && dist < 140) || (bothHubs && dist < 320)) {
+          const strokeCol = sameCluster ? clusterConfig[n1.cluster].color : "rgba(168, 85, 247, 0.45)";
+          const strokeW = bothHubs ? "1.4px" : "0.9px";
+          const strokeDash = bothHubs ? "4, 5" : "2, 3";
+          edgeHtml += `<line class="pg-edge mesh-edge" data-a="${n1.id}" data-b="${n2.id}" x1="${n1.x}" y1="${n1.y}" x2="${n2.x}" y2="${n2.y}" stroke="${strokeCol}" stroke-width="${strokeW}" stroke-dasharray="${strokeDash}" opacity="0.32" />`;
         }
       }
     }
 
-    // 5. CENTER OEM BEACON NODE (Matching graph wanted.jpeg central luminous hub)
+    // 5. CENTER OEM BEACON NODE (Flat network graph circle)
     const centerHtml =
       `<g class="pg-node center-root" data-id="${centerId}">` +
-      `<circle class="halo halo-oem" cx="${cx}" cy="${cy}" r="48" fill="rgba(56, 189, 248, 0.12)" stroke="rgba(56, 189, 248, 0.4)" stroke-width="1.8" />` +
-      `<circle cx="${cx}" cy="${cy}" r="36" fill="rgba(255, 255, 255, 0.18)" stroke="rgba(255, 255, 255, 0.4)" stroke-width="1.5" />` +
-      `<circle class="core-bubble" cx="${cx}" cy="${cy}" r="24" fill="url(#grad-oem)" stroke="#ffffff" stroke-width="2.5" style="filter: drop-shadow(0 0 16px rgba(56, 189, 248, 0.95));" />` +
-      `<path d="M ${cx - 11} ${cy - 8} A 15 15 0 0 1 ${cx + 11} ${cy - 8}" stroke="rgba(255,255,255,0.6)" stroke-width="1.5" fill="none" stroke-linecap="round" />` +
+      `<circle class="halo halo-oem" cx="${cx}" cy="${cy}" r="40" fill="none" stroke="rgba(56, 189, 248, 0.4)" stroke-width="1.5" stroke-dasharray="4, 6" />` +
+      `<circle class="net-circle" cx="${cx}" cy="${cy}" r="24" fill="#00f0ff" stroke="#ffffff" stroke-width="2.5" />` +
       `<text class="lbl-ptr-title center-title" x="${cx}" y="${cy + 40}" text-anchor="middle">${centerName}</text>` +
       `<text class="lbl-ptr-sub center-sub" x="${cx}" y="${cy + 54}" text-anchor="middle">SELECTED OEM</text>` +
       `</g>`;
