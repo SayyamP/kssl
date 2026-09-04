@@ -46,7 +46,21 @@ def main():
     import psycopg2
     dsn = os.environ.get("KSSL_DSN") or os.environ.get("KSSL_CORPUS_DSN")
     if not dsn:
-        sys.exit("no DSN: set KSSL_DSN")
+        # SKIP, NOT FAIL. This test needs a real Postgres on purpose -- the carry is
+        # dynamic SQL over a column list, and a mock cursor would assert that the
+        # strings are the strings someone wrote and prove nothing about whether
+        # Postgres accepts them. But deploy.yml runs every test_*.py in this directory
+        # on a GitHub runner, which has no database and must not have credentials for
+        # the production one. Exiting non-zero there failed the selfcheck job, and the
+        # deploy job is `needs: selfcheck` -- so from the commit that added this file
+        # (99c1fab) NOTHING reached production. Six consecutive Deploy runs on main
+        # failed here, all of them on this line.
+        #
+        # It still fails loudly wherever a DSN exists, which is the only place it can
+        # tell you anything.
+        print("SKIP test_carry_columns: no KSSL_DSN "
+              "(needs a real database; runs on a machine that has one)")
+        return 0
     con = psycopg2.connect(dsn)
     cur = con.cursor()
     cur.execute("SET statement_timeout='60s'")
