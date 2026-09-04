@@ -93,6 +93,24 @@ export function buildFeed(cfg, seqMode, data) {
 
   const groups = [];
   let idx = 0;
+  /* CONTENT, NOT POSITION. A group def carrying `dirs` claims the cards whose direction
+     it names, wherever they sort. Without this the heading described a slice of the
+     ranking -- "Live Opportunities" was simply the top three cards, whatever they were.
+     Feeds whose defs carry no `dirs` keep the index behaviour below unchanged. */
+  const byContent = groupDefs.some((g) => g.dirs && g.dirs.length);
+  if (byContent) {
+    const claimed = new Set();
+    groupDefs.forEach((g, i) => {
+      const last = i === groupDefs.length - 1;
+      const slice = cards.filter(
+        (c) =>
+          !claimed.has(c) && (last || (g.dirs || []).indexOf(c.dir) >= 0),
+      );
+      slice.forEach((c) => claimed.add(c));
+      if (slice.length) groups.push({ h: g.h, s: g.s, cards: slice });
+    });
+    return { groups, total: (cfg.cards || []).length };
+  }
   groupDefs.forEach((g, i) => {
     /* The LAST group takes everything still unassigned. The group defs carry fixed
        sizes (competitive is 6 + 99) that were written against a demo dataset of about

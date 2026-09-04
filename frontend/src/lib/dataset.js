@@ -253,6 +253,17 @@ export function wireDataset(raw) {
             cnt: cards.length
               ? "market signals · open tenders and demand · sorted by urgency"
               : d.overviewConfig.market.cnt,
+            /* The headings are cut by direction now, so "Live Opportunities" holds the
+               open tenders it names -- it used to hold whichever three cards sorted
+               highest. `n` stays for any consumer still reading it, but it no longer
+               decides who is in the group. */
+            groups: cards.length
+              ? (d.overviewConfig.market.groups || []).map((g, i) =>
+                  i === 0
+                    ? { ...g, dirs: ["threat", "fav"] }
+                    : { ...g, dirs: ["watch"] },
+                )
+              : d.overviewConfig.market.groups,
           },
         };
       }
