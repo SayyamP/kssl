@@ -402,3 +402,28 @@
   overflow-wrap: break-word;
 }
 
+
+/* The stand-in an article with no usable image gets. Deliberately captioned rather
+   than blank: an empty tile and a still-loading tile look identical, and the reader
+   cannot tell "this publisher shipped no picture" from "the page is broken". */
+.thumb-none {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 60px;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--d-bg-1, #16181c);
+  border: 1px solid var(--d-bd, #26282e);
+  box-sizing: border-box;
+}
+
+.thumb-none-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  line-height: 1.3;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--d-txt-3, #8a8880);
+}

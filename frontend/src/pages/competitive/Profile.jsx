@@ -3,6 +3,7 @@ import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
 import { companyNews } from "../../lib/news";
+import Thumb from "../../components/thumb/Thumb.jsx";
 
 // Helper function to extract clean company short name without full form or legal suffixes
 const cleanCompanyName = (rawName) => {
@@ -317,7 +318,7 @@ export default function Profile() {
             {/* Banner Image */}
             {activeArticle.image && (
               <div style={{ width: "100%", maxHeight: "340px", overflow: "hidden", borderRadius: "6px", background: "#f0efea" }}>
-                <img src={activeArticle.image} alt={activeArticle.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <Thumb src={activeArticle.image} alt={activeArticle.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
               </div>
             )}
 
@@ -488,7 +489,7 @@ export default function Profile() {
                         tabIndex={0}
                       >
                         <div className="ln-story-img-wrap">
-                          <img src={topStory.image} alt="Top Story" className="ln-story-img" />
+                          <Thumb src={topStory.image} alt="Top Story" className="ln-story-img" />
                           <span className="ln-top-badge">TOP STORY</span>
                         </div>
                         <div className="ln-story-content">
@@ -518,7 +519,7 @@ export default function Profile() {
                           role="button"
                           tabIndex={0}
                         >
-                          <img src={item.image} alt="News Thumb" className="ln-feed-thumb" />
+                          <Thumb src={item.image} alt="News Thumb" className="ln-feed-thumb" />
                           <div className="ln-feed-info">
                             <div className="ln-feed-meta">{item.category} · {item.ago}</div>
                             <div className="ln-feed-title">{item.title}</div>

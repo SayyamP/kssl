@@ -6,11 +6,20 @@ import GeoMap, { servedGeoCountries } from "../../components/geoMap/GeoMap";
 import { useAppState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { srcChips, attr, escAll } from "../../lib/html";
+import Thumb from "../../components/thumb/Thumb.jsx";
 
 /* Two dropdowns resolve to one of three lists — countries for a rival, rivals in a
    country, or the products for a pair — and every product opens a detail column.
    The dropdown dots mark OVERLAP WITH KSSL, not threat level, so the contested
    rivals are findable without opening each one. */
+/* The same fallback the React <Thumb> gives, for the one thumbnail that lives inside a
+   markup string. An <img> whose fetch fails is drawn as the browser's broken glyph, so
+   a publisher blocking hotlinking looks exactly like a broken page. */
+const THUMB_ONERROR =
+  "this.outerHTML='&lt;div class=&quot;thumb-none&quot; style=&quot;width:72px;height:60px;"
+  + "flex-shrink:0&quot;&gt;&lt;span class=&quot;thumb-none-label&quot;&gt;No image"
+  + "&lt;/span&gt;&lt;/div&gt;'";
+
 export default function Geo() {
   const { data, geo } = useData();
   const { setScope } = useAppState();
@@ -297,8 +306,8 @@ export default function Geo() {
               style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.05); display: flex; gap: 10px; align-items: center;"
             >
               ${article.image
-                ? `<img src="${article.image}" alt="${escAll(article.title)}" style="width: 72px; height: 60px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #f1f5f9;" />`
-                : `<div style="width: 72px; height: 60px; border-radius: 4px; flex-shrink: 0; background: #f1f5f9;"></div>`}
+                ? `<img src="${attr(article.image)}" alt="${escAll(article.title)}" loading="lazy" decoding="async" onerror="${THUMB_ONERROR}" style="width: 72px; height: 60px; border-radius: 4px; object-fit: cover; flex-shrink: 0; background: #f1f5f9;" />`
+                : `<div class="thumb-none" style="width: 72px; height: 60px; flex-shrink: 0;"><span class="thumb-none-label">No image</span></div>`}
               <div style="display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0;">
                 <div style="display: flex; align-items: center; gap: 6px;">
                   <span style="background: #f1f5f9; color: #b5341f; font-family: var(--mono); font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; border: 1px solid #cbd5e1;">${escAll(article.category)}</span>
@@ -911,7 +920,7 @@ export default function Geo() {
             {/* Featured Image */}
             {activeGeoNewsArticle.image && (
               <div style={{ width: "100%", maxHeight: "320px", overflow: "hidden", borderRadius: "6px", background: "#f0efea" }}>
-                <img src={activeGeoNewsArticle.image} alt={activeGeoNewsArticle.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                <Thumb src={activeGeoNewsArticle.image} alt={activeGeoNewsArticle.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
               </div>
             )}
 

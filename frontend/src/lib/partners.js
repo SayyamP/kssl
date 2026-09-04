@@ -282,6 +282,14 @@ export function createPartners(d) {
     return { nodes, edges };
   }
 
+/* Swap a failed article image for the same captioned tile a missing one gets. */
+const PG_IMG_ONERROR =
+  "this.parentNode.outerHTML='&lt;div style=&quot;width:100%;height:120px;border-radius:6px;"
+  + "background:#f0efea;border:1px solid #e3e1d8;display:flex;align-items:center;"
+  + "justify-content:center&quot;&gt;&lt;span style=&quot;font-family:var(--mono);"
+  + "font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:#8a8880&quot;&gt;"
+  + "Image could not be loaded&lt;/span&gt;&lt;/div&gt;'";
+
 /* LABEL COLLISION RESOLUTION.
    Two text rows per label (name + kind), ~11px and ~9px on a 12px rhythm, so a label
    occupies about 24px of height and charW*len of width from its anchor. Labels are
@@ -998,7 +1006,10 @@ function pgResolveLabelCollisions(plan) {
          written. */
       if (card.image) {
         h += `  <div style="width: 100%; max-height: 320px; overflow: hidden; border-radius: 6px; background: #f0efea;">`;
-        h += `    <img src="${card.image}" alt="${esc(card.title)}" style="width: 100%; height: 100%; object-fit: cover;" />`;
+        /* The else-branch below already covers "no image". This covers the other half:
+           a url that will not load -- a publisher blocking hotlinking, or a rotted
+           link -- which without an onerror is drawn as the browser's broken glyph. */
+        h += `    <img src="${card.image}" alt="${esc(card.title)}" loading="lazy" decoding="async" onerror="${PG_IMG_ONERROR}" style="width: 100%; height: 100%; object-fit: cover;" />`;
         h += `  </div>`;
       } else {
         h += `  <div style="width: 100%; height: 120px; border-radius: 6px; background: #f0efea; border: 1px solid #e3e1d8; display: flex; align-items: center; justify-content: center;">`;
