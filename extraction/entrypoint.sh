@@ -167,11 +167,21 @@ case "${1:-worker}" in
     # Turn extracted docs into UI feed cards (serving.signal_card/detail) via the
     # signal-generation LLM. The model runs on VPS-A (OLLAMA_URL points at the reverse
     # tunnel 127.0.0.1:11500); this loop reads the local extracted.* and writes serving.*.
-    log "signals starting: fill serving cards every ${SIGNALS_EVERY_S:-600}s via ${OLLAMA_URL:-VPS-A}"
+    # SIZED FROM THE MEASURED YIELD, not from a round number. Per 300-document pass one replica
+    # saw: ~212 already claimed by a sibling, ~70 dated too old, ~5 undated, ~5 off-portfolio,
+    # ~4 listing pages -- leaving roughly 13 documents that actually reach the model. Three
+    # replicas at 600s therefore issued ~4 model calls a minute, and the 6-slot serving node sat
+    # at 0/6 with 94 requests served all day. It was starved, not broken.
+    #
+    # 1,000 per pass keeps a replica working through its whole cycle instead of finishing early
+    # and sleeping, and a 120s timer means the gap between passes is short next to the work. The
+    # loop overrunning its own timer is FINE and in fact the point: the sleep is a floor on how
+    # often an empty corpus is re-scanned, not a schedule.
+    log "signals starting: fill serving cards every ${SIGNALS_EVERY_S:-120}s via ${OLLAMA_URL:-VPS-A}"
     cd "$HERE/signals"
     while true; do
-      python3 serving_fill.py --limit "${KSSL_SIGNALS_LIMIT:-300}" || log "signal fill failed (continuing)"
-      sleep "${SIGNALS_EVERY_S:-600}"
+      python3 serving_fill.py --limit "${KSSL_SIGNALS_LIMIT:-1000}" || log "signal fill failed (continuing)"
+      sleep "${SIGNALS_EVERY_S:-120}"
     done
     ;;
   enrich)

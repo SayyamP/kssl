@@ -159,7 +159,11 @@ services:
     # num_parallel and the rest queue -- but there is nothing to win above that, because the
     # node cannot serve more than six no matter how many ask.
     deploy:
-      replicas: ${KSSL_SIGNALS_REPLICAS:-3}
+      # serving_fill is single-threaded -- one document, one model call at a time -- so the
+      # replica count IS the concurrency the serving node sees. The pinned node offers 6 slots
+      # (0/6 running in the dashboard), and 3 replicas can physically never fill more than 3 of
+      # them. Six replicas, six slots. Raising this beyond the node's num_parallel only queues.
+      replicas: ${KSSL_SIGNALS_REPLICAS:-6}
 
   # Enrichment: fill the REMAINING serving tables (competitors, matchup, geo, innovation,
   # patent, partner, tender, sources) from extracted.* via the same farm-primary LLM client
