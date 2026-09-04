@@ -101,12 +101,20 @@ jobs:
   # commit that reached production had been built but never tested. The same hermetic
   # checks run here as in ci.yml; a PR is gated by that one, a direct push by this one,
   # and neither route reaches a machine without them.
+  #
+  # `needs: resolve` is not ordering, it is the gate. Without it this job ran CONCURRENTLY
+  # with the ancestry check and checked out the dispatched sha directly -- so an unmerged
+  # commit's code executed on the runner (pip install, then its own test_*.py) under the
+  # workflow's packages:write GITHUB_TOKEN, which actions/checkout persists into
+  # .git/config. That token can overwrite the GHCR tags rollback depends on. Gating only
+  # `build` and `deploy` left the arbitrary code running anyway.
   selfcheck:
+    needs: resolve
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.sha || github.sha }}
+          ref: ${{ needs.resolve.outputs.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -188,15 +196,24 @@ jobs:
           install -m600 /dev/stdin "$HOME/dk" <<< "$SSH_KEY"
           SSH="ssh -i $HOME/dk -o StrictHostKeyChecking=accept-new -p $PORT"
           # Source in lockstep with the image; never delete VPS-only runtime files (.env,
-          # PRODUCTION.html). NOTE the exclude is '/*.env', anchored to the transfer root --
+          # PRODUCTION.html). .KSSL_ENV is a HOST identity marker written by
+          # provision_env.sh / deploy.sh -- it names which machine this is, so shipping one
+          # box's copy to every box would either lock a host out (exit 5) or, worse, tell a
+          # host it is something it is not. It is excluded here and gitignored.
+          # NOTE the exclude is '/*.env', anchored to the transfer root --
           # a bare '*.env' also matches deploy/envs/{prod,staging,dev}.env, and without those
           # files deploy.sh exits with "no such environment" on every host.
           rsync -az \
             --exclude='.git' --exclude='node_modules' --exclude='frontend/dist' \
             --exclude='__pycache__' --exclude='*.pyc' --exclude='.env' --exclude='/*.env' \
             --exclude='*.log' --exclude='*.sqlite*' \
+            --exclude='/.KSSL_ENV' \
             -e "$SSH" ./ "$USER@$HOST:/opt/kssl/app/"
+          # `; rc=$?; logout; exit $rc` rather than `&& docker logout`: deploy.sh can now
+          # exit non-zero (a failed extraction recreate is no longer swallowed), and with
+          # `&&` that leaves the ephemeral registry token sitting in the host's
+          # ~/.docker/config.json until it expires. Log out either way, keep the real code.
           $SSH "$USER@$HOST" \
             "echo '$GHTOKEN' | docker login ghcr.io -u '$ACTOR' --password-stdin \
-             && cd /opt/kssl/app && chmod +x deploy/deploy.sh && ./deploy/deploy.sh '$SHA' '$KENV' \
-             && docker logout ghcr.io"
+             && cd /opt/kssl/app && chmod +x deploy/deploy.sh \
+             && { ./deploy/deploy.sh '$SHA' '$KENV'; rc=\$?; docker logout ghcr.io >/dev/null; exit \$rc; }"

@@ -1,6 +1,10 @@
 # secrets — runtime env lives on the server, never in git
 .env
 *.env
+# ...and the host identity marker, which `*.env` does NOT match. deploy.sh writes it when
+# it runs, including in a local checkout; committing one machine's copy would rsync `prod`
+# onto every host and make every staging and dev deploy exit 5.
+.KSSL_ENV
 !*.env.example
 tender_keys.env
 

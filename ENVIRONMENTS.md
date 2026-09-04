@@ -36,12 +36,19 @@ reports itself healthy is worse than one that is plainly a version behind.
 
 | | | Fails the sync? |
 |---|---|---|
+| preflight | `extraction/.env` exists and the extraction compose **parses** | yes, before anything expensive |
 | restore | into `kssl_incoming`, never over the live database | no — `pg_restore` warns for things that do not matter |
 | verify | row counts, **and** that `serving_live` arrived | yes, before the swap |
 | sanitise | `db/sanitise_replica.sql` | yes, before the swap |
 | slice | optional, `KSSL_SLICE_DOCS` | yes, before the swap |
+| migrate | the `migrate` role, against `kssl_incoming` | yes, before the swap |
 | swap | rename under one lock | — |
-| migrate | the `migrate` role, same ledger the deploy uses | yes |
+
+**Everything that can fail, fails before the swap.** A sync that dies leaves the
+environment on the database it was already serving. The preflight matters more than it
+looks: Compose interpolates the *whole* `extraction/docker-compose.yml` at parse time, so
+one missing `${VAR:?}` breaks `run --rm migrate` — and checking that at the migrate step
+meant discovering it after a multi-minute restore *and* after the rename.
 
 **`serving_live` is checked by name.** `backend/app.py` rewrites every `serving.` to
 `serving_live.` unless `KSSL_SERVE_ORIGIN=all`, and `serving_live` is a set of *views* — so
@@ -49,26 +56,51 @@ no row count can miss it. A dump without `-n serving_live` produced a replica th
 every count healthy and 500'd on every page.
 
 **Sanitise runs before the swap, not after.** The client's own pages (`bharatforge.com`,
-`kalyanistrategic.com`, `kssl.in`) and their extraction output leave, and production's
-`metrics.*` timings are truncated — the schema is kept, because `/api/bench` reads it, but
-prod's numbers measured a 198-worker fleet on VPS-B and would be read as this
-environment's. The file re-counts what it removed and raises if anything survived; `psql`
-exits non-zero and the script dies **before** the rename. A replica host is a QA box other
-people can reach, so an unsanitised database must never become reachable.
+`kalyanistrategic.com`, `kssl.in`), their extraction output, and the `signal_card` /
+`signal_detail` rows written *from* them leave together — deleting the body and keeping the
+card would remove the evidence and keep the claim. Production's `metrics.*` timings are
+truncated; the schema is kept, because `/api/bench` reads it, but prod's numbers measured a
+198-worker fleet on VPS-B and would be read as this environment's.
+
+A **citation is not the material**: `serving.competitors`, `card`, `partner` and the rest
+cite client URLs as sources for KSSL's own products, which is what the dashboard is for.
+Those stay.
+
+The pattern is **anchored to the host** and defined once. Unanchored, `kssl\.in` also
+matches `https://economictimes.com/news?ref=bharatforge.com` — a third-party article
+deleted with all its extraction output because a client domain appears in a query string.
+
+The file re-counts what it removed and raises if anything survived; `psql` exits non-zero
+and the script dies **before** the rename. It also refuses to run against any database but
+the restored copy — it is rsynced onto VPS-B with the rest of the tree, and its statements
+delete corpus rows.
+
+What that does **not** promise: `kssl_incoming` is a real database on the host for the
+whole restore, and the copy it replaces survives as `kssl_previous` until the sync after
+next. Anyone holding the box's database password can read both. The guarantee is that an
+unsanitised database is never reachable **as `kssl`** — the one the backend, the frontend
+and every operator actually open.
 
 `db/test_sanitise_replica.sh` runs in CI beside the schema job: it plants rows the sanitise
 must remove, rows it must keep, and one only its own guard can catch. A `DELETE` whose
 predicate is a regex rots the moment a column moves, and a regex that matches nothing looks
 exactly like a clean database.
 
-**Migrate runs after the swap.** The restored schema is production's *as of the dump*, and
-staging is by definition ahead of it — that is what staging is for. Without this step every
-sync silently reverts the replica's schema and the next deploy runs new code against an old
-one. It needs `extraction/.env`, which `provision_env.sh` writes.
+**Migrate runs against `kssl_incoming`, before the swap.** The restored schema is
+production's *as of the dump*, and staging is by definition ahead of it — that is what
+staging is for. Without this step every sync silently reverts the replica's schema and the
+next deploy runs new code against an old one. Running it before the rename means a
+migration that fails leaves the environment on its previous database instead of on a fresh
+copy of production's schema. The DSN is the host's own with only the database name
+changed, and the script refuses to run if that substitution did not bite.
 
-**Slice** (`KSSL_SLICE_DOCS`, set to 20000 in `dev.env`) keeps only the newest N corpus
-documents; `serving.*` is left whole, since a card carries its own url and quote. It trims
-after the transfer, so it bounds the replica's disk, not what crossed the wire.
+**Slice** (`KSSL_SLICE_DOCS`, set to 20000 in `dev.env`) keeps the newest N rows of
+`public.documents` **and** the newest N of `extracted.document`, each by its own clock.
+Slicing extraction output by which *bodies* survived would delete most of it — the corpus
+subset rolls over while the extraction output accumulates — and orphan `serving.card` from
+the spans it was built from. `serving.*` is left whole, since a card carries its own url
+and quote. It trims after the transfer, so it bounds the replica's disk, not what crossed
+the wire.
 
 ## How one compose file runs on three machines
 
@@ -121,7 +153,13 @@ and backend while reporting success. Two things stop that now:
   `prod` on VPS-B the first time a production deploy runs there. A deploy naming a
   different environment than the marker is refused.
 - A host with **no** marker accepts only `prod`, so an unprovisioned machine can never
-  receive a staging or dev deploy.
+  receive a staging or dev deploy. This is the arm that actually covers the fallback
+  today; the stamp is defence in depth for once a marker exists.
+- `provision_env.sh` **refuses to re-stamp** a machine already provisioned as something
+  else (`KSSL_RESTAMP=1` to override). Without that, `provision_env.sh staging` run on
+  VPS-B would flip prod's marker and *admit* the staging deploy it exists to refuse.
+- `.KSSL_ENV` is gitignored and rsync-excluded. It names *which machine this is*; shipping
+  one box's copy to every box would lock hosts out or, worse, misidentify them.
 
 ## Rollback
 

@@ -21,6 +21,10 @@ permissions:
 
 jobs:
   build-images:
+    # PRs only. deploy.yml builds and PUSHES the same three images on every push to
+    # main/staging/dev, so running this there too builds each image twice against the
+    # same gha cache scope for no extra signal.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
