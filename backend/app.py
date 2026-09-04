@@ -66,8 +66,10 @@ CARD_FIELDS = ["id", "dir", "rank", "title", "meta", "company", "lens",
                "sowhat", "sec", "url", "ago", "tags", "image"]
 CARD_OPT = frozenset(["company", "lens", "sec", "url", "image"])
 DETAIL_FIELDS = ["rank", "dir", "title", "facts", "what", "why", "lens",
-                 "actions", "url", "suggest", "kind", "match", "pursue"]
-DETAIL_OPT = frozenset(["lens", "url", "kind", "match", "pursue"])
+                 "actions", "url", "suggest", "kind", "match", "pursue",
+                 # the same picture the card carries; absent when the article had none
+                 "image"]
+DETAIL_OPT = frozenset(["lens", "url", "kind", "match", "pursue", "image"])
 MATCHUP_FIELDS = ["cat", "anchor", "global", "dir", "country", "comp", "compBy",
                   "bf", "bfBy", "ks_thin", "reason", "edge", "specs", "advComp",
                   "advBf", "det", "verdictH", "verdict", "catKey", "srcs", "gen",

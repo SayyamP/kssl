@@ -59,6 +59,22 @@ export default function DetailPanel({ detail, onClose }) {
           </div>
         </div>
 
+        {/* The article's own lead image, resolved from its page markup by
+            serving_fill.py and carried on the record. No placeholder when it is
+            absent: a stock photo standing in for a story we could not illustrate
+            is the same fabrication as an invented figure, just quieter. */}
+        {detail.image ? (
+          <div className="ctx-sec">
+            <img
+              alt=""
+              src={detail.image}
+              style={{ width: "100%", borderRadius: "6px", display: "block",
+                       aspectRatio: "16 / 9", objectFit: "cover",
+                       background: "var(--d-bg-1)" }}
+            />
+          </div>
+        ) : null}
+
         <div className="ctx-sec">
           <span className="eyebrow">At a glance</span>
           <div className="cd-facts">

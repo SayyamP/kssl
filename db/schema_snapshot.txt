@@ -167,6 +167,7 @@ serving.signal_detail.actions jsonb
 serving.signal_detail.dir text
 serving.signal_detail.facts jsonb
 serving.signal_detail.id text NOT NULL
+serving.signal_detail.image text
 serving.signal_detail.kind text
 serving.signal_detail.lens jsonb
 serving.signal_detail.match jsonb
@@ -379,6 +380,7 @@ serving_live.signal_detail.actions jsonb
 serving_live.signal_detail.dir text
 serving_live.signal_detail.facts jsonb
 serving_live.signal_detail.id text
+serving_live.signal_detail.image text
 serving_live.signal_detail.kind text
 serving_live.signal_detail.lens jsonb
 serving_live.signal_detail.match jsonb

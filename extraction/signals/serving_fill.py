@@ -1257,16 +1257,19 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
                 for s, p, o, _m, q in props[:6]]
         cur.execute("""INSERT INTO serving.signal_detail
                          (id, ord, rank, dir, title, facts, what, why, lens, actions, url,
-                          suggest, origin)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'[]',%s,'[]','pipeline')
+                          suggest, image, origin)
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'[]',%s,'[]',%s,'pipeline')
                        ON CONFLICT (id) DO UPDATE SET
                          title=EXCLUDED.title, facts=EXCLUDED.facts, what=EXCLUDED.what,
                          why=EXCLUDED.why, lens=EXCLUDED.lens, url=EXCLUDED.url,
+                         -- same guard as the card: a run that cannot reach the corpus
+                         -- must not wipe a picture an earlier run already proved good
+                         image=coalesce(EXCLUDED.image, serving.signal_detail.image),
                          updated_at=now()""",
                     (cid, ord_next, "%s SIGNAL · %02d" % (card["pillar"].upper(), ord_next),
                      card["dir"],
                      esc(card["title"]), json.dumps(facts), what, esc(card["sowhat"]),
-                     json.dumps(lens), url))
+                     json.dumps(lens), url, img))
         con.commit()
         stats["cards"] += 1
         if verbose and stats["cards"] % 5 == 0:

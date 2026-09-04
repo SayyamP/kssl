@@ -121,6 +121,7 @@ CREATE TABLE serving.signal_detail (
     kind       text,
     match      jsonb,
     pursue     jsonb,
+    image      text,           -- the article's own picture, same value as signal_card.image
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
