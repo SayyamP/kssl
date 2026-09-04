@@ -428,6 +428,42 @@ def card_image(did, page_url):
         return None
 
 
+def date_step(coarse, ymd, today_ym):
+    """One candidate, in trust order -> (answer_or_None, coarse).
+
+    `answer_or_None` is None to keep looking; `coarse` is the best month-only
+    answer seen so far and becomes the fallback when nothing better arrives.
+
+    THE RULE: trust picks the MONTH, and a later source may only add a DAY to the
+    month already chosen -- never move it.
+
+    Two bugs have lived in this handful of lines, so both are written down.
+
+    A more-trusted source naming only a month used to END the search, so a day in
+    a less-trusted one was never reached: the URL path /2026/09/ answered
+    'Sep 2026' for an article whose own byline read '01 Settembre 2026'.
+
+    Then the repair for that returned `coarse` when a candidate fell in a
+    DIFFERENT month -- which enforced the rule but ended the search just as
+    finally. Step 3 is `published_at`, routinely the fetch stamp and so routinely
+    another month, and it cut the search off before the body was read: two
+    analisidifesa articles from 2021 and 2025, crawled in 2026, lost the day
+    their own text stated. An out-of-month candidate is SKIPPED now. That is
+    equally safe -- only a same-month dated candidate is ever returned -- and the
+    caller's fallthrough still answers `coarse`.
+
+    A date in the future is not a publication date; it is a delivery forecast or
+    a broken clock, and it is skipped without becoming the fallback.
+    """
+    if ymd is None or (ymd[0], ymd[1] or 1) > today_ym:
+        return None, coarse
+    if ymd[2] is not None:
+        if coarse is None or coarse[:2] == ymd[:2]:
+            return ymd, coarse
+        return None, coarse
+    return None, coarse if coarse is not None else ymd
+
+
 def article_date(cur, did, today_ym=None):
     """-> (y, m|None, d|None): when the article was published, or None.
 
@@ -454,9 +490,6 @@ def article_date(cur, did, today_ym=None):
         t0 = datetime.date.today()
         today_ym = (t0.year, t0.month)
 
-    def usable(ymd):
-        return ymd and (ymd[0], ymd[1] or 1) <= today_ym
-
     cur.execute("SELECT url, meta->>'published_at', meta->>'fetched_at' "
                 "FROM extracted.document WHERE document_id=%s", (did,))
     row = cur.fetchone()
@@ -465,23 +498,8 @@ def article_date(cur, did, today_ym=None):
     coarse = [None]      # first usable answer that names no day
 
     def take(ymd):
-        """Return a decision, or None to keep looking.
-
-        A more-trusted source that names only a month used to end the search, so a
-        day sitting in a less-trusted one was never reached: the URL path
-        /2026/09/ answered 'Sep 2026' for an article whose own byline read
-        '01 Settembre 2026'. Trust still picks the MONTH -- what follows may only
-        add a day to the month already chosen, never move it.
-        """
-        if not usable(ymd):
-            return None
-        if ymd[2] is not None:
-            if coarse[0] is None or coarse[0][:2] == ymd[:2]:
-                return ymd
-            return coarse[0]        # a dated candidate from another month cannot win
-        if coarse[0] is None:
-            coarse[0] = ymd
-        return None
+        answer, coarse[0] = date_step(coarse[0], ymd, today_ym)
+        return answer
 
     # 1. The publisher's own declaration, read out of the stored markup. Costs a
     #    corpus round-trip, which is shared with the card's image lookup.
