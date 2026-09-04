@@ -159,8 +159,13 @@ CREATE TABLE serving.matchup (
 CREATE INDEX matchup_catkey_idx ON serving.matchup ("catKey");
 
 -- Global: tenders (list).
+--
+-- `id` is text, not integer: fetch_tenders.py writes a source-prefixed stable id
+-- ("ted-2026-…") so a tender keeps its identity across refreshes. It converted the
+-- column in place at runtime (fetch_tenders.py, one-time ALTER) and this file was
+-- never updated to match -- the drift db/schema_snapshot.txt exists to catch.
 CREATE TABLE serving.tender (
-    id         integer PRIMARY KEY,
+    id         text PRIMARY KEY,
     ord        integer NOT NULL,
     title      text NOT NULL,
     issuer     text,
