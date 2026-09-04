@@ -130,8 +130,16 @@ services:
       # llmapi prints a loud [ALERT] on failover/recovery. KSSL_MODEL only labels the timer.
       FALLBACK_URL: "http://127.0.0.1:11500"
       FALLBACK_MODEL: "qwen2.5:7b-instruct"
-      C_MODEL: "serving-model"      # dedicated 2-node farm pool (HEPC-05 + J9F0LTF), off the extraction pool
-      KSSL_MODEL: "serving-model"
+      # The pool name is a VARIABLE with a working default, because the name and the farm
+      # can disagree -- and did. `serving-model` was a dedicated 2-node pool (HEPC-05 +
+      # J9F0LTF) kept off the extraction pool; the farm gateway stopped serving that alias
+      # and every call has returned 400 "Invalid model name passed in model=serving-model"
+      # since 2026-09-02, failing over to a CPU box that then timed out. Result: signals and
+      # enrich wrote NOTHING for two days while both containers looked healthy.
+      # Both nodes are still in the farm, so restoring the pool is the real fix: set
+      # KSSL_SERVING_MODEL=serving-model in extraction/.env once the gateway serves it again.
+      C_MODEL: "${KSSL_SERVING_MODEL:-text-model}"
+      KSSL_MODEL: "${KSSL_SERVING_MODEL:-text-model}"
 
   # Enrichment: fill the REMAINING serving tables (competitors, matchup, geo, innovation,
   # patent, partner, tender, sources) from extracted.* via the same farm-primary LLM client
@@ -146,8 +154,16 @@ services:
     environment:
       FALLBACK_URL: "http://127.0.0.1:11500"
       FALLBACK_MODEL: "qwen2.5:7b-instruct"
-      C_MODEL: "serving-model"      # dedicated 2-node farm pool (HEPC-05 + J9F0LTF), off the extraction pool
-      KSSL_MODEL: "serving-model"
+      # The pool name is a VARIABLE with a working default, because the name and the farm
+      # can disagree -- and did. `serving-model` was a dedicated 2-node pool (HEPC-05 +
+      # J9F0LTF) kept off the extraction pool; the farm gateway stopped serving that alias
+      # and every call has returned 400 "Invalid model name passed in model=serving-model"
+      # since 2026-09-02, failing over to a CPU box that then timed out. Result: signals and
+      # enrich wrote NOTHING for two days while both containers looked healthy.
+      # Both nodes are still in the farm, so restoring the pool is the real fix: set
+      # KSSL_SERVING_MODEL=serving-model in extraction/.env once the gateway serves it again.
+      C_MODEL: "${KSSL_SERVING_MODEL:-text-model}"
+      KSSL_MODEL: "${KSSL_SERVING_MODEL:-text-model}"
       ENRICH_EVERY_S: "7200"
 
   # Layer B: canonical entities from the extracted spans, on a slow timer. Same-script merges;
