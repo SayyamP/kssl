@@ -63,8 +63,13 @@ COMP_FIELDS = ["name", "dir", "sector", "hq", "threat", "assess", "updates",
 COMP_OPT = frozenset(["starting_year", "global_locations", "company_size",
                       "strategic_positioning", "country"])
 NEWS_FIELDS = ["id", "comp_id", "title", "description", "source",
-               "published_date", "category", "is_trending", "url", "image"]
-NEWS_OPT = frozenset(["description", "category", "is_trending"])
+               "published_date", "category", "is_trending", "url", "image",
+               # 2026-09-06. The running story an article belongs to, and how it
+               # relates to the one before it. Written by news_chain.py from spans
+               # the extraction layer typed; null on an article that stands alone.
+               "story_key", "continues_url", "duplicate_of_url"]
+NEWS_OPT = frozenset(["description", "category", "is_trending",
+                      "story_key", "continues_url", "duplicate_of_url"])
 # Ownership. source_url is NOT optional here for the same reason it is NOT NULL in the
 # table: the Profile graph draws a claim, and a claim on this dashboard shows its source.
 STRUCT_FIELDS = ["comp_id", "entity_id", "entity_name", "relationship_type",

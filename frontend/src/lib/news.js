@@ -64,6 +64,13 @@ function shape(row, byUrl, i) {
     sourceUrl: row.url || undefined,
     url: row.url || undefined,
     image: row.image || undefined,
+    /* The running story this article belongs to, written by news_chain.py from spans
+       the extraction layer typed. Undefined on a backend whose database has not run
+       the migration yet, and undefined on an article that stands alone -- both mean
+       the same thing to every reader below: no trail. */
+    storyKey: row.story_key || undefined,
+    continuesUrl: row.continues_url || undefined,
+    duplicateOfUrl: row.duplicate_of_url || undefined,
     /* The newest row leads. Nothing in the pipeline measures "trending", so the
        flag is a position, not a claim about the story. */
     isTopStory: i === 0,
@@ -135,6 +142,63 @@ export const FEED_N = 6;
 export function feedSplit(articles, n = FEED_N) {
   const all = Array.isArray(articles) ? articles : [];
   return { feed: all.slice(0, n), rest: all.slice(n), all, total: all.length };
+}
+
+/* THE TRAIL.
+   A company's articles arrive newest-first and flat, so three PAC-3 stories in a
+   fortnight read as three unrelated events and the same wire piece from four outlets
+   reads as four. news_chain.py says which of them are one running story; this folds
+   that into the shape the feed renders.
+
+   Only the NEWEST article of a story carries the trail -- repeating it on every card
+   would print the same thread three times in one column. The older members leave the
+   feed and stay reachable through it, and the full News section below still lists
+   every one of them, because a reader hunting one article should not have to know
+   which surface it is on.
+
+   A DUPLICATE IS NOT A DEVELOPMENT. A syndicated reprint folds into the article it
+   copies as `alsoIn`; calling it a continuation would invent a development that never
+   happened. */
+export function collapseThreads(articles) {
+  const all = Array.isArray(articles) ? articles : [];
+  const byUrl = {};
+  all.forEach((a) => { if (a.url) byUrl[a.url] = a; });
+
+  // Fold reprints into what they reprint. A duplicate whose original is not in this
+  // list stays a top-level article: hiding it would lose it entirely.
+  const alsoIn = {};
+  const folded = new Set();
+  all.forEach((a) => {
+    const orig = a.duplicateOfUrl;
+    if (orig && byUrl[orig] && orig !== a.url) {
+      (alsoIn[orig] = alsoIn[orig] || []).push(a);
+      folded.add(a.url);
+    }
+  });
+
+  const kept = all.filter((a) => !folded.has(a.url));
+  // Within a story, the first survivor in the incoming (newest-first) order is the
+  // head; the rest become its trail rather than separate cards.
+  const headOf = {};
+  kept.forEach((a) => {
+    if (!a.storyKey) return;
+    if (!(a.storyKey in headOf)) headOf[a.storyKey] = a.url;
+  });
+
+  return kept
+    .filter((a) => !a.storyKey || headOf[a.storyKey] === a.url)
+    .map((a) => {
+      /* A trail member can have reprints of its own, and they have to travel with
+         it: attaching alsoIn only to the head made a reprint of a trailed article
+         unreachable from anywhere in the feed. */
+      const trail = a.storyKey
+        ? kept
+            .filter((b) => b.storyKey === a.storyKey && b.url !== a.url)
+            .map((b) => (alsoIn[b.url] ? { ...b, alsoIn: alsoIn[b.url] } : b))
+        : [];
+      const also = alsoIn[a.url] || [];
+      return (trail.length || also.length) ? { ...a, trail, alsoIn: also } : a;
+    });
 }
 
 export function newsSelfCheck() {

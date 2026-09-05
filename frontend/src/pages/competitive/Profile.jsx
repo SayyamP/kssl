@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
-import { companyNews, feedSplit, FEED_N } from "../../lib/news";
+import { companyNews, feedSplit, FEED_N, collapseThreads } from "../../lib/news";
 import { facetOptionsByName } from "../../lib/countryFacet";
 import Thumb from "../../components/thumb/Thumb.jsx";
 import SourceLink from "../../components/sourceLink/SourceLink.jsx";
@@ -165,6 +165,12 @@ export default function Profile() {
      stack now opens NEWS_PAGE at a time and the button says how many remain. */
   const [newsShown, setNewsShown] = useState(NEWS_PAGE);
   const [showAllNews, setShowAllNews] = useState(false);
+  /* THE FEED IS THREADED; THE FULL LIST BELOW IS NOT.
+     Three PAC-3 stories in a fortnight are one running story, and the same wire piece
+     from four outlets is one event reported four times. news_chain.py decides which,
+     from spans the extraction layer typed -- not from a word in the headline. The full
+     News section still lists every article, so collapsing here hides nothing. */
+  const threadedFeed = useMemo(() => collapseThreads(feedArticles), [feedArticles]);
 
   useEffect(() => {
     const pend = takePending("profile");
@@ -672,7 +678,7 @@ export default function Profile() {
 
                     {/* COLUMN 2: NEWS FEED STACK */}
                     <div className="ln-feed-stack">
-                      {feedSplit(feedArticles).feed.map((item, idx) => (
+                      {feedSplit(threadedFeed).feed.map((item, idx) => (
                         <div
                           key={item.id || idx}
                           className="ln-feed-card"
@@ -687,11 +693,63 @@ export default function Profile() {
                             <div className="ln-feed-title">{item.title}</div>
                             <span style={{ fontSize: "11px", color: "var(--d-txt-3)", marginTop: "auto" }}>
                               {item.source} ✓
+                              {item.alsoIn && item.alsoIn.length ? (
+                                <span style={{ color: "var(--d-txt-3)" }}>
+                                  {" "}· also reported by {item.alsoIn.length} other outlet{item.alsoIn.length > 1 ? "s" : ""}
+                                </span>
+                              ) : null}
                             </span>
+                            {/* THE TRAIL. What came before this in the same running
+                                story, newest first. Each row is the earlier article's
+                                own headline and date -- nothing is summarised or
+                                written here, so a wrong thread shows as two headlines
+                                that plainly do not belong together rather than as a
+                                sentence asserting they do. */}
+                            {item.trail && item.trail.length ? (
+                              <div
+                                style={{
+                                  marginTop: "8px",
+                                  paddingTop: "6px",
+                                  borderTop: "1px solid var(--d-line)",
+                                }}
+                              >
+                                <div style={{ fontSize: "10px", letterSpacing: "0.06em",
+                                              textTransform: "uppercase",
+                                              color: "var(--d-txt-3)", marginBottom: "4px" }}>
+                                  Earlier in this story · {item.storyKey}
+                                </div>
+                                {item.trail.slice(0, 3).map((t, ti) => (
+                                  <div
+                                    key={t.id || `tr-${ti}`}
+                                    onClick={(e) => { e.stopPropagation(); setActiveArticle(t); }}
+                                    role="button"
+                                    tabIndex={0}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter" || e.key === " ") {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        setActiveArticle(t);
+                                      }
+                                    }}
+                                    style={{ display: "flex", gap: "8px", alignItems: "baseline",
+                                             fontSize: "11px", color: "var(--d-txt-2)",
+                                             padding: "2px 0", cursor: "pointer" }}
+                                  >
+                                    <span style={{ color: "var(--d-txt-3)", whiteSpace: "nowrap" }}>{t.ago}</span>
+                                    <span>{t.title}</span>
+                                  </div>
+                                ))}
+                                {item.trail.length > 3 ? (
+                                  <div style={{ fontSize: "10px", color: "var(--d-txt-3)", marginTop: "2px" }}>
+                                    and {item.trail.length - 3} earlier
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
                           </div>
                         </div>
                       ))}
-                      {feedSplit(feedArticles).rest.length ? (
+                      {feedSplit(threadedFeed).rest.length ? (
                         <button
                           type="button"
                           onClick={() => {
@@ -713,7 +771,7 @@ export default function Profile() {
                             marginTop: "4px",
                           }}
                         >
-                          View {Math.min(NEWS_PAGE, feedArticles.length - newsShown)} more of {feedArticles.length}
+                          Read all {companyArticles.length} articles
                         </button>
                       ) : null}
                     </div>
