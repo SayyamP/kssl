@@ -49,6 +49,24 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from aliases import canonical as canon_name, fold as fold_name  # noqa: E402
+from source_policy import is_blocked  # noqa: E402  (ONE blocked-source list, shared)
+
+# A RIVAL'S REVENUE MAY NOT COME FROM THE CLIENT'S OWN WEBSITE. Rafael's only figure in
+# the corpus was "$2.9 billion" read off a KSSL press release from August 2017 -- the
+# client describing a competitor, nine years stale, and undated in the sentence so it
+# would have printed with no year at all. The client's own pages are filtered out of this
+# corpus by policy anyway; this one slipped through, and a competitor's financials are
+# exactly the fact that must not rest on the client's word.
+CLIENT_DOMAINS = ("kssl.in", "bharatforge.com", "kalyanigroup.com",
+                  "kalyanistrategicsystems.com")
+
+
+def usable_source(url):
+    """False for a source this project will not cite a competitor fact to."""
+    if not url or is_blocked(url):            # Wikipedia and its mirrors, by policy
+        return False
+    host = url.split("//", 1)[-1].split("/", 1)[0].lower().lstrip("www.")
+    return not any(host == d or host.endswith("." + d) for d in CLIENT_DOMAINS)
 
 DSN = os.environ.get("KSSL_DSN",
                      "host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl")
@@ -219,6 +237,8 @@ def collect(cur):
     folded = {fold_name(canon_name(n)): cid for cid, n in comps}
     out = {}
     for subject, obj, quote, url in props:
+        if not usable_source(url):
+            continue
         subj = subject or ""
         hits = [cid for cid, _n, rx in pats if rx.search(subj)]
         if not hits:
@@ -410,6 +430,14 @@ def _demo():
                            "Difesa -- but these companies represent only around EUR 210 "
                            "million of revenue and EUR 36 million of revenue"), \
         "the acquired firms' revenue is not the acquirer's"
+
+    # A competitor's revenue may not rest on the client's own press release, nor on
+    # Wikipedia, which this project blocks by policy.
+    assert not usable_source("https://www.kssl.in/press_releases_details_3rd_Aug_2017.php")
+    assert not usable_source("https://en.wikipedia.org/wiki/Rafael")
+    assert not usable_source("")
+    assert usable_source("https://www.sipri.org/databases/armsindustry")
+    assert usable_source("https://knds.com/en/about-us")
 
     assert year_of("In 2021") == 2021 and year_of("FY 2024-25") == 2025
     assert year_of("") == 0, "an undated figure sorts last"
