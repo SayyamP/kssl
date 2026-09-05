@@ -45,6 +45,29 @@ export function countryVocabulary(d) {
   return vocab;
 }
 
+/* WHERE A COMPANY IS FROM. One country, or null.
+
+   companyCountries below answers a different question -- "which countries is this
+   company RECORDED IN" -- and unions the geo footprint, global_locations and the
+   country-parts of hq to answer it. That is the right answer for a presence map and
+   the wrong one for a roster filter: it put Bharat Dynamics under "France (6)",
+   earned from the sentence "Bharat Dynamics Limited produces MILAN-2T under license
+   from MBDA Missile Systems, France". France is the LICENSOR's country. BDL builds
+   MILAN-2T in India.
+
+   Origin is not derivable from hq either. 37 of 155 competitors carry an hq, and its
+   comma-tail is "USA" for Lockheed and "Telangana" for Bharat Dynamics -- promoting a
+   region to a country is how "Virginia" once became one. So origin is a stated column,
+   filled from the audited competitor workbook, and null when nobody has established it.
+
+   Null is a real answer here: such a company is listed under "origin not established",
+   never quietly filed under someone else's flag. */
+export function companyOrigin(d, cid) {
+  const co = ((d && d.competitors) || {})[cid] || {};
+  const v = clean(co.country);
+  return v || null;
+}
+
 /* The countries one company is recorded in: footprint rows, catalogued locations, and
    the parts of its hq string the dataset knows as countries. Sorted, deduped. */
 export function companyCountries(d, cid) {

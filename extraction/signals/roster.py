@@ -114,7 +114,10 @@ def on_roster(company, k=None):
 # ONE list, imported by both writers. revive_partners.py kept its own copy of the same
 # three columns; two lists is how the next column gets forgotten by exactly one of them.
 CARRIED_COLUMNS = ("leadership", "facilities", "sales", "starting_year",
-                   "global_locations", "company_size", "strategic_positioning")
+                   "global_locations", "company_size", "strategic_positioning",
+                   # 2026-09-06. Origin country comes from the audited competitor
+                   # workbook, not the corpus, so the rebuild cannot regenerate it.
+                   "country")
 # hq is carried only to fill a BLANK: the rebuild's own value wins when it has one,
 # because the corpus is fresher than a hand edit.
 CARRY_IF_BLANK = ("hq",)

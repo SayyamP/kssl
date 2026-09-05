@@ -99,17 +99,29 @@ function Sec({ title, note, children }) {
 
 const PROFILE_KEY = "kssl_profile_cid";
 
+const UNKNOWN_ORIGIN = "Origin not established";
+
 export default function Profile() {
   const { data } = useData();
   const { setScope, takePending, searchQuery } = useAppState();
   const [query, setQuery] = useState("");
   const [country, setCountry] = useState("all");
   const roster = useMemo(() => rosterOf(data), [data]);
-  /* Finding T 3: no country-level filter on the competitor list. Options are the
-     countries the roster rows carry (rosterOf stamps each row through the shared
-     companyCountries), counted, and the "All" label prints the list's own length. */
+  /* Finding T 3: no country-level filter on the competitor list.
+
+     2026-09-06: this filters on ORIGIN -- the country a company is FROM -- and not
+     on companyCountries, which unions the geo footprint, global_locations and hq to
+     answer "where is it recorded". Those are different questions, and the union
+     answered the wrong one out loud: Bharat Dynamics appeared under "France (6)"
+     because a footprint row was earned from "produces MILAN-2T under license from
+     MBDA Missile Systems, France". France is the licensor's country; BDL builds
+     MILAN-2T in India.
+
+     A company whose origin nobody has established is listed under its own option
+     rather than dropped, because a filter that silently hides rows is worse than
+     one that admits what it does not know. */
   const countryOptions = useMemo(
-    () => facetOptionsByName(roster, (r) => r.countries || []),
+    () => facetOptionsByName(roster, (r) => [r.origin || UNKNOWN_ORIGIN]),
     [roster],
   );
   /* The selected competitor is remembered, as Positioning, Partnerships, Geo, Patents
@@ -160,7 +172,7 @@ export default function Profile() {
     const q = (query || searchQuery || "").trim().toLowerCase();
     const tokens = q.split(/\s+/).filter(Boolean);
     return roster.filter((r) => {
-      if (country !== "all" && !(r.countries || []).includes(country)) return false;
+      if (country !== "all" && (r.origin || UNKNOWN_ORIGIN) !== country) return false;
       if (!tokens.length) return true;
       const fullText = `${r.name || ""} ${r.sector || ""} ${r.hq || ""} ${r.cid || ""}`.toLowerCase();
       return tokens.every((tok) => fullText.includes(tok));
@@ -343,13 +355,13 @@ export default function Profile() {
             />
           </div>
           <select
-            aria-label="Filter competitors by country"
+            aria-label="Filter competitors by country of origin"
             className="mu-fsel"
             onChange={(e) => setCountry(e.target.value)}
             style={{ width: "100%", marginTop: "8px" }}
             value={country}
           >
-            <option value="all">All countries ({countryOptions.length})</option>
+            <option value="all">All origins ({countryOptions.length})</option>
             {countryOptions.map((o) => (
               <option key={o.v} value={o.v}>
                 {o.v} ({o.n})

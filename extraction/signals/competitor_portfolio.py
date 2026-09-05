@@ -76,6 +76,18 @@ DSN = os.environ.get("KSSL_DSN", "")
 
 REFUSALS: collections.Counter = collections.Counter()
 
+# The workbook's Country / Region column is already one country per company, with
+# four exceptions it writes as a pair or a bloc. Mapped explicitly rather than by
+# splitting on a separator: "UK/US" is a dual-listed company, not two rows, and a
+# split would put BAE Systems under two origins and double every count that uses
+# this column.
+ORIGIN = {
+    "UK/US": "UK",        # BAE Systems plc is UK-incorporated; BAE Systems Inc is its US arm
+    "Europe": "France",   # MBDA is registered at Le Plessis-Robinson
+    "Turkey": "Turkiye",
+    "Türkiye": "Turkiye",
+}
+
 # The Poongsan sentence, matched as a literal. A looser pattern would also strike
 # the rows where Poongsan is legitimately named in its own products.
 CONTAMINANT = ("Poongsan portfolio includes fuzes, primers and propellants; "
@@ -287,18 +299,24 @@ def key_of(name):
 
 def plan_profiles(cur, profiles):
     """Which competitor rows have a blank this workbook can fill. Reads only."""
-    cur.execute("SELECT comp_id, name, hq, starting_year, company_size, sales "
+    cur.execute("SELECT comp_id, name, hq, starting_year, company_size, sales, country "
                 "FROM serving.competitors WHERE origin='pipeline'")
-    have = {key_of(n): (cid, n, hq, yr, sz, sl)
-            for cid, n, hq, yr, sz, sl in cur.fetchall()}
+    have = {key_of(n): (cid, n, hq, yr, sz, sl, ctry)
+            for cid, n, hq, yr, sz, sl, ctry in cur.fetchall()}
     updates, unmatched = [], []
     for p in profiles:
         row = have.get(key_of(p["company"]))
         if not row:
             unmatched.append(p["company"])
             continue
-        cid, _n, hq, yr, sz, sl = row
+        cid, _n, hq, yr, sz, sl, ctry = row
         set_ = {}
+        # Origin country. The Competitor filter reads this column alone, so it must
+        # be the country the company IS FROM -- never the geo footprint, which is
+        # where it does business. The workbook states it per company; a region
+        # ("Telangana") is never promoted to a country.
+        if not (ctry or "").strip() and p.get("country"):
+            set_["country"] = ORIGIN.get(p["country"].strip(), p["country"].strip())
         # FILL a blank, never replace. A value already there came from the corpus
         # with its own provenance; swapping it silently would leave nobody able to
         # say which number is on screen.

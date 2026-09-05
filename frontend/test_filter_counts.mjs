@@ -57,13 +57,15 @@ export const fixture = {
   compOrder: ["alpha", "beta", "gamma", "delta", "client-co"],
   competitors: {
     /* hq names a country the dataset knows, and the footprint adds a second */
-    alpha: co("Alpha Systems", { sector: "Artillery", hq: "Paris, France" }),
+    alpha: co("Alpha Systems", { sector: "Artillery", hq: "Paris, France", country: "France" }),
     /* no hq at all: only the footprint says where it is */
+    /* no hq and no stated origin: it must appear under "Origin not established",
+       never be filed under a country its FOOTPRINT happens to mention */
     beta: co("Beta Dynamics", { sector: "Ammunition" }),
     /* hq tail is a REGION -- "Virginia" is not a country and must not be offered */
-    gamma: co("Gamma Defense", { sector: "artillery", hq: "Arlington, Virginia" }),
+    gamma: co("Gamma Defense", { sector: "artillery", hq: "Arlington, Virginia", country: "USA" }),
     /* hq with no comma: the whole string is the country */
-    delta: co("Delta Arms", { sector: "Small Arms", hq: "Israel" }),
+    delta: co("Delta Arms", { sector: "Small Arms", hq: "Israel", country: "Israel" }),
     "client-co": co("Client Co", { dir: "client", sector: "Artillery", hq: "Pune, India" }),
   },
   geoComps: [
@@ -106,6 +108,11 @@ export const fixture = {
    code under test. Rivals only -- the client's own row is not a competitor. */
 const WANT = {
   companyCountries: ["France", "Germany", "India", "Israel", "USA"],
+  /* The Competitor page filters on ORIGIN, not on the footprint union. Beta has no
+     stated origin and must be offered as such rather than inherited from the
+     countries it merely appears in -- the fault that put Bharat Dynamics under
+     "France" because it licenses MILAN-2T from MBDA. */
+  companyOrigins: ["France", "Israel", "Origin not established", "USA"],
   companyCategories: ["Ammunition", "Artillery", "Small Arms"],
   openTenderCountries: { Canada: 2, India: 1 },
   openTenderCats: { Ammunition: 1, Artillery: 1, "Marine / Naval": 1 },
@@ -207,7 +214,7 @@ const optionCount = (text) => { const m = /\((\d+)\)\s*$/.exec(text); return m ?
 /* ------------------------------------------------------- 1. company pages ---- */
 for (const [page, label, want, what] of [
   ["products", "Filter companies by country", WANT.companyCountries, "country"],
-  ["profile", "Filter competitors by country", WANT.companyCountries, "country"],
+  ["profile", "Filter competitors by country of origin", WANT.companyOrigins, "origin"],
   ["partnerships", "Filter competitors by country", WANT.companyCountries, "country"],
   ["products", "Filter companies by category", WANT.companyCategories, "category"],
 ]) {

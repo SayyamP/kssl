@@ -166,26 +166,28 @@ class _Cur:
 PROF = [{"company": "Rheinmetall", "hq": "Duesseldorf, Germany", "starting_year": 1889,
          "company_size": "33,217 employees", "sales": "EUR 9.935 billion",
          "financial_year": "FY2025", "global_locations": "Germany; Italy; Hungary",
-         "sources": ["https://www.rheinmetall.com/x"], "publishable": True}]
+         "sources": ["https://www.rheinmetall.com/x"], "publishable": True,
+         "country": "Germany"}]
 
 
 def test_a_value_that_is_already_there_is_never_replaced():
     """A value already in the table came from the corpus with its own provenance.
     Swapping it silently would leave nobody able to say which number is shown."""
     cur = _Cur([("rheinmetall", "Rheinmetall", "Already set", 1889, "existing",
-                 {"text": "existing"})])
+                 {"text": "existing"}, "Germany")])
     updates, unmatched, _have = cp.plan_profiles(cur, PROF)
     assert not unmatched
     set_ = updates[0][2] if updates else {}
-    for blocked in ("hq", "starting_year", "company_size", "sales"):
+    for blocked in ("hq", "starting_year", "company_size", "sales", "country"):
         assert blocked not in set_, (blocked, set_)
 
 
 def test_a_blank_is_filled():
-    cur = _Cur([("rheinmetall", "Rheinmetall", "", None, "", None)])
+    cur = _Cur([("rheinmetall", "Rheinmetall", "", None, "", None, None)])
     updates, _u, _h = cp.plan_profiles(cur, PROF)
     set_ = updates[0][2]
     assert set_["hq"] == "Duesseldorf, Germany"
+    assert set_["country"] == "Germany", set_
     assert set_["starting_year"] == 1889
     assert set_["sales"]["fy"] == "FY2025"
     assert set_["global_locations"] == ["Germany", "Italy", "Hungary"]
@@ -193,7 +195,7 @@ def test_a_blank_is_filled():
 
 def test_an_unpublishable_revenue_is_not_written():
     prof = [dict(PROF[0], publishable=False)]
-    cur = _Cur([("rheinmetall", "Rheinmetall", "", None, "", None)])
+    cur = _Cur([("rheinmetall", "Rheinmetall", "", None, "", None, None)])
     updates, _u, _h = cp.plan_profiles(cur, prof)
     assert "sales" not in updates[0][2]
 
@@ -207,13 +209,28 @@ def test_a_company_the_dashboard_does_not_track_is_reported_not_created():
 
 
 def test_apply_touches_only_pipeline_rows():
-    cur = _Cur([("rheinmetall", "Rheinmetall", "", None, "", None)])
+    cur = _Cur([("rheinmetall", "Rheinmetall", "", None, "", None, None)])
     updates, _u, _h = cp.plan_profiles(cur, PROF)
     assert cp.apply_profiles(cur, updates) == 1
     cid, sql = cur.writes[0]
     assert cid == "rheinmetall"
     assert "origin='pipeline'" in sql
     assert "::jsonb" in sql
+
+
+def test_origin_country_is_stated_never_derived_from_an_address():
+    """The Competitor filter reads competitors.country alone. It must be the
+    country a company is FROM -- Bharat Dynamics is Indian however many French
+    partners it licenses from, and "Telangana" is never promoted to a country."""
+    _p, profiles = _built()
+    by = {p["company"]: p for p in profiles}
+    assert by["Bharat Dynamics Ltd (BDL)"]["country"] == "India"
+    assert by["Lockheed Martin"]["country"] == "US"
+    assert by["Nexter (KNDS France)"]["country"] == "France"
+    # the four the workbook writes as a pair or a bloc are mapped explicitly
+    assert cp.ORIGIN["UK/US"] == "UK" and cp.ORIGIN["Europe"] == "France"
+    # and every one of the 50 has an origin at all
+    assert all(p["country"] for p in profiles),         [p["company"] for p in profiles if not p["country"]]
 
 
 def test_match_key_does_not_collapse_two_companies():

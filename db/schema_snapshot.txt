@@ -66,6 +66,7 @@ serving.competitors.assess text
 serving.competitors.center jsonb
 serving.competitors.comp_id text NOT NULL
 serving.competitors.company_size text
+serving.competitors.country text
 serving.competitors.dir text
 serving.competitors.facilities jsonb
 serving.competitors.global_locations jsonb
@@ -299,6 +300,7 @@ serving_live.competitors.assess text
 serving_live.competitors.center jsonb
 serving_live.competitors.comp_id text
 serving_live.competitors.company_size text
+serving_live.competitors.country text
 serving_live.competitors.dir text
 serving_live.competitors.facilities jsonb
 serving_live.competitors.global_locations jsonb

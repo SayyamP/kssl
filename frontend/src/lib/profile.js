@@ -15,7 +15,7 @@
        the raw index and misses on exactly the cases the adapter exists to fix. */
 
 import { unescapeEntities } from "./html.js";
-import { companyCountries } from "./countryFacet.js";
+import { companyCountries, companyOrigin } from "./countryFacet.js";
 
 /* These fields are rendered as TEXT, not injected as HTML, so an entity in the record
    ("Defence &amp; Aerospace" on Kongsberg) reaches the screen as the five literal
@@ -283,6 +283,9 @@ export function rosterOf(d) {
         threat: p.threat,
         sector: p.sector,
         countries: companyCountries(d, cid),
+        /* where it is FROM, for the Competitor filter. `countries` above is where
+           it is RECORDED -- a presence list, which is a different question. */
+        origin: companyOrigin(d, cid),
         /* how many of the seven backed sections this company actually fills —
            the honest "is there anything here" signal */
         filled: p.sections.filter((s) => s.rows).length,

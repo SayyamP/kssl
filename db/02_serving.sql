@@ -49,6 +49,12 @@ CREATE TABLE serving.competitors (
     global_locations      jsonb,
     company_size          text,
     strategic_positioning text,
+    -- 2026-09-06. Where the company is FROM, one word. Separate from hq because
+    -- hq is an address ("Hyderabad, Telangana") and its comma-tail is a region as
+    -- often as a country. The Competitor filter reads this and nothing else, so
+    -- "France" means France, not "does business with someone French".
+    -- See db/migrations/2026-09-06_competitor_country.sql.
+    country               text,
     origin       text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at   timestamptz NOT NULL DEFAULT now()
 );

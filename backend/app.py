@@ -56,9 +56,12 @@ COMP_FIELDS = ["name", "dir", "sector", "hq", "threat", "assess", "updates",
                # browser however well the pipeline filled them -- and the Profile
                # page invented founded / headcount / revenue in their place.
                "starting_year", "global_locations", "company_size",
-               "strategic_positioning"]
+               "strategic_positioning",
+               # 2026-09-06. Origin country, one word. The Competitor filter reads
+               # THIS and not the geo footprint, so "France" means from France.
+               "country"]
 COMP_OPT = frozenset(["starting_year", "global_locations", "company_size",
-                      "strategic_positioning"])
+                      "strategic_positioning", "country"])
 NEWS_FIELDS = ["id", "comp_id", "title", "description", "source",
                "published_date", "category", "is_trending", "url", "image"]
 NEWS_OPT = frozenset(["description", "category", "is_trending"])
