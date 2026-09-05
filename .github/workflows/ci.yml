@@ -161,6 +161,11 @@ jobs:
           # as an unqualified green "Direct Partner". The demo now runs the real
           # decision over the real staging shape, with no database.
           python mark_shared.py --demo
+          # Reads the status a tie states in its own words. The trap it guards is a
+          # founding year read as an end year -- "Historical JV (established 2007 as
+          # JML, now JCBL South)" is a going concern, and "ended 2007" would be a
+          # false claim published about a real company.
+          python backfill_tie_status.py --demo
           for t in test_*.py; do
             echo "== $t"
             python "$t"

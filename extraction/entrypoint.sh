@@ -229,6 +229,13 @@ case "${1:-worker}" in
       # drew as unshared. No model call, reads serving.partner, costs seconds.
       log "overlap: re-stamp shared partners (the red line) after the rebuild"
       python3 mark_shared.py --apply || log "overlap marking failed (continuing)"
+      # And read back the status the older ties state in their own words. The rows
+      # written before step_partnerships existed carry no `status`, so the graph drew
+      # "Historical Joint Venture (Ended 2013)" as a live edge. Idempotent -- it never
+      # touches a tie that already has one -- so it only ever reaches rows nothing
+      # else has typed, including any added by hand after this.
+      log "status: type the ties no model wrote"
+      python3 backfill_tie_status.py --apply || log "status backfill failed (continuing)"
       sleep "${ENRICH_EVERY_S:-7200}"
     done
     ;;
