@@ -22,9 +22,13 @@ from engine import source_tiers as st                             # noqa: E402
 
 
 def _built():
+    """The COMMITTED result, not the spreadsheet. openpyxl is not in
+    extraction/requirements.txt, so a test that opened the workbook would pass
+    here and fail in CI -- which is exactly what happened on the first push."""
     if not hasattr(_built, "v"):
-        _built.v = cp.build()
-    return _built.v
+        products, profiles, refused = cp.load()
+        _built.v = (products, profiles, refused)
+    return _built.v[0], _built.v[1]
 
 
 # ── the gate: whose word counts, and for what ────────────────────────────────
@@ -83,7 +87,8 @@ def test_no_admitted_product_carries_another_company_text():
     for p in products:
         blob = " ".join(s["note"] for s in p["specs"])
         assert "Poongsan portfolio includes fuzes" not in blob, p["name"]
-    assert cp.REFUSALS["another company's text removed from the spec cell"] == 134
+    refused = _built.v[2]
+    assert refused["another company's text removed from the spec cell"] == 134, refused
 
 
 def test_a_vehicle_is_not_counted_under_two_makers():
@@ -115,7 +120,8 @@ def test_every_admitted_row_has_a_value_a_source_and_a_dashboard_category():
 def test_the_refusal_counter_is_actually_counting():
     """A zero here means the checks are not running at all."""
     _p, _pr = _built()
-    assert sum(cp.REFUSALS.values()) > 400, dict(cp.REFUSALS)
+    refused = _built.v[2]
+    assert sum(refused.values()) > 400, dict(refused)
 
 
 def test_category_map_is_never_a_label_join():

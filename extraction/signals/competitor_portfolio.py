@@ -1,9 +1,16 @@
 """The COMPETITORS' product portfolios, from the audited 50-company workbook.
 
+    python competitor_portfolio.py --xlsx <workbook>  # re-parse -> portfolio/competitor_portfolio.json
     python competitor_portfolio.py --demo     # hermetic asserts, no DB, no network
     python competitor_portfolio.py --report   # what survives the gate, by company
     python competitor_portfolio.py --dry      # what --apply would write
     python competitor_portfolio.py --apply    # serving.competitor_product + profile columns
+
+The workbook is parsed by --xlsx, run locally, and the RESULT is committed as
+portfolio/competitor_portfolio.json. Everything else -- demo, report, the tests,
+the writer -- reads that JSON. Same arrangement as client_portfolio.py, and for
+the same reason: openpyxl is not in extraction/requirements.txt, so a module
+that reached for the spreadsheet at run time would fail in CI and on the box.
 
 THE MIRROR OF client_portfolio.py
 ---------------------------------
@@ -147,7 +154,18 @@ def specs_of(cell):
     return out
 
 
-def load(path=WORKBOOK):
+def load():
+    """The committed result. -> (products, profiles, refusals)
+
+    This is what every runtime path reads. Nothing here opens the spreadsheet."""
+    if not OUT_JSON.exists():
+        raise SystemExit("no %s -- run --xlsx to build it" % OUT_JSON.name)
+    d = json.load(io.open(OUT_JSON, encoding="utf-8"))
+    return d["products"], d["companies"], collections.Counter(d.get("refused", {}))
+
+
+def parse_workbook(path=WORKBOOK):
+    """The spreadsheet. Needs openpyxl; run locally and commit the JSON."""
     import openpyxl
     wb = openpyxl.load_workbook(path, data_only=True)
 
@@ -165,11 +183,9 @@ def load(path=WORKBOOK):
     return sheet("COMPANY DIRECTORY"), sheet("PRODUCT MASTER")
 
 
-def build(directory=None, products=None, path=WORKBOOK):
-    """-> (products, profiles). Pure: no DB, no network."""
+def build(directory, products):
+    """The gate. -> (products, profiles). Pure: no DB, no network, no spreadsheet."""
     REFUSALS.clear()
-    if directory is None or products is None:
-        directory, products = load(path)
 
     out = []
     for r in products:
@@ -339,7 +355,7 @@ def apply_products(cur, products):
 
 # ── reporting ────────────────────────────────────────────────────────────────
 def report():
-    products, profiles = build()
+    products, profiles, refused = load()
     by = collections.Counter(p["company"] for p in products)
     specs = collections.Counter()
     for p in products:
@@ -349,7 +365,7 @@ def report():
     print("  specification values         : %d" % sum(specs.values()))
     print("  companies with any product   : %d of %d" % (len(by), len(profiles)))
     print("\n  refused:")
-    for why, n in REFUSALS.most_common():
+    for why, n in refused.most_common():
         print("    %5d  %s" % (n, why))
     print("\n%-36s %6s %6s  %s" % ("company", "prods", "specs", "evidence"))
     for comp, n in by.most_common():
@@ -361,11 +377,11 @@ def report():
 
 
 def demo():
-    directory, products_raw = load()
-    assert len(directory) == 50, len(directory)
-    assert len(products_raw) == 1083, len(products_raw)
-
-    products, profiles = build(directory, products_raw)
+    # The committed result, not the spreadsheet: openpyxl is not in
+    # extraction/requirements.txt, so a demo that opened the workbook would fail
+    # in CI while passing on the machine that wrote it.
+    products, profiles, REFUSED = load()
+    assert len(profiles) == 50, len(profiles)
 
     # 1. the maker is official about its OWN product and a news mention about a
     #    rival's. Without this, one company's marketing sets another's numbers.
@@ -386,8 +402,7 @@ def demo():
     for p in products:
         blob = " ".join(s["note"] for s in p["specs"])
         assert "Poongsan portfolio includes fuzes" not in blob, p["name"]
-    assert REFUSALS["another company's text removed from the spec cell"] == 134, \
-        REFUSALS
+    assert REFUSED["another company's text removed from the spec cell"] == 134, REFUSED
 
     # 4. the Leonardo/IDV vehicles are counted once, under IDV
     leo = {p["name"] for p in products if p["company"] == "Leonardo"}
@@ -432,19 +447,20 @@ def demo():
 
     # 9. the refusal counter must actually be counting -- a zero here means the
     #    checks above are not running at all
-    assert sum(REFUSALS.values()) > 0, "nothing was refused; the gate is not running"
+    assert sum(REFUSED.values()) > 0, "nothing was refused; the gate is not running"
 
     print("ok - %d products admitted, %d specification values, %d refused, "
           "%d company profiles"
           % (len(products), sum(len(p["specs"]) for p in products),
-             sum(REFUSALS.values()), len(profiles)))
+             sum(REFUSED.values()), len(profiles)))
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--demo", action="store_true")
     ap.add_argument("--report", action="store_true")
-    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--xlsx", nargs="?", const=str(WORKBOOK),
+                    help="re-parse the workbook and write portfolio/competitor_portfolio.json")
     ap.add_argument("--dry", action="store_true")
     ap.add_argument("--apply", action="store_true")
     a = ap.parse_args()
@@ -454,14 +470,17 @@ def main():
     if a.report:
         return report()
 
-    products, profiles = build()
-    if a.json:
+    if a.xlsx:
+        directory, raw = parse_workbook(Path(a.xlsx))
+        products, profiles = build(directory, raw)
         write_json(products, profiles)
-        print("wrote %s: %d products, %d companies"
-              % (OUT_JSON.name, len(products), len(profiles)))
+        print("wrote %s: %d products from %d rows, %d companies, %d refused"
+              % (OUT_JSON.name, len(products), len(raw), len(profiles),
+                 sum(REFUSALS.values())))
         return
     if not (a.dry or a.apply):
-        ap.error("choose --demo, --report, --json, --dry or --apply")
+        ap.error("choose --demo, --report, --xlsx, --dry or --apply")
+    products, profiles, _refused = load()
 
     import psycopg2
     con = psycopg2.connect(DSN or "postgresql://postgres:kssl@127.0.0.1:5460/kssl")
