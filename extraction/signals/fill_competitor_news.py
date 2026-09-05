@@ -317,16 +317,44 @@ def run(dsn=DSN, apply=False):
         con.close()
         return {"rows": len(rows), "companies": per_company, **stats}
 
-    # Idempotent: this writer owns every origin='pipeline' row in the table.
-    cur.execute("DELETE FROM serving.competitor_news WHERE origin='pipeline'")
-    deleted = cur.rowcount
-    for r in rows:
-        cur.execute("""INSERT INTO serving.competitor_news
-                       (comp_id, title, description, source, published_date,
-                        category, url, image, origin)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pipeline')""",
-                    (r["comp_id"], r["title"], r["description"], r["source"],
-                     r["published_date"], r["category"], r["url"], r["image"]))
+    # FAIL FAST IF A REBUILD IS MID-FLIGHT, INSTEAD OF HANGING FOR AN HOUR.
+    #
+    # Every INSERT below takes a foreign-key row lock on serving.competitors. An enrich
+    # pass opens step_companies by DELETEing every origin='pipeline' competitor and then
+    # sits idle-in-transaction for the length of its profile calls -- 51 minutes when
+    # this was measured. So an --apply started during a pass does not fail and does not
+    # finish: it blocks on `Lock / transactionid` behind that backend, prints its whole
+    # summary first (the counts come before the write), and looks for all the world like
+    # a successful run that wrote nothing. Three separate operator runs were lost to
+    # exactly that on 2026-09-05, each killed by its own outer timeout mid-INSERT.
+    #
+    # 30s is far longer than this write needs when nothing holds the parent rows, and
+    # far shorter than a pass. The error names the cause, so the next person sees "a
+    # rebuild is running" rather than an unexplained hang.
+    cur.execute("SET lock_timeout='30s'")
+    try:
+        # Idempotent: this writer owns every origin='pipeline' row in the table.
+        cur.execute("DELETE FROM serving.competitor_news WHERE origin='pipeline'")
+        deleted = cur.rowcount
+        # It is the INSERTs that block, not the delete: each takes a foreign-key row
+        # lock on the serving.competitors row it points at, and those are exactly the
+        # rows a rebuild has deleted inside its open transaction.
+        for r in rows:
+            cur.execute("""INSERT INTO serving.competitor_news
+                           (comp_id, title, description, source, published_date,
+                            category, url, image, origin)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pipeline')""",
+                        (r["comp_id"], r["title"], r["description"], r["source"],
+                         r["published_date"], r["category"], r["url"], r["image"]))
+    except psycopg2.errors.LockNotAvailable:
+        con.rollback()
+        con.close()
+        print("REFUSED: serving.competitors is locked by a rebuild in flight "
+              "(enrich step_companies holds those rows until its profile calls "
+              "finish). Nothing was written -- the counts above are what WOULD have "
+              "been written. The pass refills this table itself; run this by hand "
+              "only between passes.", flush=True)
+        return {"rows": 0, "companies": 0, "blocked": True, **stats}
     con.commit()
     print("written: %d row(s) (%d replaced)" % (len(rows), deleted), flush=True)
     con.close()

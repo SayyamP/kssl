@@ -2611,9 +2611,40 @@ def step_matchups(cur, con, docs, props_by_doc, limit=None):
             "nospec": skipped_nospec}
 
 
+def step_news(cur, con, docs, props_by_doc, limit=None):
+    """Refill serving.competitor_news, IN THE SAME PASS THAT EMPTIED IT.
+
+    serving.competitor_news.comp_id is `REFERENCES serving.competitors(comp_id) ON
+    DELETE CASCADE`, and step_companies above opens by deleting every origin='pipeline'
+    competitor -- so the news table is cascaded away at the start of every pass.
+
+    The refill already existed, wired into extraction/entrypoint.sh AFTER the whole
+    enrich run. That is correct but far too late: a pass is nine steps and several
+    hours (55 profile calls in step one alone), so the four news panels on every
+    competitor profile sat empty for most of every two-hourly cycle. Measured on
+    production 2026-09-05: the table read 0 rows for the entire time the pass was
+    running, then filled with 268 rows across 29 companies when it finished.
+
+    Running it here, immediately after the delete that causes the problem, shrinks
+    the empty window from hours to seconds.
+
+    It reads serving.signal_card, which the separate `signals` role writes, so it
+    needs no model call and no proposition data -- hence the unused arguments, which
+    the STEPS contract requires. It opens its own connection deliberately: this step
+    must not join the caller's transaction, or a later step's rollback would take the
+    news with it, which is the fault being fixed.
+
+    The entrypoint call stays. It is no longer load-bearing, but it catches cards the
+    `signals` role wrote WHILE this pass was running, which this call cannot see.
+    """
+    import fill_competitor_news
+    return fill_competitor_news.run(apply=True)
+
+
 # ----------------------------------------------------------------------------- driver
 
-STEPS = [("companies", step_companies), ("partnerships", step_partnerships),
+STEPS = [("companies", step_companies), ("news", step_news),
+         ("partnerships", step_partnerships),
          ("structure", step_structure), ("metrics", step_metrics),
          ("geo", step_geo), ("tenders", step_tenders),
          ("innovations", step_innovations), ("sources", step_sources),
