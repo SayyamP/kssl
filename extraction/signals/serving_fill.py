@@ -1886,10 +1886,16 @@ def _demo():
           "been used to shoot down Iranian drones.")
 
     class _GlanceCur:
-        def __init__(self):
+        # The article text is the third query, and it is what lets a span no proposition
+        # covers still be quoted -- from its own sentence. `article=None` stands for a
+        # document row that is missing, which must cost the other rows nothing.
+        def __init__(self, article=q1 + " " + q2):
             self.n = 0
+            self.article = article
         def execute(self, sql, *_):
             self.n += 1
+        def fetchone(self):
+            return (self.article,) if self.article is not None else None
         def fetchall(self):
             if self.n == 1:                                  # propositions, with offsets
                 return [(0, "The Army", "asks for", "$215 million in its fiscal year 2027 budget",
@@ -1914,6 +1920,11 @@ def _demo():
                     ["System", "Sgt. Stout Systems", q1]], rows
     assert st == {"glance_rows": 3, "glance_refused": 1}, st
     assert not any(r[0] == "Primary lens" for r in rows)
+    # a document row that cannot be read is not a reason to lose the proposition-backed
+    # rows -- the fallback is an addition, never a dependency
+    assert glance_rows(_GlanceCur(article=None), "doc", "The Army",
+                       "US Army seeks thousands of new missiles to replace Stinger",
+                       {}) == rows
     print("ok")
 
 
