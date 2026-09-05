@@ -296,7 +296,7 @@ def collect(cur):
     return out
 
 
-# ---------------------------------------------------------------- the crawler fallback
+# ------------------------------------------------- the crawler fallback: feed the queue
 #
 # THE SECOND SOURCE, AND WHY IT IS NOT A STEP. The extraction layer holds 59,726 of the
 # crawler's 1.85M documents, so a competitor can be absent from `extracted.proposition`
@@ -309,52 +309,49 @@ def collect(cur):
 # the revenue predicate, and across the 25 competitors the extraction cannot cover it
 # yields exactly two -- Kalashnikov and Otokar. That ratio is the argument for running it
 # by hand, occasionally, and not every two hours.
-CRAWLER_SQL = """SELECT url, left(main_text, 40000) FROM public.documents
-                  WHERE main_text ~* '(annual (revenue|turnover)|revenues? of'
+CRAWLER_SQL = """SELECT document_id, left(main_text, 40000) FROM public.documents
+                  WHERE main_text ~* '(annual (revenue|turnover|sales)|revenues? of'
                         '|turnover of|net sales of|posted revenues?'
-                        '|reported revenues?|revenues? (?:stood|totall?ed|reached))'"""
-SENTENCE = re.compile(r"[^.\n]{0,220}(?:revenue|turnover|net sales)[^.\n]{0,220}", re.I)
+                        '|reported revenues?|revenues? (?:stood|totall?ed|reached)'
+                        '|(19|20)[0-9]{2} sales of|total sales of)'"""
+CRAWLER_LANE = int(os.environ.get("KSSL_REVENUE_LANE", "1"))
 
 
-def collect_crawler(cur, names):
-    """{name: [row]} for `names` -- [(comp_id, name)] the extraction could not cover."""
+def crawler_doc_ids(names, cap=4000):
+    """document_ids on the CRAWLER that name one of `names` and state a revenue.
+
+    This returns DOCUMENTS, not figures, and that is the whole design. Reading a number
+    straight out of `public.documents` produced a value with no proposition behind it:
+    nothing linked it to an evidence span, no other step could see it, and the next
+    enrich rebuild -- which deletes and re-inserts every origin='pipeline' competitor --
+    threw it away, so Kalashnikov and Otokar reverted to a dash every pass. Handing the
+    same documents to `extract_queue` instead puts them through the extraction the rest
+    of the pipeline already trusts, and the figure arrives as a proposition that
+    `collect()` reads like any other.
+    """
     src_dsn = os.environ.get("KSSL_CORPUS_SRC_DSN")
     if not src_dsn:
         print("crawler: KSSL_CORPUS_SRC_DSN unset -- skipping the fallback", flush=True)
-        return {}
+        return []
     import psycopg2
-    pats = [(cid, n, re.compile(r"(?<!\w)" + re.escape(n) + r"(?!\w)", re.I))
-            for cid, n in names if len(n) >= 4]
+    pats = [re.compile(r"(?<!\w)" + re.escape(n) + r"(?!\w)", re.I)
+            for _cid, n in names if len(n) >= 4]
     con = psycopg2.connect(src_dsn, connect_timeout=20)
     sc = con.cursor(name="revscan")            # server-side: never buffer 1.85M rows
     sc.itersize = 2000
     sc.execute(CRAWLER_SQL)
-    out, n_docs = {}, 0
-    for url, txt in sc:
+    ids, n_docs = [], 0
+    for did, txt in sc:
         n_docs += 1
         t = txt or ""
-        for cid, name, rx in pats:
-            if not rx.search(t):
-                continue
-            for m in SENTENCE.finditer(t):
-                line = re.sub(r"\s+", " ", m.group(0)).strip()
-                if not rx.search(line):
-                    continue
-                for value, period in figures("", line):
-                    out.setdefault(cid, []).append(
-                        {"value": value, "detail": period, "url": url,
-                         "line": line[:400]})
-    print("crawler: scanned %d document(s), %d compan(ies) gained"
-          % (n_docs, len(out)), flush=True)
-    for cid in out:
-        seen, uniq = set(), []
-        for r in rank(out[cid]):
-            key = (r["value"].lower(), r["detail"].lower())
-            if key not in seen:
-                seen.add(key)
-                uniq.append(r)
-        out[cid] = uniq[:6]
-    return out
+        if any(rx.search(t) for rx in pats):
+            ids.append(did)
+            if len(ids) >= cap:
+                break
+    con.close()
+    print("crawler: scanned %d document(s), %d name a competitor with no figure"
+          % (n_docs, len(ids)), flush=True)
+    return ids
 
 
 def run(dsn=DSN, apply=False, crawler=False):
@@ -368,8 +365,20 @@ def run(dsn=DSN, apply=False, crawler=False):
                 missing = [(cid, n) for cid, n in cur.fetchall() if cid not in found]
                 print("crawler: %d competitor(s) the extraction cannot cover"
                       % len(missing), flush=True)
-                for cid, rows in collect_crawler(cur, missing).items():
-                    found[cid] = rows
+                ids = crawler_doc_ids(missing)
+                if ids and apply:
+                    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+                    import select_worklist
+                    # LANE 1: ahead of every other document. These are the documents a
+                    # named competitor's revenue is known to be in, so they are worth
+                    # more than the next page of the freshness queue.
+                    q, pulled = select_worklist.enqueue_ids(ids, lane=CRAWLER_LANE)
+                    print("crawler: enqueued %d document(s) at P%d (%d bodies pulled); "
+                          "figures appear once the workers extract them"
+                          % (q, CRAWLER_LANE, pulled), flush=True)
+                elif ids:
+                    print("dry run: %d document(s) would be enqueued at P%d (pass --apply)"
+                          % (len(ids), CRAWLER_LANE), flush=True)
             cur.execute("SELECT count(*) FROM serving.competitors")
             total = cur.fetchone()[0]
             print("revenue: %d of %d competitor(s) have an annual figure in the corpus"
@@ -506,8 +515,10 @@ if __name__ == "__main__":
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--demo", action="store_true")
     ap.add_argument("--crawler", action="store_true",
-                    help="also scan the crawler corpus for competitors the extraction "
-                         "cannot cover (~40 min: a full sequential scan of 1.85M rows)")
+                    help="scan the crawler corpus for documents about competitors the "
+                         "extraction cannot cover and ENQUEUE them at P1, ahead of "
+                         "everything else (~40 min: a sequential scan of 1.85M rows). "
+                         "Figures appear after the workers extract them.")
     a = ap.parse_args()
     if a.demo:
         _demo()

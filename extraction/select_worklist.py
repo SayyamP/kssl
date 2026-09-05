@@ -76,10 +76,28 @@ def load_worklist():
     return data["documents"]                       # already sorted P1-first, big-first
 
 
-def run(limit, max_lane, min_lane=1):
+def enqueue_ids(ids, lane, fetched=None):
+    """Pull `ids` from the DC corpus if VPS-B lacks the body, then enqueue them at `lane`.
+
+    THE QUEUE IS THE ONLY WAY INTO THE SERVING LAYER. A caller that finds interesting
+    documents on the crawler must hand them to extraction rather than read facts out of
+    them itself: a figure lifted straight from `public.documents` never becomes a
+    proposition, so it carries no evidence row, and the next enrich rebuild deletes it.
+    Enqueued, the same document is extracted once and every step downstream can see it.
+
+    Returns (queued, pulled). Idempotent -- both inserts are ON CONFLICT DO NOTHING.
+    """
+    return _place([(d, lane, fetched) for d in ids])
+
+
+def _place(items, limit=None):
+    """items: [(document_id, lane, fetched_or_None)] -> (queued, pulled).
+
+    `limit` counts documents actually ENQUEUED, not candidates considered, so a
+    re-run tops the queue up instead of re-examining the same already-queued head.
+    """
     import route                                    # reuse the queue's own est_out / text_hash
     dest = _connect(DEST_DSN)
-    # what is already queued or extracted -- never re-enqueue those
     seen = set()
     with dest.cursor() as c:
         c.execute("SELECT document_id FROM extract_queue")
@@ -93,13 +111,11 @@ def run(limit, max_lane, min_lane=1):
         have_doc = {r[0] for r in c.fetchall()}
     src = None
     queued = pulled = 0
-    for item in load_worklist():
-        if queued >= limit:
+    for did, lane, fetched in items:
+        if limit is not None and queued >= limit:
             break
-        did, lane = item["document_id"], item["lane"]
-        if lane > max_lane or lane < min_lane or did in seen:
+        if did in seen:
             continue
-        # 1. ensure the body is on VPS-B
         if did not in have_doc:
             if src is None:
                 src = _connect(SRC_DSN)
@@ -113,22 +129,19 @@ def run(limit, max_lane, min_lane=1):
             rec = {"document_id": did, "url": row[0], "source_id": row[1], "language": row[2],
                    "title": row[3], "main_text": row[4],
                    "published_at": str(row[5]) if row[5] else None,
-                   "fetched_at": str(row[6]) if row[6] else (str(item.get("fetched")) or ""),
+                   "fetched_at": str(row[6]) if row[6] else (str(fetched) if fetched else ""),
                    "text_len": row[7] or len(row[4])}
             with dest.cursor() as c:
                 c.execute(DOCSQL, rec)
             dest.commit()
             have_doc.add(did)
             pulled += 1
-            text = row[4]
-            crawl_ts = rec["fetched_at"]
+            text, crawl_ts = row[4], rec["fetched_at"]
         else:
             with dest.cursor() as c:
                 c.execute("SELECT main_text, fetched_at FROM documents WHERE document_id=%s", (did,))
                 r = c.fetchone()
-            text = r[0]
-            crawl_ts = str(r[1])
-        # 2. enqueue with class = lane
+            text, crawl_ts = r[0], str(r[1])
         with dest.cursor() as c:
             c.execute(QSQL, {"document_id": did, "class": lane, "chars": len(text),
                              "est_out": route.est_out(len(text)), "crawl_ts": crawl_ts or "",
@@ -140,6 +153,13 @@ def run(limit, max_lane, min_lane=1):
         src.close()
     dest.close()
     return queued, pulled
+
+
+def run(limit, max_lane, min_lane=1):
+    """Walk worklist.json in lane order and enqueue what is not already queued."""
+    items = [(i["document_id"], i["lane"], i.get("fetched")) for i in load_worklist()
+             if min_lane <= i["lane"] <= max_lane]
+    return _place(items, limit=limit)
 
 
 def main():
