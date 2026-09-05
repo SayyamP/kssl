@@ -106,44 +106,68 @@ echo "$SHA" > .DEPLOYED_SHA
 # applied once and recorded, with -1 putting the file and its ledger row in ONE
 # transaction, so a migration that fails half way leaves neither the change nor a row
 # claiming it was made. Files arrive over stdin, so nothing has to be mounted or copied.
-if [ "$KSSL_ENV_NAME" != "prod" ] && [ -d db/migrations ]; then
+# NOTHING BELOW MAY ABORT THE DEPLOY.
+#
+# This script runs under `set -euo pipefail`, and this block sits BEFORE the image
+# swap. A command substitution that fails -- and every probe here is one --
+# terminates the script, so a single unreachable psql would have meant a deploy that
+# transferred the source, applied nothing, swapped nothing, and reported failure.
+# Verified: `set -euo pipefail; X="$(false | tr -d abc)"` exits without reaching the
+# next line.
+#
+# Invoking the function as `fn || echo ...` suppresses errexit for everything inside
+# it. That is the intent, not a workaround: a replica that cannot migrate should say
+# so plainly and still receive its new images, because the backend omits an optional
+# column it cannot see rather than failing the request. A field short beats down.
+_apply_pending_migrations() {
+  local PSQL n f DONE HAVE_LEDGER HAVE_TABLES
   PSQL=("${COMPOSE[@]}" exec -T db psql -U "${KSSL_DB_USER:-postgres}" -d "${KSSL_DB_NAME:-kssl}")
-  if "${PSQL[@]}" -qtAc "SELECT 1" >/dev/null 2>&1; then
-    "${PSQL[@]}" -q -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS schema_version (
-        filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
-    # An empty ledger on a database that already has tables means this box predates the
-    # ledger. Record what is on disk WITHOUT replaying it -- the same bootstrap the
-    # migrate role does, and for the same reason: the base files already carry every
-    # migration whose effect was folded back into them, and a second ADD CONSTRAINT is
-    # an error rather than a no-op.
-    HAVE_LEDGER="$("${PSQL[@]}" -qtAc "SELECT NOT EXISTS (SELECT 1 FROM schema_version)" | tr -d '[:space:]')"
-    HAVE_TABLES="$("${PSQL[@]}" -qtAc "SELECT to_regclass('serving.competitors') IS NOT NULL" | tr -d '[:space:]')"
-    if [ "$HAVE_LEDGER" = "t" ] && [ "$HAVE_TABLES" = "t" ]; then
-      echo ">> migrations: recording the schema on disk as this database's starting point"
-      for f in db/[0-9][0-9]_*.sql db/migrations/*.sql; do
-        [ -e "$f" ] || continue
-        "${PSQL[@]}" -q -c "INSERT INTO schema_version(filename) VALUES ('$(basename "$f")')
-                            ON CONFLICT DO NOTHING"
-      done
-    fi
-    for f in db/migrations/*.sql; do
-      [ -e "$f" ] || continue
-      n="$(basename "$f")"
-      DONE="$("${PSQL[@]}" -qtAc "SELECT 1 FROM schema_version WHERE filename = '$n'" | tr -d '[:space:]')"
-      [ "$DONE" = "1" ] && continue
-      echo ">> migrations: apply $n"
-      if ! "${PSQL[@]}" -q -v ON_ERROR_STOP=1 -1 -f - -c "INSERT INTO schema_version(filename) VALUES ('$n')" < "$f"; then
-        # Not fatal. The backend omits an optional column it cannot see rather than
-        # failing the request, so a replica whose migration did not take is a field
-        # short, not down -- and stopping here would leave the images unswapped as well,
-        # which is a worse state than the one being fixed.
-        echo "!! migrations: $n FAILED. Nothing from it was applied (it ran in one"
-        echo "   transaction). The deploy continues; fix it before relying on that column."
-      fi
-    done
-  else
+  if ! "${PSQL[@]}" -qtAc "SELECT 1" >/dev/null 2>&1; then
     echo ">> migrations: skipped -- no reachable db service in this compose project."
+    return 0
   fi
+  "${PSQL[@]}" -q -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS schema_version (
+      filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())" || {
+    echo "!! migrations: could not create the ledger table. Skipping."
+    return 0
+  }
+
+  # An empty ledger on a database that already has tables means this box predates the
+  # ledger. Record what is on disk WITHOUT replaying it -- the same bootstrap the
+  # extraction migrate role does, and for the same reason: the base files already carry
+  # every migration whose effect was folded back into them, so a second ADD CONSTRAINT
+  # would be an error rather than a no-op.
+  HAVE_LEDGER="$("${PSQL[@]}" -qtAc "SELECT NOT EXISTS (SELECT 1 FROM schema_version)" 2>/dev/null | tr -d '[:space:]')"
+  HAVE_TABLES="$("${PSQL[@]}" -qtAc "SELECT to_regclass('serving.competitors') IS NOT NULL" 2>/dev/null | tr -d '[:space:]')"
+  if [ "$HAVE_LEDGER" = "t" ] && [ "$HAVE_TABLES" = "t" ]; then
+    echo ">> migrations: recording the schema on disk as this database's starting point"
+    for f in db/[0-9][0-9]_*.sql db/migrations/*.sql; do
+      [ -e "$f" ] || continue
+      "${PSQL[@]}" -q -c "INSERT INTO schema_version(filename) VALUES ('$(basename "$f")')
+                          ON CONFLICT DO NOTHING" >/dev/null 2>&1
+    done
+  fi
+
+  for f in db/migrations/*.sql; do
+    [ -e "$f" ] || continue
+    n="$(basename "$f")"
+    DONE="$("${PSQL[@]}" -qtAc "SELECT 1 FROM schema_version WHERE filename = '$n'" 2>/dev/null | tr -d '[:space:]')"
+    if [ "$DONE" = "1" ]; then
+      continue
+    fi
+    echo ">> migrations: apply $n"
+    # -1 puts the file AND its ledger row in ONE transaction, so a migration that fails
+    # half way leaves neither the change nor a row claiming it was made.
+    if ! "${PSQL[@]}" -q -v ON_ERROR_STOP=1 -1 -f - -c "INSERT INTO schema_version(filename) VALUES ('$n')" < "$f"; then
+      echo "!! migrations: $n FAILED. Nothing from it was applied (it ran in one"
+      echo "   transaction). The deploy continues; fix it before relying on that column."
+    fi
+  done
+  return 0
+}
+
+if [ "$KSSL_ENV_NAME" != "prod" ] && [ -d db/migrations ]; then
+  _apply_pending_migrations || echo "!! migrations: step did not complete. The deploy continues."
 fi
 
 echo ">> pulling images @ $SHA"
