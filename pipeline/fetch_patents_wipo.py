@@ -181,15 +181,27 @@ ART = [
     ("Nammo Germany", "nammo", "subsidiary", ""),
     ("Kongsberg Defence and Aerospace", "kongsberg", "subsidiary", ""),
     ("Kongsberg Gruppen", "kongsberg", "self", ""),
-    ("Leonardo", "idv", "self",
-     "Leonardo is not a roster row; IDV was its vehicles arm and is the tracked one"),
+    # LEONARDO IS NOT IDV'S PARENT, AND WAS LISTED HERE AS IF IT WERE.
+    #
+    # Iveco Defence Vehicles is Iveco Group's defence arm -- Iveco is its own row on
+    # the roster -- and Leonardo S.p.A. is a separate Italian prime that is not on
+    # the roster at all. The two firms share a JV (Leonardo Rheinmetall Military
+    # Vehicles) and nothing else. Querying "Leonardo" and filing the results under
+    # `idv` attributed one company's patents to another, which is the exact failure
+    # this module's attribution gate exists to stop: an applicant of record is the
+    # owner, and a JV partner is not.
     ("Iveco Defence Vehicles", "idv", "self", ""),
+    ("Iveco", "iveco", "self", ""),
     ("Otokar Otomotiv ve Savunma Sanayi", "otokar", "self", ""),
     ("Otokar", "otokar", "self", ""),
     ("Supacat", "supacat", "self", ""),
     ("Roshel", "roshel", "self", ""),
-    ("Huta Stalowa Wola", "paramount-group", "self",
-     "HSW is not a roster row; kept out unless it is added -- see the proposal file"),
+    # Huta Stalowa Wola stood here mapped to `paramount-group`, with a note saying it
+    # was "kept out unless it is added". The note was not the code: an ART entry IS
+    # the allow-list, so every HSW patent would have been stored as Paramount's. HSW
+    # is a Polish state manufacturer and Paramount is South African. It belongs in
+    # the proposal file with the other unresolved applicants, which is where an
+    # applicant that resolves to nothing already goes.
 
     ("Elbit Systems", "elbit-systems", "self", ""),
     ("Elbit Systems Land", "elbit-systems", "subsidiary", ""),
@@ -592,6 +604,29 @@ def gate(rows):
     return out, refusals
 
 
+def regate(rows):
+    """Re-check every stored row against the CURRENT allow-list.
+
+    The ledger never shrinks, which is the right rule for a harvest -- and the wrong
+    one for a mistake. Two entries in ART were false ownership claims: "Leonardo"
+    filed under `idv`, and Huta Stalowa Wola under `paramount-group`. Rows harvested
+    before those were removed would otherwise sit in the ledger forever, because a
+    union merge has no way to know an old row is now inadmissible.
+
+    So the allow-list is applied again to what is already stored, and a row whose
+    assignee no longer resolves -- or resolves to a different company -- is dropped
+    rather than kept on the strength of having once been accepted.
+    """
+    keep, dropped = [], []
+    for r in rows:
+        cid, _alias = resolve(r.get("assignee") or "")
+        if cid and cid == r.get("comp_id"):
+            keep.append(r)
+        else:
+            dropped.append((r.get("assignee"), r.get("comp_id"), cid))
+    return keep, dropped
+
+
 def merge_ledger(new):
     """Union-merge, keyed by number. The ledger never shrinks: a partial run once
     overwrote a full one and cost 10,548 rows."""
@@ -766,6 +801,16 @@ def main():
         return demo()
     if a.load:
         rows = json.load(io.open(LEDGER, encoding="utf-8"))
+        # THE ALLOW-LIST IS APPLIED AGAIN ON THE WAY OUT, not only on the way in.
+        # A row harvested under an ART entry that has since been found wrong is still
+        # in the ledger -- the union merge has no way to know it is now inadmissible.
+        # 11 Leonardo S.p.A. patents were stored as IDV's before that entry was
+        # removed, and this is what takes them off the tab.
+        rows, stale = regate(rows)
+        if stale:
+            print("dropped %d row(s) the allow-list no longer admits" % len(stale))
+            json.dump(rows, io.open(LEDGER, "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=1)
         n = write_db(rows)
         print("wrote %d rows from the ledger to serving.patent (%d companies)"
               % (n, len(set(r.get("comp_id") for r in rows))))
@@ -801,6 +846,18 @@ def main():
     ledger = kept
     if kept:
         ledger = merge_ledger(kept)
+        ledger, stale = regate(ledger)
+        if stale:
+            print("\n  %d stored row(s) no longer pass the allow-list:" % len(stale))
+            seen = set()
+            for who, was, now in stale:
+                k = (who, was)
+                if k in seen:
+                    continue
+                seen.add(k)
+                print("    %-46s was %-18s now %s" % ((who or "")[:46], was, now))
+            json.dump(ledger, io.open(LEDGER, "w", encoding="utf-8"),
+                      ensure_ascii=False, indent=1)
         print("ledger: %s (%d rows, %d companies)"
               % (LEDGER.name, len(ledger),
                  len(set(r.get("comp_id") for r in ledger))))
