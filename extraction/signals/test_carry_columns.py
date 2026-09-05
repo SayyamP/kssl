@@ -38,6 +38,10 @@ SAMPLE = {
     "global_locations": [{"country": "India"}],
     "company_size": "5,000 employees",
     "strategic_positioning": "a sentence about positioning",
+    # Added with the column in c9a8240. This file asserts a sample for EVERY carried
+    # column and raises KeyError without one -- invisible in CI, which has no database
+    # and skips, and a hard failure for anyone running it against a real one.
+    "country": "India",
     "partners": [{"id": "saab", "label": "Saab", "ptype": "Joint venture",
                   "rel": "jv", "note": "a tie a human wrote", "origin": "revived"}],
     "hq": "Pune, India",
