@@ -187,12 +187,86 @@ def dataset():
         return _dataset(_st)
 
 
+# AN OPTIONAL FIELD MUST SURVIVE ITS MIGRATION NOT HAVING RUN YET.
+#
+# deploy.sh does not apply migrations. On any environment. The only thing that
+# does is sync_from_prod.sh, and it says so in its own comment. So the moment a
+# commit adds a column to one of the lists above AND ships db/migrations/*.sql
+# for it, the next deploy puts a backend that selects that column in front of a
+# database that has not got it -- and because the competitors query is the FIRST
+# one in _dataset, psycopg2's UndefinedColumn took down the entire dashboard, not
+# the one field. That is what "Could not load the KSSL dataset - 500" was on
+# staging on 2026-09-06, from `country`.
+#
+# OPT already means "omit this key when the value is NULL". It now also means
+# "omit it when the column is not there yet", which is the same promise to the
+# browser -- the field is absent -- made about a schema that is a step behind
+# instead of a row that is empty.
+#
+# A NON-optional column that is missing still raises. That is not a pending
+# migration, it is a deploy badly out of step with its database, and it should be
+# loud.
+_SERVED = [
+    ("competitors", COMP_FIELDS, COMP_OPT),
+    ("competitor_news", NEWS_FIELDS, NEWS_OPT),
+    ("competitor_structure", STRUCT_FIELDS, STRUCT_OPT),
+    ("competitor_metrics", METRIC_FIELDS, METRIC_OPT),
+    ("signal_card", CARD_FIELDS, CARD_OPT),
+    ("signal_detail", DETAIL_FIELDS, DETAIL_OPT),
+    ("matchup", MATCHUP_FIELDS, MATCHUP_OPT),
+    ("tender", TENDER_FIELDS, TENDER_OPT),
+    ("innovation", INNOV_FIELDS, INNOV_OPT),
+    ("partner", PARTNER_FIELDS, PARTNER_OPT),
+]
+_reconciled = False
+
+
+def _reconcile_optional(cur, schema=None):
+    """Drop optional fields whose column does not exist in the served schema.
+
+    One query, once per process. The lists are mutated in place so that _emit,
+    which closes over the same objects, cannot disagree with the SELECT that
+    fetched the row. Returns what it dropped, so a caller can log or assert.
+    """
+    schema = schema or SCHEMA
+    cur.execute(
+        "SELECT table_name, column_name FROM information_schema.columns"
+        " WHERE table_schema = %s", (schema,))
+    have = {}
+    for r in cur.fetchall():
+        # RealDictCursor here, plain tuples in the self-check -- accept both
+        t, c = (r["table_name"], r["column_name"]) if isinstance(r, dict) else r
+        have.setdefault(t, set()).add(c)
+    dropped = {}
+    for table, fields, optional in _SERVED:
+        cols = have.get(table)
+        if cols is None:
+            # The relation itself is absent. Not this function's business: the
+            # query against it will say so, and say which one.
+            continue
+        gone = [f for f in fields if f in optional and f not in cols]
+        if gone:
+            fields[:] = [f for f in fields if f not in gone]
+            dropped[table] = gone
+    return dropped
+
+
 def _dataset(_st=None):
     # connect_timeout so a wedged database returns an error instead of hanging
     # the request until the client gives up
     conn = psycopg2.connect(DSN, connect_timeout=5)
     try:
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Before the first query that names a column: reconcile the optional
+        # fields against the schema this database actually has.
+        global _reconciled
+        if not _reconciled:
+            gone = _reconcile_optional(cur)
+            _reconciled = True
+            for _t, _f in sorted(gone.items()):
+                print("serving %s: %s not in %s yet, omitting"
+                      % (_t, ", ".join(_f), SCHEMA), file=sys.stderr, flush=True)
 
         # Interface vocabulary + PATENTS aux pieces.
         _q(cur, "SELECT key, value FROM serving.ui_config")
