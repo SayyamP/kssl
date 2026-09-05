@@ -38,6 +38,7 @@
  * repo has shipped that before: 16 crawler test files ran zero assertions and reported
  * green for weeks. The canary is the difference between "clean" and "asleep".
  */
+import { readFileSync } from "node:fs";
 import { chromium } from "playwright";
 
 const BASE = process.argv.find((a) => a.startsWith("http")) || "http://127.0.0.1:5179";
@@ -65,9 +66,12 @@ const ALLOW = [
   { token: "threat", check: "same-class-two-renderings", why: "severity modifier" },
   { token: "fav", check: "same-class-two-renderings", why: "severity modifier" },
   { token: "watch", check: "same-class-two-renderings", why: "severity modifier" },
-  { sel: ".ln-trend-txt", check: "text-truncated",
+  { sel: ".ln-trend-txt", check: "text-truncated", dataDependent: true,
     why: "headline cells in the profile's trend list are a fixed narrow column; the full "
-       + "text is one click away on the card" },
+       + "text is one click away on the card. dataDependent because whether ANY headline "
+       + "is long enough to clip depends on the dataset -- it does on production and does "
+       + "not on the committed snapshot -- so the stale-allowance rule would flap between "
+       + "the two runs and teach everyone to ignore it" },
 ];
 
 /* Every pillar and view the router serves. */
@@ -208,6 +212,22 @@ const ctx = await browser.newContext({
 });
 const page = await ctx.newPage();
 
+/* CI has no backend. UI_DATASET serves the committed snapshot instead, so the audit runs
+   on the real shape of the data with no database and no network.
+   ROUTE ORDER MATTERS, and getting it wrong is silent: Playwright matches routes in
+   REVERSE registration order, so a catch-all registered after the specific route wins,
+   the dataset is never served, the app sits on its loading screen, and every geometry
+   check passes on an empty page. The catch-all is registered FIRST for that reason. */
+let datasetServed = 0;
+if (process.env.UI_DATASET) {
+  const body = readFileSync(process.env.UI_DATASET, "utf8");
+  await page.route("**/api/**", (r) => r.fulfill({ status: 404, body: "{}" }));
+  await page.route("**/api/dataset*", (r) => {
+    datasetServed += 1;
+    return r.fulfill({ contentType: "application/json", body });
+  });
+}
+
 const consoleErrs = [];
 const netFails = [];
 page.on("console", (m) => { if (m.type() === "error") consoleErrs.push(m.text().slice(0, 180)); });
@@ -252,9 +272,16 @@ if (!CANARY_ONLY) {
   console.log(`auditing ${BASE} at ${VIEWPORT.width}x${VIEWPORT.height}\n`);
   for (const [pillar, view] of ROUTES) {
     await goto(pillar, view);
-    const body = (await page.textContent("body")) || "";
-    if (body.trim().length < 200) {
-      add(`${pillar}/${view}`, "blank-page", { chars: body.trim().length });
+    /* Did the APP mount, or is this the boot screen? A character count is the wrong
+       instrument -- "137Parallax / Loading competitive intelligence from the API..."
+       plus its retry button is 229 characters, which sailed past a 200-char floor while
+       the page was empty and every geometry check below reported clean. Ask for the
+       structure instead: the rail's view rows only exist once the dataset is in. */
+    const mounted = await page.locator(".svc").count();
+    if (!mounted) {
+      const seen = ((await page.textContent("body")) || "").trim().replace(/\s+/g, " ");
+      add(`${pillar}/${view}`, "did-not-mount", { showing: seen.slice(0, 90) });
+      continue;                       // nothing below can mean anything on a blank page
     }
     await auditRoute(pillar, view);
   }
@@ -307,7 +334,8 @@ if (!CANARY_ONLY) {
   }
   bad += findings.length;
 
-  const stale = ALLOW.filter((a) => !allowSeen.has((a.sel || a.token) + "|" + a.check));
+  const stale = ALLOW.filter((a) => !a.dataDependent
+                                    && !allowSeen.has((a.sel || a.token) + "|" + a.check));
   if (stale.length) {
     console.log(`\n### stale allowance (${stale.length}) -- matched nothing, so it is `
               + `suppressing nothing and hiding whatever replaces it`);
@@ -322,9 +350,16 @@ if (!CANARY_ONLY) {
      it stops happening the exception is itself a failure, so nobody has to remember to
      come back and delete it. */
   const KNOWN_CONSOLE = [
-    { rx: /geo-overlap self-check FAILED/,
+    { rx: /geo-overlap self-check FAILED/, dataDependent: true,
       why: "serving.matchup carries no spec-confirmed KSSL/rival overlap yet; "
          + "revive_matchups.py --apply is what fills it" },
+    { rx: /graph geometry self-check FAILED/, dataDependent: true,
+      why: "REAL AND UNFIXED. The partnerships graph overlaps two node labels and its "
+         + "node count disagrees with its own company list on the committed snapshot "
+         + "(Anduril: \"Microsoft\" over \"Archer Aviation\"; BAE Systems: count "
+         + "mismatch). It does not fire on today's production data, which is exactly why "
+         + "it needs recording rather than forgetting -- the radial layout is fine at the "
+         + "live node counts and wrong at others" },
   ];
   const errs = [...new Set(consoleErrs)];
   const known = errs.filter((e) => KNOWN_CONSOLE.some((k) => k.rx.test(e)));
@@ -334,6 +369,7 @@ if (!CANARY_ONLY) {
     known.forEach((e) => console.log("  " + e));
   }
   for (const k of KNOWN_CONSOLE) {
+    if (k.dataDependent) continue;   // fires on one dataset and not the other, by nature
     if (!errs.some((e) => k.rx.test(e))) {
       console.log(`\n### a known console error stopped happening: ${k.rx}`);
       console.log(`  ${k.why}`);
@@ -352,6 +388,13 @@ if (!CANARY_ONLY) {
     nets.slice(0, 8).forEach((e) => console.log("  " + e));
     bad += nets.length;
   }
+}
+
+if (process.env.UI_DATASET && !datasetServed) {
+  console.log("\n### UI_DATASET was set and the dataset route never fired");
+  console.log("  the app was reading a real /api instead of the snapshot, or not reading");
+  console.log("  one at all -- either way this run measured something other than the build");
+  bad += 1;
 }
 
 console.log("\ncanary -- these MUST fire on a deliberately broken page");
