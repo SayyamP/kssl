@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import AskBox from "../askBox/AskBox";
+import { statementRows } from "../../lib/detail";
 import { srcChips, attr } from "../../lib/html";
 import { formatLabel } from "../../lib/profile";
 import { useData } from "../../state/DataProvider";
@@ -52,6 +53,7 @@ export default function DetailPanel({ detail, onClose }) {
   const facts = (detail.facts || []).filter(
     (f) => !DROPPED_FACTS.has(String(f[0]).trim().toLowerCase()),
   );
+  const statements = statementRows(detail.lens);
 
   return (
     <div className="ctx v-overview revealed">
@@ -115,6 +117,27 @@ export default function DetailPanel({ detail, onClose }) {
             <div className="cd-prose" dangerouslySetInnerHTML={{ __html: detail.what }} />
           </div>
         )}
+
+        {/* The statements the record already carried and nothing rendered: up to six
+            propositions from the extraction layer, each shown WITH the article sentence
+            that proves it. They are the article's own words, in the article's own
+            language -- a signal off an Italian or Polish source reads in Italian or
+            Polish here, and translating it would be putting words the publisher never
+            wrote inside quotation marks. */}
+        {!isTender && statements.length ? (
+          <div className="ctx-sec">
+            <span className="eyebrow">What the article says</span>
+            <div className="cd-stmts">
+              {statements.map((s, i) => (
+                <div
+                  className="cd-stmt"
+                  dangerouslySetInnerHTML={{ __html: s }}
+                  key={`stmt-${i}`}
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {isTender && detail.match && detail.match.length ? (
           <div className="ctx-sec">

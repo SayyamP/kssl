@@ -228,6 +228,13 @@
   .ctx-sec .eyebrow{display:block;margin-bottom:12px;color:var(--l-txt-3)}
   .cd-prose{font-size:13px;line-height:1.62;color:var(--l-txt-2);word-break:break-word;overflow-wrap:anywhere}
   .cd-prose b{color:var(--l-txt);font-weight:600}
+  /* the extraction layer's statements, each with the sentence that proves it.
+     A left rule instead of a bullet: these are quotations, not a list. */
+  .cd-stmts{display:flex;flex-direction:column;gap:9px}
+  .cd-stmt{font-size:12px;line-height:1.55;color:var(--l-txt-2);
+    padding-left:9px;border-left:2px solid var(--d-bd,rgba(128,128,128,.35));
+    word-break:break-word;overflow-wrap:anywhere}
+  .cd-stmt i{color:var(--l-txt-3);font-style:italic}
   .cd-facts{display:flex;flex-direction:column;width:100%}
   .cd-frow{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:8px 0;border-bottom:1px solid var(--l-bg-2);box-sizing:border-box;width:100%}
   .cd-frow:last-child{border-bottom:none}

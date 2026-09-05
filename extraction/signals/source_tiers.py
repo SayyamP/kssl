@@ -283,5 +283,44 @@ def demo():
           % (c[1], c[2], c[3], c[0], b["editorial"]))
 
 
+# ---------------------------------------------------------------------------------
+# THE OTHER source_tiers.py, re-exported so that importing either one is correct.
+#
+# There are two files with this name. This one is the trust-tier table above (how much
+# a claim weighs). extraction/engine/source_tiers.py is the PUBLISHABILITY rule (maker /
+# government / two independent domains) and owns `domain` and `publishable`.
+#
+# Five scripts in this directory wrote `from source_tiers import domain, publishable`.
+# From here that finds THIS module, which has neither, so discover_geo.py, revive_geo.py,
+# discover_ties.py, revive_partners.py and mark_shared.py could not be imported at all --
+# in the deployed image included, which is why the geo footprint fill could not be run on
+# 2026-09-05. The same fault was found and worked around in revive_matchups.py and
+# client_portfolio.py by loading the engine module by path, one file at a time.
+#
+# Re-exporting settles it for every caller instead: whichever source_tiers you reach,
+# `tier_of` is the weight and `publishable`/`domain` are the rule. Loaded by path, not by
+# import, because `import source_tiers` from the engine directory would find this file
+# and recurse.
+def _engine():
+    import importlib.util
+    import os
+    p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "engine", "source_tiers.py")
+    spec = importlib.util.spec_from_file_location("engine_source_tiers", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+try:
+    _ENGINE = _engine()
+    domain, publishable, maker_of = _ENGINE.domain, _ENGINE.publishable, _ENGINE.maker_of
+except Exception as _e:                                               # noqa: BLE001
+    # Never take this module down with it: `tier_of` has callers that need no rule.
+    # A caller that needs `publishable` gets the ImportError it would have had anyway.
+    _ENGINE = None
+    print("source_tiers: engine rule unavailable (%s)" % _e, flush=True)
+
+
 if __name__ == "__main__":
     demo()

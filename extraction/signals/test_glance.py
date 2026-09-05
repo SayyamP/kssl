@@ -196,13 +196,25 @@ check(hasattr(sf, "glance_rows") and hasattr(sf, "reglance"),
       "serving_fill exposes glance_rows (fill) and reglance (backfill of stored cards)")
 
 
+ART = ("Reuters reports on the contract. Dataminr won a $318 million contract from the "
+       "Defense Department. Work begins in October. Anduril also bid $22 million.")
+
+
 class _Cur:
-    """Answers glance_rows' two queries: propositions with offsets, then spans."""
-    def __init__(self):
+    """Answers glance_rows' three queries: propositions with offsets, spans, then the
+    article text -- which the writer reads so a span no proposition covers can still be
+    quoted from its own sentence (glance._own_prop)."""
+    def __init__(self, article=ART):
         self.n = 0
+        self.article = article
 
     def execute(self, *_):
         self.n += 1
+
+    def fetchone(self):
+        # query 3: extracted.document.text. A document row can be absent, and the writer
+        # must survive that -- the span rows simply fall back to proposition-only.
+        return (self.article,) if self.article is not None else None
 
     def fetchall(self):
         qq = "Dataminr won a $318 million contract from the Defense Department."
@@ -221,6 +233,15 @@ check(rows == [["Deal value", "$318 million",
                 "Dataminr won a $318 million contract from the Defense Department."]],
       "glance_rows through the writer: %r" % rows)
 check(st.get("glance_refused", 0) >= 1, "the Defense Department (not in the proposition) counted as refused: %r" % st)
+
+# The writer must ASK for the article, and must survive a document row that is missing.
+# glance_rows is the only caller that can wire the two together, so the wiring is checked
+# here rather than in glance.py's own demo.
+check("extracted.document" in src and "article=" in src,
+      "glance_rows reads the article text and passes it to glance_facts")
+rows_nodoc = sf.glance_rows(_Cur(article=None), "doc", "Dataminr",
+                            "Dataminr wins $318M Pentagon contract", {})
+check(rows_nodoc == rows, "a missing document row costs the proposition-backed rows nothing")
 
 if FAILS:
     sys.exit("%d failure(s)" % len(FAILS))
