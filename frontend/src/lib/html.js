@@ -133,3 +133,16 @@ export function srcKvRow(srcs, label) {
     ? `<div class="kv"><span class="k">${label || "Sources"}</span><span class="v">${h}</span></div>`
     : "";
 }
+
+/* Escape for a served field that is ALLOWED to carry inline markup -- the pipeline
+   writes a partner's `mean` with <b>Threat:</b> / <b>Opening:</b> labels, and the
+   drawer's synthesis path parses those very tags. Everything is escaped, then the
+   bare inline tags come back: b, i, em, strong, br, with no attributes. A tag that
+   carries an attribute, and any other tag, stays text -- a served string is data. */
+export function escRich(s) {
+  /* Balanced pairs only: an opener with an attribute stays text, and so does its
+     closer, so a stray </b> can never close a legitimate bold further up. */
+  return escAll(s)
+    .replace(/&lt;br\s*\/?&gt;/gi, "<br>")
+    .replace(/&lt;(b|i|em|strong)&gt;([\s\S]*?)&lt;\/\1&gt;/gi, "<$1>$2</$1>");
+}
