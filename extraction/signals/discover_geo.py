@@ -203,6 +203,21 @@ def sync_geo_comps(cur, comps):
                     (c["cid"], GEO_ORD0 + len(comps), c["name"], c["dir"] or "watch",
                      c["hq"], c["dir"] == "client"))
         made += cur.rowcount
+        # The client's row has to be VISIBLE, and serving_live.* is origin='pipeline'
+        # only. Its geo_comp row was seeded at origin='reference', so the dashboard's
+        # geoComps carried no isBf company at all and the map could not plot the client
+        # however many presence rows it had -- every market read "KSSL ABSENT". The
+        # ON CONFLICT above updates the name and the flag but not the origin, so it is
+        # said here, explicitly, for the client alone: the other reference rows on this
+        # map are curated and must stay curated.
+        #
+        # Safe because this writer owns ord >= 3000 and enrich_serving's step_geo deletes
+        # only origin='pipeline' AND ord < 2000, so the pass cannot take it; and this
+        # function writes a company row for EVERY candidate, market or no market, so the
+        # client cannot fall off the map by having a quiet week in the corpus.
+        if c["dir"] == "client":
+            cur.execute("""UPDATE serving.geo_comp SET origin='pipeline'
+                            WHERE id=%s AND origin<>'pipeline'""", (c["cid"],))
     live = {c["cid"] for c in comps}
     for gid, name, origin in rows:
         if gid in live:
@@ -210,10 +225,22 @@ def sync_geo_comps(cur, comps):
         target = orgs.key(name or gid)
         if not target or target not in live or target == gid:
             continue
-        # fold the duplicate's presence rows onto the competitor's own id
-        cur.execute("""UPDATE serving.geo_presence SET comp_id=%s
-                        WHERE comp_id=%s AND origin='pipeline'""", (target, gid))
+        # Fold the duplicate's presence rows onto the competitor's own id -- but only
+        # where the survivor does not already hold that (country, ord). geo_presence is
+        # keyed on (comp_id, country, ord), so a blanket UPDATE raises UniqueViolation the
+        # moment both ids recorded the same market at the same rank, and took the whole
+        # run down with it (hanwha-aerospace/Canada/1000, found on production 2026-09-05).
+        # A row that cannot move is the SAME market already recorded under the surviving
+        # id -- that is what makes the two ids duplicates -- so it is dropped, not kept as
+        # an orphan pointing at a geo_comp row this function is about to delete.
+        cur.execute("""UPDATE serving.geo_presence g SET comp_id=%s
+                        WHERE g.comp_id=%s AND g.origin='pipeline'
+                          AND NOT EXISTS (SELECT 1 FROM serving.geo_presence t
+                                           WHERE t.comp_id=%s AND t.country=g.country
+                                             AND t.ord=g.ord)""", (target, gid, target))
         moved += cur.rowcount
+        cur.execute("""DELETE FROM serving.geo_presence
+                        WHERE comp_id=%s AND origin='pipeline'""", (gid,))
         cur.execute("DELETE FROM serving.geo_comp WHERE id=%s AND origin='pipeline'",
                     (gid,))
     return made, moved
@@ -223,9 +250,25 @@ def main(apply=False):
     con = psycopg2.connect(DSN)
     cur = con.cursor()
     docs = load_docs(cur)
+    # The CLIENT as well as the rivals. serving.competitors keeps the client at
+    # origin='reference' -- the corpus cannot rebuild the client's own row -- so a
+    # pipeline-only query never offered it as a candidate, and the client ended with a
+    # geo_comp row (isBf=true) and ZERO presence rows. The map reads that as absence:
+    # every market showed "KSSL ABSENT - CONTESTED MARKET", including India, where the
+    # corpus carries the client's own JV announcements.
     cur.execute("""SELECT comp_id, name, dir, hq FROM serving.competitors
-                    WHERE origin='pipeline' ORDER BY ord""")
+                    WHERE origin='pipeline' OR dir='client' ORDER BY ord""")
     comps = [{"cid": r[0], "name": r[1], "dir": r[2], "hq": r[3]} for r in cur.fetchall()]
+    # ...and it must land on the id the map ALREADY plots the client under. The reference
+    # row is keyed 'KSSL' while serving.competitors keys it 'kalyani-strategic-systems';
+    # inserting under the second id would put the client on the map twice, which is the
+    # one-company-two-ids fault this module exists to fold away.
+    cur.execute("""SELECT id FROM serving.geo_comp WHERE "isBf" IS TRUE ORDER BY ord LIMIT 1""")
+    _bf = cur.fetchone()
+    if _bf:
+        for c in comps:
+            if c["dir"] == "client":
+                c["cid"] = _bf[0]
     cur.execute("SELECT DISTINCT country FROM serving.geo_presence "
                 "WHERE country IS NOT NULL")
     countries = {r[0] for r in cur.fetchall()}
