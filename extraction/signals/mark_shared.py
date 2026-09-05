@@ -131,24 +131,51 @@ class Orgs:
         return out
 
 
-def load(cur):
-    cur.execute("""SELECT comp_id, name, dir, partners FROM serving.competitors
-                    WHERE origin='pipeline' ORDER BY ord""")
-    comps = []
+def _rows(cur):
+    out = []
     for cid, name, direction, partners in cur.fetchall():
         pl = partners if isinstance(partners, list) else json.loads(partners or "[]")
-        comps.append({"cid": cid, "name": name, "dir": direction, "partners": pl})
-    cur.execute("""SELECT id, label, rel, ptype FROM serving.partner
+        out.append({"cid": cid, "name": name, "dir": direction, "partners": pl})
+    return out
+
+
+def load(cur):
+    """Rivals from the pipeline; KSSL'S OWN SIDE FROM WHEREVER IT LIVES.
+
+    THE CLIENT IS REFERENCE DATA AND ALWAYS WILL BE. KSSL's own pages (bharatforge /
+    kssl.in) are deliberately kept off VPS-B, so nothing the pipeline writes can ever
+    describe KSSL: its competitor row and all 11 rows of serving.partner are
+    origin='reference'. Both queries here filtered on origin='pipeline', which is the
+    correct filter for a rival and the exact wrong one for the client -- it returned
+    zero roster rows and no client row, so `roster_by_key` and `client_key` were
+    empty, `shared`/`koel`/`clientTie` were unreachable, and every partner on the tab
+    rendered as the green "Direct Partner" fallback. Measured on staging 2026-09-06:
+    11 roster rows, 0 of them visible to this function; 8 real overlaps (Rafael, Elbit,
+    DRDO, Saab) drawn as though KSSL had no connection to them at all.
+
+    The rival filter stays: a rival exists twice (Mahindra Defence is both 'mahindra'
+    and 'MAHINDRA'), and feeding both to Orgs would pin two ids on one organisation.
+    The client is fetched only if the pipeline did not already supply one, so the same
+    duplicate cannot appear on this side either.
+    """
+    cur.execute("""SELECT comp_id, name, dir, partners FROM serving.competitors
                     WHERE origin='pipeline' ORDER BY ord""")
+    comps = _rows(cur)
+    if not any(c["dir"] == "client" for c in comps):
+        cur.execute("""SELECT comp_id, name, dir, partners FROM serving.competitors
+                        WHERE dir='client' ORDER BY ord LIMIT 1""")
+        comps += _rows(cur)
+    cur.execute("SELECT id, label, rel, ptype FROM serving.partner ORDER BY ord")
     roster = [{"id": r[0], "label": r[1], "rel": r[2], "ptype": r[3]}
               for r in cur.fetchall()]
     return comps, roster
 
 
-def main(apply=False):
-    con = psycopg2.connect(DSN)
-    cur = con.cursor()
-    comps, roster = load(cur)
+def mark(comps, roster):
+    """Stamp cid / shared / koel / clientTie / rivalCid onto every tie, in place.
+
+    Split out of main() so the decision can be exercised without a database -- see
+    _demo(). Returns (orgs, stats)."""
     client = next((c for c in comps if c["dir"] == "client"), None)
     orgs = Orgs()
 
@@ -169,7 +196,8 @@ def main(apply=False):
             roster_by_key.setdefault(k, r)
     client_key = orgs.key(client["name"]) if client else None
 
-    stats = {"ties": 0, "keyed": 0, "shared": 0, "client": 0, "rival": 0}
+    stats = {"ties": 0, "keyed": 0, "shared": 0, "client": 0, "rival": 0,
+             "roster": len(roster), "client_row": bool(client)}
     rival_keys = {orgs.key(c["name"]): c["cid"] for c in comps
                   if c["dir"] != "client" and orgs.key(c["name"])}
     for c in comps:
@@ -194,6 +222,23 @@ def main(apply=False):
             if k in rival_keys and rival_keys[k] != c["cid"]:
                 p["rivalCid"] = rival_keys[k]
                 stats["rival"] += 1
+    return orgs, stats
+
+
+def main(apply=False):
+    con = psycopg2.connect(DSN)
+    cur = con.cursor()
+    comps, roster = load(cur)
+    orgs, stats = mark(comps, roster)
+
+    # AN EMPTY ROSTER IS A BROKEN JOIN, NOT A FINDING. With no roster rows every tie
+    # falls through to "not shared", which the tab renders as a confident green
+    # "Direct Partner" -- the failure is silent and looks like an answer. Say so.
+    if not roster:
+        print("WARNING: serving.partner is empty -- no overlap can be found, and every "
+              "tie will render as unshared. Check the roster is seeded.")
+    if not stats["client_row"]:
+        print("WARNING: no competitor row has dir='client' -- clientTie is unreachable.")
 
     print("%d tie(s), %d identified, %d also on the client roster, "
           "%d partner the client directly, %d are themselves rivals"
@@ -262,6 +307,66 @@ def _demo():
     o3.add("DRDO")
     o3.finalise()
     assert o3.key("DRDO") == "drdo", o3.key("DRDO")
+
+    # --- the red line itself, on the shape staging actually has ---------------
+    # This is the case the origin='pipeline' filter hid: KSSL's roster and KSSL's own
+    # competitor row are reference data, the rivals are pipeline data, and the overlap
+    # is only visible when both sides are loaded. Every partner below is a real row.
+    roster = [{"id": "RAFAEL", "label": "Rafael Advanced Defense Systems (KRAS JV)",
+               "rel": "jv", "ptype": "Missiles & air defence JV partner"},
+              {"id": "ELBIT", "label": "Elbit Systems (BF Elbit Advanced Systems)",
+               "rel": "jv", "ptype": "Artillery & mortar systems JV"},
+              {"id": "DRDO", "label": "DRDO (ARDE) \u2014 ATAGS program",
+               "rel": "tech", "ptype": "ATAGS co-development partner"}]
+    comps = [
+        {"cid": "kalyani-strategic-systems", "name": "Kalyani Strategic Systems",
+         "dir": "client", "partners": []},
+        {"cid": "mahindra", "name": "Mahindra Defence", "dir": "rival", "partners": [
+            {"label": "Rafael Advanced Defense Systems"},
+            {"label": "Anduril Industries"},
+            {"label": "Bharat Electronics Ltd. (BEL)"}]},
+        {"cid": "adani", "name": "Adani Defence", "dir": "rival", "partners": [
+            {"label": "Elbit Systems"},
+            {"label": "Kalyani Strategic Systems"}]},
+    ]
+    _, st = mark(comps, roster)
+    mah = {p["label"]: p for p in comps[1]["partners"]}
+    ada = {p["label"]: p for p in comps[2]["partners"]}
+
+    # THE HEADLINE OF THE WHOLE TAB: KSSL's own JV partner also arms a rival.
+    assert mah["Rafael Advanced Defense Systems"].get("shared"), \
+        "Rafael is on KSSL's roster AND is Mahindra's partner -- that is the red line"
+    assert mah["Rafael Advanced Defense Systems"]["koel"]["rel"] == "jv", \
+        "the overlap carries the roster's own relationship, not a generic one"
+    assert ada["Elbit Systems"].get("shared"), "Elbit: same shape, different rival"
+
+    # ...and a partner KSSL has no connection to stays unshared. A rule that marks
+    # everything is as useless as one that marks nothing.
+    assert not mah["Anduril Industries"].get("shared")
+    assert not mah["Bharat Electronics Ltd. (BEL)"].get("shared")
+
+    # a rival partnering with the client directly is the shortest red line there is
+    assert ada["Kalyani Strategic Systems"].get("clientTie"), \
+        "a rival whose partner IS the client must be flagged"
+
+    # EVERY identified tie carries cid, shared or not. The tab uses its presence to
+    # tell "checked, no overlap" from "never checked" -- without it the green badge
+    # is a guess. This is what 0-of-42-ties-have-cid meant on staging.
+    for c in comps[1:]:
+        for pt in c["partners"]:
+            assert pt.get("cid"), "an identified tie must be keyed even when unshared"
+    assert st["shared"] == 2 and st["client"] == 1, st
+
+    # THE REGRESSION GUARD: this is exactly what the broken query produced.
+    comps2 = [dict(c, partners=[dict(p) for p in c["partners"]]) for c in comps]
+    for c in comps2:
+        for pt in c["partners"]:
+            pt.pop("shared", None); pt.pop("koel", None); pt.pop("clientTie", None)
+    _, st2 = mark(comps2, roster=[])
+    assert st2["shared"] == 0, "no roster -> nothing can be shared (the bug)"
+    assert st2["keyed"] == st["keyed"], \
+        "...but ties are still keyed, so an empty roster is distinguishable from an " \
+        "unrun pass -- the badge needs to tell those apart"
     print("ok")
 
 

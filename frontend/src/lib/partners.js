@@ -9,7 +9,7 @@
    Built as a factory over the dataset so the shared index memo lives in a closure
    rather than on `window`.
    =================================================================== */
-import { esc, escAll, escRich, joinParts, srcChips } from "./html.js";
+import { esc, escAll, escAttr, escRich, joinParts, srcChips } from "./html.js";
 
 /* KSSL's side of the relationship decides which exposure applies. */
 export const OV_KIND = {
@@ -494,6 +494,87 @@ const confTag = (p) => {
   return c ? `<span class="tie-tag conf-${p.confidence}" title="${esc(c[1])}">${c[0]}</span>` : "";
 };
 
+/* WHAT THE TIE IS, not what kind of company the partner is.
+
+   Every card and every graph node read `p.kind` first and `p.ptype` second, and
+   `kind` holds "Foreign OEM" / "Domestic" -- a category of company, printed next to
+   the country that already says the same thing. So a 51/49 joint venture, an MoU and
+   a supply agreement all rendered as "Foreign OEM · United States", and the one thing
+   the Partnerships tab exists to show appeared nowhere on the card.
+
+   REL_LABEL is not the fallback: it is five legacy keys in serving.ui_config, and the
+   pipeline now writes ten types, so the other five fell through it to the raw key
+   ("rnd", "manufacturing"). This map is the frontend's copy of PART_TYPES in
+   enrich_serving.py, plus the legacy keys the hand-written rows still use. */
+const REL_SHORT = {
+  supply: "Supply agreement", manufacturing: "Manufacturing",
+  technology: "Technology / ToT", tech: "Technology / ToT",
+  licensing: "Licensing", rnd: "R&D / research",
+  distribution: "Distribution / reseller", jv: "Joint venture",
+  integration: "Integration / platform", strategic: "Partnership / MoU",
+  mou: "MoU", other: "Partnership", partner: "Partnership",
+};
+
+/* The tie's own words, for the card and the drawer: "Joint Venture (51% Mahindra,
+   49% Telephonics)" carries the split, and losing it to a canonical label loses the
+   only number on the card. */
+export function tieKind(p) {
+  if (!p) return "Partner";
+  return String(p.ptype || REL_SHORT[p.rel] || p.kind || "Partner");
+}
+
+/* The canonical label, for a graph node sublabel that has ~22 characters. The free
+   text goes second here and is trimmed: a node reading "Joint Venture (51% Mahin…"
+   is worse than one reading "Joint venture". */
+export function tieKindShort(p, max = 22) {
+  if (!p) return "Partner";
+  const t = String(REL_SHORT[p.rel] || p.ptype || p.kind || "Partner");
+  return t.length > max ? `${t.slice(0, max - 1).replace(/[\s,(./-]+$/, "")}\u2026` : t;
+}
+
+/* THREE ANSWERS TO ONE QUESTION: is this partner also the client's? Yes, no, and
+   nobody has looked.
+
+   The roster badge had two states, so "nobody has looked" rendered as a confident
+   green "Direct Partner" -- and because the overlap marking (mark_shared.py) was
+   wired into no pass, that was EVERY partner on the tab, including the four that
+   really are shared. Rafael is KSSL's own KRAS JV partner and Mahindra Defence's;
+   it drew green.
+
+   mark_shared stamps `cid` on every tie it can identify, shared or not, so the
+   ABSENCE of cid is the signal that the join has not run -- which is what
+   distinguishes "checked, no overlap" from "never checked". */
+export function overlapState(p) {
+  const rows = (p && p.rows) || [];
+  if (!p) return "unchecked";
+  if (p.koel || p.shared || rows.some((r) => r.koel || r.shared)) return "shared";
+  if (p.cid || rows.some((r) => r.cid)) return "direct";
+  return "unchecked";
+}
+
+const OVERLAP_BADGE = {
+  shared: ["rgba(239, 68, 68, 0.12)", "#dc2626", "rgba(239, 68, 68, 0.3)", "Overlapping Partner"],
+  direct: ["rgba(34, 197, 94, 0.12)", "#16a34a", "rgba(34, 197, 94, 0.3)", "Direct Partner"],
+  unchecked: ["rgba(120, 118, 110, 0.10)", "#6b6a63", "rgba(120, 118, 110, 0.28)", "Overlap Unchecked"],
+};
+
+/* A BADGE ON EVERY CARD SAYING THE SAME THING IS NOT A BADGE. The overlap flag is an
+   exception marker -- eight of forty-two ties on staging -- and rendering the other
+   thirty-four as a green "Direct Partner" spent the most prominent slot on the card
+   restating the norm, which is how the relationship type ended up with nowhere to go.
+   The green state is the absence of a badge; `ov-direct` still exists as a class for
+   the graph and for tests, it just does not print a label. */
+export function overlapBadge(p, clientName) {
+  const state = overlapState(p);
+  if (state === "direct") return "";
+  const [bg, fg, br, text] = OVERLAP_BADGE[state];
+  const who = clientName || "the client";
+  const title = state === "shared"
+    ? `${(p && p.label) || "This partner"} is also on ${who}'s own partner roster.`
+    : `Not yet matched against ${who}'s roster -- whether it is shared is unknown.`;
+  return `<span class="ov-badge ov-${state}" title="${escAttr(title)}" style="font-family: var(--mono); font-size: 9.5px; background: ${bg}; color: ${fg}; border: 1px solid ${br}; padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;">${text}</span>`;
+}
+
 export function createPartners(d) {
   const { competitors, KSSL_PARTNERS, REL_LABEL, FIELDSYN, COMPSYN, TRACEIDS, sourceRegistry } = d;
   const CLIENT_CID = (d.client && d.client.id) || "KSSL";
@@ -802,7 +883,7 @@ const PG_IMG_ONERROR =
           p,
           label: full,
           text: full.length > PG_LBL_MAX ? full.slice(0, PG_LBL_MAX - 1) : full,
-          sub: p.isOverlap ? "Overlapping Partner" : String(p.kind || "Partner"),
+          sub: tieKindShort(p),
           r: idx === 0 ? 19 : 15,
           lead: idx === 0,
           cluster: cKey,
@@ -850,7 +931,7 @@ const PG_IMG_ONERROR =
           ? `${fullLabel.slice(0, PG_LBL_MAX - 1).replace(/[\s,(./-]+$/, "")}…`
           : fullLabel,
       );
-      const kindText = p.isOverlap ? "Overlapping Partner" : esc(p.kind || "Partner");
+      const kindText = esc(tieKindShort(p));
       const lx = f1(nd.lbl.x);
       const ly = nd.lbl.y;
       const textAnchor = nd.lbl.anchor;
@@ -858,7 +939,7 @@ const PG_IMG_ONERROR =
       // the label stays inside the node's own group: hover, dim and select key on it
       nodeHtml +=
         `<g class="pg-node ptr ${p.isOverlap ? "overlap" : "direct"} rel-${escAll(p.rel || "other")}${p.status === "ended" ? " st-ended" : ""}" data-id="${p.id}" data-cluster="${nd.cluster}">` +
-        `<title>${labelText} — ${p.isOverlap ? "Overlapping Partner" : kindText}${p.status === "ended" ? " (ended)" : ""}</title>` +
+        `<title>${labelText} — ${esc(tieKind(p))}${p.isOverlap ? " — also on the client's own roster" : ""}${p.status === "ended" ? " (ended)" : ""}</title>` +
         `<circle class="halo" cx="${nx}" cy="${ny}" r="${f1(nd.halo)}" fill="none" stroke="${strokeColor}" stroke-width="1.3" opacity="0.35" />` +
         `<circle class="net-circle" cx="${nx}" cy="${ny}" r="${f1(nd.r)}" fill="${fillColor}" stroke="#cfd3da" stroke-width="1.2" stroke-opacity="0.42" />` +
         `<text class="lbl-ptr-title" x="${lx}" y="${f1(ly)}" text-anchor="${textAnchor}">${labelText}</text>` +
@@ -1532,19 +1613,15 @@ const PG_IMG_ONERROR =
 
     h += `<div style="display: flex; flex-direction: column; gap: 10px; padding: 16px 18px;">`;
     parts.forEach((p) => {
-      const isShared = p.koel || p.shared || (p.rows && p.rows.some((r) => r.koel || r.shared));
-      const isOverlap = !!isShared;
-      const statusBadge = isOverlap
-        ? `<span style="font-family: var(--mono); font-size: 9.5px; background: rgba(239, 68, 68, 0.12); color: #dc2626; border: 1px solid rgba(239, 68, 68, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;">Overlapping Partner</span>`
-        : `<span style="font-family: var(--mono); font-size: 9.5px; background: rgba(34, 197, 94, 0.12); color: #16a34a; border: 1px solid rgba(34, 197, 94, 0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;">Direct Partner</span>`;
+      const statusBadge = overlapBadge(p, clientName);
 
-      const kindText = esc(p.kind || p.ptype || REL_LABEL[p.rel] || "Partner");
+      const kindText = esc(tieKind(p));
       const noteText = esc(p.note || p.insight || "Strategic defense manufacturing and supply tie.");
 
       h +=
         `<div class="pg-partner-roster-card" data-pid="${escAll(p.id)}" style="padding: 14px; background: #ffffff; border: 1px solid #e2e0d8; border-radius: 8px; cursor: pointer; transition: all 0.15s ease-in-out; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);">` +
         `<div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: nowrap; width: 100%;">` +
-        `<span style="font-size: 13.5px; font-weight: 700; color: #161614; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;" title="${esc(p.label)}">${esc(p.label)}</span>` +
+        `<span style="font-size: 13.5px; font-weight: 700; color: #161614; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0;" title="${escAttr(p.label)}">${esc(p.label)}</span>` +
         `${statusBadge}` +
         `</div>` +
         `<div style="display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10.5px; color: #6b6a63;">` +

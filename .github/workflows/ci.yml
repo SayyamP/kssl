@@ -154,6 +154,13 @@ jobs:
           cd extraction/signals
           python serving_fill.py --demo
           python enrich_serving.py --demo
+          # The overlap join behind the red line -- "this rival's partner is also
+          # KSSL's". Its two queries filtered on origin='pipeline', which is right for
+          # a rival and wrong for the client: KSSL's own rows are reference data by
+          # design, so the roster came back empty and every partner on the tab rendered
+          # as an unqualified green "Direct Partner". The demo now runs the real
+          # decision over the real staging shape, with no database.
+          python mark_shared.py --demo
           for t in test_*.py; do
             echo "== $t"
             python "$t"
@@ -183,6 +190,13 @@ jobs:
       - name: A tie is only active as of the article it was read from
         working-directory: frontend
         run: node test_status_asof.mjs
+
+      # The roster badge answers "is this rival's partner also KSSL's?" and had two
+      # answers for a three-answer question, so "the overlap join never ran" rendered
+      # as a confident green "Direct Partner" -- on every partner on the tab.
+      - name: Absence of a check is not a finding
+        working-directory: frontend
+        run: node test_overlap_badge.mjs
 
       - name: Build the bundle and serve it
         working-directory: frontend
