@@ -105,21 +105,34 @@ done
 # recreates containers whose image actually changed, so a push that didn't touch
 # extraction/ is a no-op. restart: unless-stopped + the feeder's lease reaping make a
 # rolling recreate safe (in-flight leases expire and requeue).
-# A REPLICA MAY LEGITIMATELY HAVE NO EXTRACTION CONFIG. provision_env.sh brings a staging
-# or dev host up with the database only -- "extraction is intentionally NOT started", since
-# those fleets share the farms with production's -- and extraction/.env is what every
-# `docker compose` under extraction/ needs to parse at all. Without this check the block
-# below fails on such a host and, now that its failure is no longer swallowed, turns every
-# replica deploy red. It also made provisioning circular: the deploy could not run until
-# the file existed, and the file arrives with the source the deploy transfers.
+# WHO RUNS A FLEET IS A PROPERTY OF THE ENVIRONMENT, NOT AN ACCIDENT OF WHICH FILES EXIST.
+# KSSL_EXTRACTION=on is set in deploy/envs/prod.env and nowhere else, so production behaves
+# exactly as before and a replica stays quiet.
 #
-# Deliberately NOT silent, and deliberately not a failure: on production the file is always
-# there, so a missing one here means someone is looking at a replica that has never been
-# given LLM credentials.
-if [ -f extraction/docker-compose.yml ] && [ ! -f extraction/.env ]; then
-  echo ">> extraction: skipped — no extraction/.env on this host."
-  echo "   That is expected on a freshly provisioned $KSSL_ENV_NAME box (the fleet is not"
-  echo "   started there by default). Run deploy/provision_env.sh $KSSL_ENV_NAME to create it."
+# This used to key off the ABSENCE of extraction/.env, which held only by luck. The moment
+# that file was created on VPS-A -- and it had to be, because the `migrate` role
+# sync_from_prod.sh runs needs it to parse the compose file at all -- the next staging
+# deploy would have started 18 containers there: 4 + 4 workers, 6 signals, feeder, cards,
+# enrich and layerb. On a box that also carries the crawler and the comprehension
+# dashboards, running against an extraction/.env whose OLLAMA_API_KEY is empty and whose
+# corpus DSN still says CHANGEME. They could not have done any work; they would only have
+# spun and failed.
+#
+# So the documented intent -- "extraction is intentionally NOT started" on a replica -- is
+# now something the code states rather than something two unrelated facts happen to imply.
+# To run a fleet on a replica deliberately: set KSSL_EXTRACTION=on in that environment's
+# file and fill in the LLM block of extraction/.env first.
+if [ -f extraction/docker-compose.yml ] && [ "${KSSL_EXTRACTION:-}" != "on" ]; then
+  echo ">> extraction: skipped — $KSSL_ENV_NAME does not run a fleet."
+  echo "   These fleets share the farms with production's, so a replica stays out of the way."
+  echo "   To run one here: set KSSL_EXTRACTION=on in deploy/envs/$KSSL_ENV_NAME.env and give"
+  echo "   extraction/.env real LLM credentials (see extraction/.env.example)."
+elif [ -f extraction/docker-compose.yml ] && [ ! -f extraction/.env ]; then
+  # KSSL_EXTRACTION=on but no config to run it with. Still not a failure -- it is a
+  # misconfiguration to report, not a reason to fail a deploy that already swapped the
+  # frontend and backend.
+  echo ">> extraction: KSSL_EXTRACTION=on but this host has no extraction/.env — skipping."
+  echo "   Run deploy/provision_env.sh $KSSL_ENV_NAME, then fill in its LLM block."
 elif [ -f extraction/docker-compose.yml ]; then
   # The scale comes from `deploy.replicas` in extraction/docker-compose.yml -- do NOT pass
   # --scale here. This block used to read the live count and re-apply it, from before the
