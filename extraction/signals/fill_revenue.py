@@ -65,6 +65,18 @@ SPECULATIVE = re.compile(r"\bpro[- ]forma\b|\bpredict\w*|\bguidance\b|\bforecast
                          r"|\boutlook\b|\bprojection\w*|\bcould (?:reach|replace|hit)\b"
                          r"|\bwill (?:reach|hit|grow to)\b|\bby 20[3-9]\d\b"
                          r"|\btargeting\b|\bambition\b", re.I)
+# NAMING A COMPANY IS NOT ATTRIBUTING A NUMBER TO IT. Both figures a scan of 975 SIPRI
+# documents produced were somebody else's: "Raytheon (the 4th largest) and UTC (the 11th
+# largest) COMBINED a total revenue of $94 billion" is two companies added together, and
+# "Nexter bought Mecar and Simmel Difesa -- but THESE COMPANIES represent only around
+# EUR 210 million of revenue ... and EUR 36 million" is what the acquired firms earn.
+# Both sentences name the competitor and then hand the money to someone else.
+SUBJECT_SHIFT = re.compile(
+    r"\bcombined\b|\btogether\b|\bjointly\b|\bcombined revenues?\b"
+    r"|\bthese companies\b|\bboth companies\b|\bthe two companies\b|\brespectively\b"
+    r"|\beach of\b|\bbetween them\b|\bthe pair\b"
+    r"|\b(?:bought|acquired|purchased|takeover of|acquisition of)\b", re.I)
+
 # The lettered codes need a left boundary or `Rs` matches inside "Registe(rs)" -- this
 # repo's FORCE / "Air Force" bug. The symbols must not take one: they are not word chars.
 # A currency this list does not know is worse than no currency at all: "increasing its
@@ -125,11 +137,13 @@ def figures(obj, quote):
     """[(value, period)] -- the annual revenue figures this evidence states."""
     if NOT_ANNUAL.search(quote or "") or SPECULATIVE.search(quote or ""):
         return []
+    if SUBJECT_SHIFT.search(quote or ""):
+        return []                     # the sentence names it and pays someone else
     out = []
     for text in (obj or "", quote or ""):
         if not REVENUE.search(text) or NOT_ANNUAL.search(text):
             continue
-        if SPECULATIVE.search(text):
+        if SPECULATIVE.search(text) or SUBJECT_SHIFT.search(text):
             continue
         years = [(m.start(), m.group(0).strip()) for m in YEAR.finditer(text)]
         line_ccy = CCY_RX.search(text)
@@ -386,6 +400,16 @@ def _demo():
     assert not figures("", "In 2020, Otokar exports amounted to US$307 Million, "
                            "accounting for 75% of our annual revenues"), \
         "an export figure is not the company's revenue"
+
+    # NAMING A COMPANY IS NOT ATTRIBUTING A NUMBER TO IT. Both of these are verbatim
+    # from SIPRI commentary, and both hand the money to someone other than the subject.
+    assert not figures("", "As for Raytheon (the 4th largest) and UTC (the 11th largest), "
+                           "they combined a total revenue of $94 billion in 2018"), \
+        "two companies added together is not one company's revenue"
+    assert not figures("", "in 2014, French state-owned Nexter bought Mecar and Simmel "
+                           "Difesa -- but these companies represent only around EUR 210 "
+                           "million of revenue and EUR 36 million of revenue"), \
+        "the acquired firms' revenue is not the acquirer's"
 
     assert year_of("In 2021") == 2021 and year_of("FY 2024-25") == 2025
     assert year_of("") == 0, "an undated figure sorts last"
