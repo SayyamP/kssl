@@ -238,6 +238,15 @@ def same_org(subject, name):
     removed decides it: corporate-structure words are the same firm, and anything
     else ("Space and Airborne Systems", "Missiles & Defense") names a business unit
     whose revenue is a SUBSET, the same reason `arms revenues` is refused above.
+
+    THE PARENT IS NOT THE SUBSIDIARY EITHER, and that direction is deliberately left
+    unbridged. Several roster entities are the defence arm of a bigger group -- Oshkosh
+    Defense, Mahindra Defence, Adani Defence -- while the corpus only ever names the
+    parent ("Oshkosh Corp."). Neither of SIPRI's two figures for the parent belongs in
+    this column: total revenue overstates the arm about fivefold (Oshkosh Corp.'s
+    US$10,730m for 2024 is mostly JLG access equipment and fire trucks), and arms
+    revenue would make one row mean "defence segment" while every other row means
+    "whole company". Asked on 2026-09-06, the answer was a dash. Leave it a dash.
     """
     own = set(fold_name(name).split())
     extra = [t for t in fold_name(subject).split() if t not in own]
