@@ -18,13 +18,22 @@ import Products from "../../pages/competitive/Products";
 import Innovation from "../../pages/technology/Innovation";
 import { useAppState, isOverview } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
-import { metricsFor, tilePredicate, TILE_LABELS, bucketTenders } from "../../lib/overview";
+import { metricsFor, tilePredicate, readFeedSeq, writeFeedSeq, TILE_LABELS, bucketTenders } from "../../lib/overview";
 import { marketMetrics } from "../../lib/marketOverview";
 
 const PILLAR_OF_VIEW = {
   overview: "competitive",
   "m-overview": "market",
   "t-overview": "technology",
+};
+
+/* sessionStorage, guarded: a private window throws on the property itself */
+const pageStore = () => {
+  try {
+    return typeof window !== "undefined" ? window.sessionStorage : null;
+  } catch (e) {
+    return null;
+  }
 };
 
 export default function Layout() {
@@ -34,19 +43,29 @@ export default function Layout() {
   /* Overview state lives here because two pieces of chrome above the feed depend on
      it: the subhead's filter row and the shell's third column, which collapses when
      nothing is selected. */
-  const [seqMode, setSeqMode] = useState("priority");
+  const overviewPillar = isOverview(view) ? PILLAR_OF_VIEW[view] || pillar : pillar;
+  const cfg = data.overviewConfig[overviewPillar] || data.overviewConfig.competitive;
+
+  /* The sequence is remembered per pillar for the session (sessionStorage, beside the
+     remembered page). It was React state only, so a reload put the reader back on
+     "Priority" -- and because the remembered page is keyed by the sequence, the page
+     that survived the reload was page 1 of a sequence they had not chosen. */
+  const [seqMode, setSeqModeState] = useState(() => readFeedSeq(pageStore(), overviewPillar));
+  const setSeqMode = (mode) => {
+    setSeqModeState(mode);
+    writeFeedSeq(pageStore(), overviewPillar, mode);
+  };
   const [dirFilter, setDirFilter] = useState("all");
   const [tile, setTile] = useState(null);
   const [hasSelection, setHasSelection] = useState(false);
 
-  const overviewPillar = isOverview(view) ? PILLAR_OF_VIEW[view] || pillar : pillar;
-  const cfg = data.overviewConfig[overviewPillar] || data.overviewConfig.competitive;
-
-  // switching pillar resets the feed controls, as the original rebuild did
+  // switching pillar resets the feed controls, as the original rebuild did -- and
+  // picks up that pillar's own remembered sequence
   useEffect(() => {
     setDirFilter("all");
     setTile(null);
     setHasSelection(false);
+    setSeqModeState(readFeedSeq(pageStore(), overviewPillar));
   }, [overviewPillar, view]);
 
   // the assistant's context line follows the view when nothing is selected in it
@@ -165,7 +184,14 @@ export default function Layout() {
       case "innovation":
         return <Innovation />;
       default:
-        return null;
+        /* parseRoute repairs an unknown view before it reaches here, so this is the
+           safety net for a view the switch above has lost. It says so rather than
+           rendering the rail beside an empty pane. */
+        return (
+          <div className="empty-note" style={{ padding: "48px 24px" }}>
+            {`— no view named "${view}" — pick one from the rail —`}
+          </div>
+        );
     }
   };
 

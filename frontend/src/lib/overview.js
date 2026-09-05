@@ -53,6 +53,27 @@ export function dateVal(s) {
   return 0;
 }
 
+/* Stamp `dirs` onto a pillar's priority groups so buildFeed cuts them by CONTENT.
+
+   The first group claims the threat direction; the last takes everything else (the
+   `last` rule inside buildFeed). Groups that already declare `dirs` -- market's, which
+   names threat AND fav as "Live Opportunities" -- are left as declared. A config with
+   one group has nothing to split and is passed through.
+
+   Why: the served group defs carry only a heading and a size (competitive 6 + 99,
+   technology 13 + 99), written against a demo dataset in which the first n cards
+   happened to be the threats. On the live-shape dump every technology card is
+   dir=watch, and the heading over all five of them read "Priority -- Capability Gaps
+   -- rivals advancing in KSSL categories"; with 254 cards the other way round, 37
+   threats sat under "Capability-Frontier Moves". `n` stays for any consumer still
+   reading it, but it no longer decides who is in the group. */
+export function cutGroupsByDirection(groups, firstDirs = ["threat"]) {
+  const list = Array.isArray(groups) ? groups : [];
+  if (list.length < 2) return list.map((g) => ({ ...g }));
+  if (list.some((g) => g && g.dirs && g.dirs.length)) return list.map((g) => ({ ...g }));
+  return list.map((g, i) => (i === 0 ? { ...g, dirs: firstDirs.slice() } : { ...g }));
+}
+
 /* Ordered, re-ranked and split into the groups the feed renders.
 
    `data` is what the cards are DISPLAYED with: the date on a card comes from
@@ -189,6 +210,48 @@ export function writeFeedPage(store, pillar, key, page) {
     store.setItem(FEED_PAGE_KEY, JSON.stringify(all));
   } catch (e) {
     /* storage refused (private mode, quota) -- the page simply is not remembered */
+  }
+}
+
+/* The feed's empty state names its cause. It looked only at the tile and the
+   direction filter, so a search box that matched nothing said "no signals served
+   yet" -- the message for an EMPTY CORPUS -- beneath a box holding the reader's
+   own query. */
+export function emptyNote({ tile, dirFilter, query } = {}) {
+  if (String(query || "").trim()) return "— no signals match this search —";
+  if (tile || (dirFilter && dirFilter !== "all")) return "— no signals match this filter —";
+  return "— no signals served yet —";
+}
+
+/* The sequence the reader chose, remembered per pillar for the session, beside the
+   page. It was React state only, so a reload put the reader back on "Priority" --
+   and since the remembered page is keyed by the sequence, the page that survived was
+   page 1 of a sequence they had not chosen. Only a mode this build offers is
+   restored; storage access is wrapped for the same reason as the page's. */
+export const FEED_SEQ_KEY = "kssl_feed_seq";
+const SEQ_MODES = new Set(SEQ_OPTIONS.map(([v]) => v));
+
+export function readFeedSeq(store, pillar) {
+  try {
+    const raw = store && store.getItem(FEED_SEQ_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    const v = parsed && typeof parsed === "object" ? parsed[pillar] : null;
+    return SEQ_MODES.has(v) ? v : "priority";
+  } catch (e) {
+    return "priority";
+  }
+}
+
+export function writeFeedSeq(store, pillar, mode) {
+  try {
+    if (!store) return;
+    const raw = store.getItem(FEED_SEQ_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    const all = parsed && typeof parsed === "object" ? parsed : {};
+    all[pillar] = mode;
+    store.setItem(FEED_SEQ_KEY, JSON.stringify(all));
+  } catch (e) {
+    /* storage refused -- the sequence simply is not remembered */
   }
 }
 
@@ -336,6 +399,9 @@ export const TILE_LABELS = {
   atstake: "contested bids, by value",
   threat: "threats to active bids",
   fav: "openings to press",
+  /* the Watch tile's `act` is "watch"; without this the count line ended in a bare
+     " · " -- "13 of 26 signals ·" */
+  watch: "watch signals",
   deadline: "by submission deadline",
   open: "open tenders",
   fit: "strong KSSL fit",

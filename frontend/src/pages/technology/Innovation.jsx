@@ -6,30 +6,21 @@ import { useData } from "../../state/DataProvider";
 import { techReportHtml } from "../../lib/reports";
 import { gapCorrelateStrip } from "../../lib/gapModel";
 import { srcChips, attr } from "../../lib/html";
+import { MAT_LAB, NOT_ASSESSED, has, maturityLabel, positionPill, filterInnovations } from "../../lib/innovation";
 
 /* Not every pipeline row carries an assessed position. `gap`, `horizon`, `whatsNew`
    and `compNote` are analyst fields, and the served record leaves them null when
    nobody assessed them — which is a different thing from a neutral verdict. Printing
    the raw field put the words UNDEFINED / null on screen, so every site that reads
-   one is gated, and the headings that survive say "not assessed" out loud. */
-const NOT_ASSESSED = "not assessed";
-const has = (v) => v != null && String(v).trim() !== "";
+   one is gated (lib/innovation.js, tested under node), and the headings that survive
+   say "not assessed" out loud. */
 /* one shared empty list, so a domain with no rows does not mint a new array per render
    (the header report is memoised on `list`) */
 const EMPTY = [];
 
-/* maturity labels — one map, covering every `mat` value in the dataset
-   (lab / dev / prod / fielded). 'prod' was once missing and rendered `undefined`. */
-const MAT_LAB = {
-  lab: "Lab / research",
-  dev: "In development",
-  prod: "In production",
-  fielded: "Fielded / in service",
-};
-
 export default function Innovation() {
   const { data, gapModel } = useData();
-  const { setScope, jumpTo, takePending } = useAppState();
+  const { setScope, jumpTo, takePending, searchQuery } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
 
   const GAP_LAB = { behind: `${clientName} behind`, parity: `${clientName} at parity`, ahead: `${clientName} ahead` };
@@ -68,6 +59,22 @@ export default function Innovation() {
 
   const list = useMemo(() => data.innovations[cat] || EMPTY, [data.innovations, cat]);
   const iv = sel !== null ? list[sel] : null;
+
+  /* The rows on screen: the domain's list narrowed to the global search box, as the
+     box's footer promises ("the open page is filtered to this query where it has a
+     list"). Each keeps its ORIGINAL index -- selection is by index into `list`. */
+  const shown = useMemo(() => filterInnovations(list, searchQuery), [list, searchQuery]);
+  const filtering = String(searchQuery || "").trim() !== "";
+
+  /* A domain the reader picks starts unselected. Carrying the index across kept
+     "row 2" selected in a list the reader had not chosen it from, and the detail
+     pane -- and the chat scope -- silently switched to a record nobody clicked. The
+     search jump below sets the domain directly and then selects by title. */
+  const pickCat = (id) => {
+    setCat(id);
+    setSel(null);
+    setReport(null);
+  };
 
   /* Opened from the global search: switch to the row's domain first, then select it by
      title once `list` is that domain's list. */
@@ -166,7 +173,9 @@ export default function Innovation() {
   const detailBody = () => {
     if (!iv) return "";
     const impactClean = (iv.impact || "").replace(/<b>\[Analysis\][^<]*<\/b>\s*/, "");
-    const matLab = MAT_LAB[iv.mat] || iv.mat;
+    /* "not stated" for the rows that carry no maturity -- `MAT_LAB[mat] || mat`
+       printed the word "null" for them (15 of 1,101 on production) */
+    const matLab = maturityLabel(iv.mat);
     const gapKnown = has(iv.gap) && GAP_VERB[iv.gap];
     const na = `<div class="body na">${NOT_ASSESSED} — not carried on this record</div>`;
     return (
@@ -218,13 +227,13 @@ export default function Innovation() {
           <div
             className={`tech-cat${cat === c.id ? " active" : ""}`}
             key={c.id}
-            onClick={() => setCat(c.id)}
+            onClick={() => pickCat(c.id)}
             role="button"
             tabIndex={0}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                setCat(c.id);
+                pickCat(c.id);
               }
             }}
           >
@@ -244,10 +253,18 @@ export default function Innovation() {
               </span>
             </span>
             <span className="lh-note">
+              {filtering
+                ? `${shown.length} of ${list.length} match "${String(searchQuery).trim()}" · `
+                : ""}
               {list.length} technological innovation{list.length !== 1 ? "s" : ""} tracked in this
               domain
             </span>
           </div>
+          {filtering && list.length && !shown.length ? (
+            <div className="empty-note" style={{ padding: "18px 0" }}>
+              {`— no innovation in this domain matches "${String(searchQuery).trim()}" — clear the search box or pick another domain —`}
+            </div>
+          ) : null}
           {/* Stated ONCE for the domain, not per record. "What's new" -- the dated
               development behind an innovation -- is written as a literal NULL by
               enrich_serving.py, so it is absent on every served row. Printing "not
@@ -259,7 +276,7 @@ export default function Innovation() {
               not yet emit that field. Background, maturity and analyst impact below are.
             </div>
           ) : null}
-          {list.map((item, i) => (
+          {shown.map(({ item, index: i }) => (
             <div
               className={`innov${sel === i ? " sel" : ""}`}
               key={`${item.t}-${i}`}
@@ -330,9 +347,16 @@ export default function Innovation() {
                       >
                         ✕
                       </button>
-                      <span className={`dirpill ${iv.gap || "behind"}`}>
-                        {iv.gap === "behind" ? "GAP" : iv.gap === "parity" ? "WATCH" : "AHEAD"}
-                      </span>
+                      {/* The pill is a verdict, so a record with no assessed position
+                          gets none. This read `gap === "behind" ? "GAP" : gap ===
+                          "parity" ? "WATCH" : "AHEAD"`, and `gap` is null on every
+                          served row: every innovation opened under a green AHEAD
+                          that nobody had assessed, above a Status row saying
+                          "not assessed". */}
+                      {(() => {
+                        const pill = positionPill(iv.gap);
+                        return pill ? <span className={`dirpill ${pill.cls}`}>{pill.text}</span> : null;
+                      })()}
                     </div>
                     <span className="eyebrow">
                       Innovation Detail{" "}

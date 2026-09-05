@@ -5,8 +5,10 @@ import ErrorBoundary from "../../components/ErrorBoundary";
 import FeedFilters from "../../components/subHead/FeedFilters";
 import { useAppState, useHeaderReport, PILLAR_LABEL } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
+import { OVERVIEW_VIEW } from "../../lib/route";
 import {
   buildFeed,
+  emptyNote,
   paginateFeed,
   readFeedPage,
   signalDate,
@@ -123,9 +125,12 @@ export default function Overview({
     });
   };
 
-  // Opened from global search targeting a specific signal card.
+  /* Opened from global search targeting a specific signal card. The payload is taken
+     under THIS pillar's overview view -- it asked for the literal "overview", which is
+     the competitive pillar's only, so a hit on a technology or market signal landed on
+     the right feed and opened nothing. */
   useEffect(() => {
-    const pend = takePending("overview");
+    const pend = takePending(OVERVIEW_VIEW[pillarKey] || "overview");
     if (pend && pend.cardId && data.details && data.details[pend.cardId]) {
       /* A hit is usually not on the page in view -- 453 signals is ten pages -- so turn
          to the page holding it BEFORE selecting, or the reader gets a detail panel
@@ -136,6 +141,17 @@ export default function Overview({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [takePending]);
+
+  /* A filter or search that removes the selected card from the feed also closes its
+     panel: a detail column describing a card the list no longer shows is a page that
+     disagrees with itself. Declared BEFORE the tile effect below, so when a tile both
+     narrows the feed and opens its first match, the open wins. */
+  useEffect(() => {
+    if (!selected) return;
+    const card = (cfg.cards || []).find((c) => c.id === selected);
+    if (!card || !visible(card)) setSelected(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey]);
 
   // the metric tiles open the first matching signal, as the tiles did before
   useEffect(() => {
@@ -325,11 +341,10 @@ export default function Overview({
           )}
           {shownCount === 0 ? (
             <div className="empty-note">
-              {/* an empty feed with no filter active is a served-nothing state,
-                  not the filter's fault — say which one it is */}
-              {tile || (dirFilter && dirFilter !== "all")
-                ? "— no signals match this filter —"
-                : "— no signals served yet —"}
+              {/* an empty feed with no filter and no query is a served-nothing state;
+                  a search miss and a filter miss each say so -- the search miss used
+                  to read "no signals served yet" under a box holding the query */}
+              {emptyNote({ tile, dirFilter, query: feedSearchQuery || searchQuery })}
             </div>
           ) : (
             <div className="pager">
