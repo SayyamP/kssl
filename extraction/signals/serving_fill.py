@@ -40,6 +40,7 @@ from llmapi import client as llm_client  # noqa: E402  (every model call goes th
 import corpus  # noqa: E402  (the article's stored markup, one fetch per card)
 from article_date import pick_date as pick_html_date  # noqa: E402
 from article_image import resolve_image  # noqa: E402
+import glance  # noqa: E402  ("At a glance" rows from typed spans, each with its quote)
 
 DSN = os.environ.get("KSSL_DSN", "host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl")
 # NOT used by this module any more -- every model call here goes through the LLM API.
@@ -1390,9 +1391,14 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
                      esc(card["company"]), card["pillar"].capitalize(),
                      esc(card["sowhat"]), json.dumps(sec), url,
                      ago_of(ymd[:2]), card["category"], img))
+        # No "Primary lens" row: the pillar is the coloured pill in the panel header and
+        # the dirtag on the feed row, so a fourth statement of it was the redundancy the
+        # client complained about. The rows that follow Company/Category/Date come from
+        # the document's typed spans -- deal value, quantity, counterparty, programme,
+        # system, key person -- each with the sentence that proves it (see glance.py).
         facts = [["Company", esc(card["company"])], ["Category", card["category"]],
-                 ["Date", date_label(ymd)],
-                 ["Primary lens", card["pillar"].capitalize()]]
+                 ["Date", date_label(ymd)]]
+        facts += glance_rows(cur, did, card["company"], card["title"], stats)
         s0, p0, o0 = props[0][0], props[0][1], props[0][2]
         what = esc(card["what"] or "%s %s %s." % (s0, p0, o0))
         lens = [["STATEMENT", "%s — <i>&ldquo;%s&rdquo;</i>"
@@ -1430,6 +1436,68 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
               "%(dup)d duplicate stor(ies), %(client_news)d client-news (not competitive), "
               "%(listing)d listing page(s), %(suppressed)d suppressed, "
               "%(bad)d error(s), %(claimed)d taken by another filler" % stats, flush=True)
+    return stats
+
+
+def glance_rows(cur, did, company, title, stats=None):
+    """The typed-span rows of "At a glance" for one document: [[label, value, quote], ...].
+
+    Reads the document's propositions WITH their evidence offsets and the spans of the
+    types glance.py knows how to gate, and lets glance_facts decide. Every candidate the
+    gate refuses is counted into stats['glance_refused'] -- if that number ever reads
+    near zero across a run, the gate has stopped working, not the corpus."""
+    cur.execute("""SELECT i, subject, predicate, object, ev_start, ev_end, ev_quote
+                     FROM extracted.proposition WHERE document_id=%s ORDER BY i""", (did,))
+    props = cur.fetchall()
+    cur.execute("""SELECT span_id, start_c, end_c, text, type, type_ner, gloss, in_article,
+                          source, score, sent
+                     FROM extracted.span WHERE document_id=%s AND type = ANY(%s)
+                    ORDER BY start_c""", (did, list(glance.FACT_SPAN_TYPES)))
+    spans = cur.fetchall()
+    refused = {}
+    rows = glance.glance_facts(company, title, props, spans, is_buyer=is_buyer,
+                               refused=refused, esc=esc)
+    if stats is not None:
+        stats["glance_rows"] = stats.get("glance_rows", 0) + len(rows)
+        stats["glance_refused"] = stats.get("glance_refused", 0) + sum(refused.values())
+    return rows
+
+
+# The rows every pipeline card already carried; everything after them is re-derived.
+_BASE_FACTS = ("company", "category", "date")
+
+
+def reglance(dsn=DSN, limit=None, verbose=True, only=None):
+    """Re-derive the span rows for cards ALREADY stored (fill() only ever visits documents
+    with no card, so a gate change would otherwise reach only tomorrow's cards). Keeps
+    Company/Category/Date as stored, drops Primary lens, appends the span rows."""
+    import psycopg2
+    con = psycopg2.connect(dsn)
+    cur = con.cursor()
+    cur.execute("""SELECT d.id, c.company, c.title, d.facts
+                     FROM serving.signal_detail d JOIN serving.signal_card c ON c.id = d.id
+                    WHERE d.origin='pipeline' AND d.id LIKE 'pl_%%'
+                      AND (%s IS NULL OR d.id = %s)
+                    ORDER BY d.id LIMIT %s""", (only, only, limit or 10 ** 9))
+    cards = cur.fetchall()
+    stats = {"cards": len(cards), "changed": 0, "with_rows": 0}
+    for cid, company, title, facts in cards:
+        old = facts if isinstance(facts, list) else json.loads(facts or "[]")
+        base = [f for f in old if str(f[0]).strip().lower() in _BASE_FACTS]
+        rows = glance_rows(cur, cid[3:], _html.unescape(company or ""), title, stats)
+        new = base + rows
+        if rows:
+            stats["with_rows"] += 1
+        if new != old:
+            cur.execute("UPDATE serving.signal_detail SET facts=%s WHERE id=%s",
+                        (json.dumps(new), cid))
+            stats["changed"] += 1
+        con.commit()
+    con.close()
+    if verbose:
+        print("glance: %(cards)d card(s), %(with_rows)d with span rows, %(changed)d "
+              "rewritten; %(glance_rows)d row(s) emitted, %(glance_refused)d candidate(s) "
+              "refused" % {**{"glance_rows": 0, "glance_refused": 0}, **stats}, flush=True)
     return stats
 
 
@@ -1580,6 +1648,44 @@ def _demo():
     seen2 = [("kalyani strategic systems", title_tokens("KSSL and Paramount unveil Simha 4x4 armoured vehicle"))]
     assert is_dup(seen2, "Paramount/Kalyani Strategic Systems",
                   "KSSL and Paramount unveil the Simha 4x4 armoured vehicle"),         "same story with a differently-spelled company is still a dup"
+
+    # "At a glance" span rows, through the same loader fill() and reglance() use. The
+    # fixture is the real Stinger article: the Army's $215M budget ask is a row; the $4M a
+    # missile costs (subject: the missiles) is refused, and counted as refused.
+    q1 = ("The Army has asked Congress for $215 million in its fiscal year 2027 budget for "
+          "the Stinger replacement along with $713 million for 14 more Sgt. Stout Systems.")
+    q2 = ("U.S. air defense missiles — each of which can cost about $4 million — have "
+          "been used to shoot down Iranian drones.")
+
+    class _GlanceCur:
+        def __init__(self):
+            self.n = 0
+        def execute(self, sql, *_):
+            self.n += 1
+        def fetchall(self):
+            if self.n == 1:                                  # propositions, with offsets
+                return [(0, "The Army", "asks for", "$215 million in its fiscal year 2027 budget",
+                         0, len(q1), q1),
+                        (1, "U.S. air defense missiles", "have been used to shoot down",
+                         "Iranian drones", 1000, 1000 + len(q2), q2)]
+            a, b, c = q1.index("$215"), q1.index("14 more"), 1000 + q2.index("$4 million")
+            d = q1.index("Sgt. Stout Systems")
+            return [("s1", a, a + 12, "$215 million", "Money", None, "a unit of currency",
+                     "the amount requested for the Stinger replacement", "gliner", 0.9, 0),
+                    ("s2", b, b + 2, "14", "Count", None, "a number",
+                     "the number of Sgt. Stout systems", "gliner", 0.9, 0),
+                    ("s3", d, d + 18, "Sgt. Stout Systems", "WeaponSystem", None, None,
+                     "the system the Army wants more of", "gliner", 0.9, 0),
+                    ("s4", c, c + 10, "$4 million", "Money", None, "a unit of currency",
+                     "the cost of each U.S. air defense missile", "gliner", 0.9, 1)]
+    st = {}
+    rows = glance_rows(_GlanceCur(), "doc", "The Army",
+                       "US Army seeks thousands of new missiles to replace Stinger", st)
+    assert rows == [["Budget", "$215 million", q1],
+                    ["Quantity", "14 more Sgt. Stout Systems", q1],
+                    ["System", "Sgt. Stout Systems", q1]], rows
+    assert st == {"glance_rows": 3, "glance_refused": 1}, st
+    assert not any(r[0] == "Primary lens" for r in rows)
     print("ok")
 
 
@@ -1590,8 +1696,12 @@ if __name__ == "__main__":
     ap.add_argument("--only", default=None,
                     help="one document_id, for the article bench")
     ap.add_argument("--demo", action="store_true")
+    ap.add_argument("--glance", action="store_true",
+                    help="re-derive the 'At a glance' span rows for cards already stored")
     a = ap.parse_args()
     if a.demo:
         _demo()
+    elif a.glance:
+        reglance(a.dsn, limit=a.limit, only=a.only)
     else:
         fill(a.dsn, limit=a.limit, only=a.only)
