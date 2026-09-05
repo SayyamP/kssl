@@ -72,8 +72,15 @@ DSN = os.environ.get("KSSL_DSN",
                      "host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl")
 THIS_YEAR = datetime.date.today().year
 
+# "SALES" IS ONLY REVENUE WHEN SOMETHING SAYS THE YEAR IS THE WHOLE YEAR. Bare "sales"
+# is also "sales to India", "arms sales" and unit sales, so it is not an anchor. Qualified
+# it is the standard corporate boilerplate and the ONLY place several companies state a
+# figure at all -- RTX's whole corpus presence is "The company, with 2023 sales of $68.9
+# billion, is headquartered in Arlington, Virginia."
 REVENUE = re.compile(r"\b(revenues?|turnover|net sales|annual sales|total income|"
-                     r"total revenue|gross sales)\b", re.I)
+                     r"total revenue|gross sales"
+                     r"|(?:19|20)\d\d\s+sales|fiscal(?: year)? (?:19|20)\d\d sales"
+                     r"|full[- ]year sales|total sales)\b", re.I)
 NOT_ANNUAL = re.compile(r"\bq[1-4]\b|\bquarter(?:ly)?\b|\bthree[- ]months?\b"
                         r"|\bsix[- ]months?\b|\bnine[- ]months?\b|\bhalf[- ]year\b"
                         r"|\bfirst half\b|\bsecond half\b|\bmonthly\b", re.I)
@@ -254,7 +261,8 @@ def collect(cur):
                      JOIN extracted.document d ON d.document_id = p.document_id
                     WHERE p.modality NOT IN ('planned', 'expected')
                       AND (p.predicate || ' ' || p.object) ~*
-                          '(revenue|turnover|net sales|total income)'
+                          '(revenue|turnover|net sales|total income'
+                          '|(19|20)[0-9]{2}[ ]+sales|annual sales|total sales)'
                       AND (p.object ~ '[0-9]' OR p.ev_quote ~ '[0-9]')""")
     props = cur.fetchall()
     pats = [(cid, name, re.compile(r"(?<!\w)" + re.escape(name) + r"(?!\w)", re.I))
@@ -388,6 +396,16 @@ def run(dsn=DSN, apply=False, crawler=False):
 
 
 def _demo():
+    # A year-qualified "sales" is an annual revenue; a bare one is not.
+    got = figures("2023 sales of $68.9 billion",
+                  "The company, with 2023 sales of $68.9 billion, is headquartered in "
+                  "Arlington, Virginia.")
+    assert got == [("$68.9 billion", "2023")], got
+    assert not figures("", "Rheinmetall recorded sales to India of $200 million."), \
+        "a bare 'sales' is a deal, not a company's annual revenue"
+    assert not figures("", "The corporation reported 2025 sales of more than "
+                           "$88 billion."), "'more than' is a floor, not a figure"
+
     # The subject must be the COMPANY, not a unit inside it. Every string below is a
     # real p.subject from extracted.proposition.
     assert same_org("Kongsberg Gruppen", "KONGSBERG")
