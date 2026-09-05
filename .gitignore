@@ -37,3 +37,7 @@ sc/
 # skips them SILENTLY, the commit succeeds, and every deploy on every host dies with
 # "no such environment". That is exactly what happened on 2026-09-03, to prod included.
 !deploy/envs/*.env
+
+# harvest output: written by the run, not by hand
+pipeline/fetch_patents_wipo.json
+pipeline/fetch_patents_unresolved.json
