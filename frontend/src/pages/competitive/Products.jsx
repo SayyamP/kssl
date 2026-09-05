@@ -492,7 +492,13 @@ export default function Products() {
      Every field is the record's own; a product with no specs says so. */
   const report = useMemo(() => {
     if (selectedProduct) {
-      const specRows = Object.entries(selectedProduct.specs || {}).map(([k, v]) => [k, formatTitleCase(v)]);
+      /* Printed as-is, because that is what the panel prints: specValueWithUnit
+         already joined each figure to its unit when the product was built, so
+         re-casing here would make the exported sheet disagree with the screen it
+         claims to copy. The formatter this line used to name has never existed in
+         this repo -- the ReferenceError threw inside a useMemo that runs on every
+         render, so the whole Products view rendered nothing. */
+      const specRows = Object.entries(selectedProduct.specs || {}).map(([k, v]) => [k, String(v)]);
       const newsRows = productNewsArticles.map((a) => [a.title, [a.source, a.ago, a.category].filter(Boolean).join(" · ")]);
       return {
         title: `${selectedCompany.name} - ${selectedProduct.name}`,

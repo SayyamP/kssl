@@ -13,6 +13,13 @@ RUN npm run build
 # A backslash escape that reached a source file as a literal control byte compiles
 # fine and matches nothing, so the fix ships dead and the build stays green. Four
 # such bytes were found in this repo on 2026-09-03.
+# esbuild does not resolve free identifiers -- an unbound name is assumed to be a
+# runtime global -- so a call to a function that has never existed builds green and
+# throws only when that line runs. formatTitleCase sat in a useMemo in Products.jsx
+# and took the whole view down on staging, past `npm run build` and every check
+# below it. Runs first because it is the cheapest and the most fundamental: nothing
+# further is worth checking about code that cannot execute.
+RUN node check_no_undefined_names.mjs
 RUN node check_no_control_bytes.mjs
 RUN node check_no_fabrication.mjs
 RUN node check_no_emoji.mjs
