@@ -102,6 +102,47 @@ the spans it was built from. `serving.*` is left whole, since a card carries its
 and quote. It trims after the transfer, so it bounds the replica's disk, not what crossed
 the wire.
 
+## Extraction runs on VPS-B only
+
+`KSSL_EXTRACTION=on` is set in `deploy/envs/prod.env` and nowhere else, so `deploy.sh`
+starts a fleet on production and skips it everywhere else. A replica does not compute its
+own serving tables — it **fetches them**.
+
+That is why the replica fleet sizes in the overlays are a fallback rather than the plan:
+they apply only if someone deliberately sets the flag for that environment.
+
+### The hourly refresh
+
+`deploy/refresh_serving.sh <env>`, on a systemd timer installed by
+`deploy/install_refresh_timer.sh <env>`, pulls `serving` + `serving_live` + `metrics` from
+production every hour.
+
+**It does not copy the corpus.** `public.documents` and `extracted.*` are 8.5 GB of the
+12 GB total and cannot change on a replica, because extraction does not run there. The
+dashboard never reads them either — `backend/app.py` has zero references to `extracted.*`
+or `public.documents`. So the hourly job moves 3.7 GB instead of 12 GB, and the corpus
+stays as the last full `sync_from_prod.sh` left it.
+
+**It replaces the schemas in place, in one transaction.** `sync_from_prod.sh` restores into
+`kssl_incoming` and renames — instant, but a serving-only dump restored that way would
+arrive carrying no corpus at all. `pg_restore --single-transaction --clean` inside the live
+database keeps the corpus and is atomic: readers see the previous data until it commits,
+then the new data, never a half-loaded rebuild. The cost is that readers block for the
+length of the restore rather than seeing stale rows — a minute or two, which is the right
+trade on a QA box and the wrong one on production, so the script refuses any environment
+whose `KSSL_DATA_ROLE` is not `replica`.
+
+**Two guards before anything is dropped.** The dump must list at least five tables with
+data, and the restore is one transaction — so a short or failed dump leaves the previous
+data in place instead of `--clean`-ing the live schemas and having nothing to put back.
+
+```
+deploy/install_refresh_timer.sh staging            # enable
+journalctl -u kssl-refresh-serving@staging -f      # watch
+systemctl start kssl-refresh-serving@staging       # run once now
+deploy/install_refresh_timer.sh staging --remove   # disable
+```
+
 ## How one compose file runs on three machines
 
 Container names carry `${KSSL_PREFIX}` and every published port is a variable. VPS-A
