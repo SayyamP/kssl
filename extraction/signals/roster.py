@@ -117,7 +117,14 @@ CARRIED_COLUMNS = ("leadership", "facilities", "sales", "starting_year",
                    "global_locations", "company_size", "strategic_positioning",
                    # 2026-09-06. Origin country comes from the audited competitor
                    # workbook, not the corpus, so the rebuild cannot regenerate it.
-                   "country")
+                   "country",
+                   # Partnership ties. The rebuild's INSERT wrote '[]' here, so every
+                   # two-hourly pass emptied the Partnerships tab and only the
+                   # competitors whose profile call FAILED kept their ties -- which is
+                   # why Adani and Mahindra were the last two companies on the tab
+                   # still holding data, at an updated_at eleven days behind every
+                   # other row. The INSERT now writes NULL so this COALESCE can fire.
+                   "partners")
 # hq is carried only to fill a BLANK: the rebuild's own value wins when it has one,
 # because the corpus is fresher than a hand edit.
 CARRY_IF_BLANK = ("hq",)

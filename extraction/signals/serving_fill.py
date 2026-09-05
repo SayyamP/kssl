@@ -84,6 +84,21 @@ def country_names():
                   "Singapore", "Malaysia", "Bangladesh", "Nepal", "Qatar", "Kuwait",
                   "Oman", "Nigeria", "Ghana", "Zambia", "Mozambique", "Canada",
                   "Mexico", "Chile", "Peru", "Colombia", "Hungary", "Romania"}
+        # AND THE ENGINE'S LIST, because this one is built from whatever the reference
+        # dataset happens to mention. It had 67 names and no Kazakhstan, which is how
+        # "Paramount Group <-> Kazakhstan" was stored as a strategic PARTNERSHIP --
+        # the country is the market, never the partner. lexicon.COUNTRIES is the
+        # extraction engine's own 81-name list; merging beats growing a third one.
+        try:
+            import importlib.util as _il
+            _lp = HERE.parent / "engine" / "lexicon.py"
+            _sp = _il.spec_from_file_location("engine_lexicon", str(_lp))
+            _m = _il.module_from_spec(_sp); _sp.loader.exec_module(_m)
+            names |= set(getattr(_m, "COUNTRIES", ()) or ())
+        except Exception as _e:                                      # noqa: BLE001
+            # Advisory, like the roster gate: a missing engine narrows the list, it
+            # does not take the pass down.
+            print("country_names: engine lexicon unavailable (%s)" % _e, flush=True)
         _COUNTRIES = {fold_name(n) for n in names if n}
         _COUNTRIES.discard("")
     return _COUNTRIES

@@ -53,7 +53,8 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
 
 from serving_fill import (  # noqa: E402  (helpers are REUSED, not duplicated)
-    DSN, MODEL, article_date, ask, category_conflict, clip, date_label, esc, is_dup,
+    DSN, MODEL, article_date, ask, category_conflict, clip, country_names,
+    date_label, esc, is_dup,
     is_fetch_fallback, is_listing, is_recent_ym, is_relevant, kssl_cats, load_terms,
     off_portfolio, parse_date, recent_cutoff, suppressed_ids, title_tokens,
 )
@@ -69,8 +70,9 @@ _st = _ilu.module_from_spec(_st_spec); _st_spec.loader.exec_module(_st)  # type:
 publishable = _st.publishable  # noqa: E402  (ONE source bar, shared)
 import roster  # noqa: E402  (the curated roster, shared with serving_fill)
 from aliases import (  # noqa: E402  (ONE identity layer, shared with serving_fill)
-    canonical as canon_name, client_led, fold as fold_name, has_proper_name,
-    is_client,
+    CLIENT_MARKS, canonical as canon_name, client_led, fold as fold_name,
+    has_proper_name,
+    is_client, is_description,
     is_force, is_one_org, merge as alias_merge,
 )
 
@@ -87,7 +89,17 @@ MATCHUP_ID0 = 9000   # integer PK range for pipeline matchups
 # each other, so the only reason to serialise them was that nobody had unserialised them.
 # Default six to match the node; the gateway caps each node at num_parallel anyway, so a
 # larger number queues rather than helps.
-ENRICH_WORKERS = max(1, int(os.environ.get("KSSL_ENRICH_WORKERS", "6")))
+# HOW MANY MODEL CALLS THIS PASS HAS IN FLIGHT AT ONCE, and it comes from the
+# environment so there is ONE number for the whole stack. The serving node
+# (DESKTOP-J9F0LTF, qwen2.5:14b) offers six parallel slots; a step that calls the model
+# one at a time uses one of them and leaves five idle -- measured on the farm dashboard,
+# the pinned 14b sat at 2/6 running at 7.6 tok/s while every 7b node beside it ran
+# 6/6 at 220 tok/s.
+#
+# NO STEP PICKS ITS OWN WIDTH. extraction/docker-compose.yml sets KSSL_ENRICH_WORKERS
+# for the enrich service; this default exists only so a hand-run outside compose behaves
+# the same way, and the two must not drift.
+ENRICH_WORKERS = max(1, int(os.environ.get("KSSL_ENRICH_WORKERS") or 6))
 
 
 def _ask(prompt, npredict=600, timeout=None):
@@ -1032,6 +1044,9 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
     # the corpus has none) across the rebuild. This step DELETEs+re-INSERTs pipeline
     # competitors from the corpus and its INSERT does not carry those columns, so
     # without this snapshot every enrich pass silently wipes them (the Adani-empty bug).
+    # `partners` is on that list too, and the INSERT below writes NULL rather than the
+    # '[]' it used to: COALESCE only fills a column the rebuild left empty, so an empty
+    # array would have beaten the carried value and the tie data would still be lost.
     # roster.CARRIED_COLUMNS is the single list; the old inline one named three columns
     # and `sales` was not among them, so the harvest wrote annual revenue and the next
     # pass deleted it -- 0 of 42 on the tab for a field that had already been extracted.
@@ -1190,7 +1205,7 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
         cur.execute("""INSERT INTO serving.competitors
                          (comp_id, ord, name, dir, sector, hq, threat, assess, updates,
                           center, partners, site, srcs, products, "threatNote", origin)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'[]',%s,%s,%s,%s,
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s,
                                'pipeline')
                        ON CONFLICT (comp_id) DO NOTHING""",
                     (cid, ORD0 + i, esc(r["name"]), p["dir"], esc(p["sector"]) or None,
@@ -1242,24 +1257,148 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
 
 # --------------------------------------------------------------- step 2: partnerships
 
+# WHAT IS EVEN WORTH ASKING ABOUT. This runs on the predicate alone, so it decides
+# which relationships the tab can ever contain -- a verb missing here is a partnership
+# type that does not exist as far as this pipeline is concerned.
+#
+# It used to hold only the announcement vocabulary: partner, JV, MoU, alliance,
+# agreement, teaming, collaboration, licence. Every supply, manufacturing, distribution
+# and R&D word was absent, so "X supplies engines to Y" and "X manufactures the hull
+# under contract to Y" were never nominated -- the `supply` relationship could only be
+# reached when an announcement word happened to appear in the same predicate. The tab
+# had a supplier category that the corpus could not populate.
+#
+# The additions come from revive_partners.REL_RX, which had the right vocabulary all
+# along and is wired to nothing.
 PART_RX = re.compile(
-    r"(partner|joint venture|\bjv\b|\bmou\b|memorandum|alliance|agreement|"
-    r"team(?:ed|ing|s)? up|collaborat|tie-?up|joint bid|licen[cs])", re.I)
+    r"(partner|joint venture|\bjv\b|\bmou\b|memorandum|alliance|\bagreement|"
+    r"team(?:ed|ing|s)? up|collaborat|tie-?up|joint bid|licen[cs]|consortium|"
+    # supply and manufacture
+    # `manufactur\w* for` was wrong: the object sits between the verb and the
+    # preposition ("manufactures the airframe for KNDS"), so the two are almost never
+    # adjacent. Same shape as builds/produces below.
+    #
+    # EVERY TAIL IS \bfor\b, NOT `for`. Without the boundary, `.{0,30}for` matches the
+    # start of "forces", "forgings", "foreign" and "forward" -- in a defence corpus
+    # "builds up its forces" and "produces armoured forgings" both nominated, and paid
+    # for a model call each. Same reason `suppl(?:y|ies|ied|ier)` now excludes "supply
+    # chain" and "supplies of", and `distribut` excludes "distributes dividends":
+    # these were measured over-matches, not hypotheticals.
+    r"suppl(?:y|ies|ied|ier)(?!\s+(?:chain|of\b))|subcontract|contract manufactur|"
+    r"manufactur\w* .{0,30}\bfor\b|assembl\w* .{0,30}\bfor\b|"
+    r"builds? .{0,30}\bfor\b|produces? .{0,30}\bfor\b|"
+    # co-development and research
+    r"co-?develop|co-?produc|co-?design|jointly develop|joint(?:ly)? research|"
+    # distribution and integration. `\bdealers?\b` and `\bdistribut` keep "dealership"
+    # and "distribution agreement" while dropping "distributed the report".
+    # LONGEST ALTERNATIVE FIRST: written `distribut(?:e|es|ed|or|ion)` the engine
+    # matches "distribute" inside "distributed" and any trailing test then looks at
+    # the wrong character.
+    #
+    # NO NEGATIVE LOOKAHEAD HERE, deliberately. One was tried, to drop "distributed
+    # the report" and "distributes dividends" -- and it also dropped "distributes the
+    # system for" and, because `(?:the|a|...)` has no boundary of its own, every
+    # "distribution agreement with". Separating a distribution TIE from a distributed
+    # REPORT needs the sentence, not the verb, and the model is the thing that reads
+    # the sentence. The cap is what pays for the residue: none of these over-matches
+    # is in PART_STRONG_RX, so they rank last and are the first statements dropped.
+    r"distribut(?:ion|ors?|es|ed|e)|resell|\bdealers?\b|"
+    r"channel partner|integrat\w* .{0,30}\binto\b|"
+    r"selected .{0,40}to suppl)", re.I)
+
+# THE TEN TYPES THE TAB IS FOR, and the label each one prints. `rel` is the key the
+# frontend colours by; `ptype` is what a reader sees. The old vocabulary was six values
+# in which manufacturing, distribution, R&D, integration and licensing had nowhere to go
+# -- they all landed on `tech` or `other`, so the tab could not tell a contract
+# manufacturer from a technology transfer.
+PART_TYPES = {
+    "supply":        "Supply agreement",
+    "manufacturing": "Manufacturing",
+    "technology":    "Technology / ToT",
+    "licensing":     "Licensing",
+    "rnd":           "R&D / research",
+    "distribution":  "Distribution / reseller",
+    "jv":            "Joint venture",
+    "integration":   "Integration / platform",
+    # ONE catch-all, and it is last. There were two -- `strategic` and `other` -- with
+    # descriptions the model could not tell apart ("an MoU with no narrower type" vs
+    # "a partnership none of the above describes"), so a museum sponsorship landed on
+    # `other` and 61% of everything else on `strategic`. Removing the catch-all
+    # ALTOGETHER is worse: measured, the model already over-commits when it has one
+    # (`manufacturing` for a supply tie), and a specific wrong label beats a vague true
+    # one only if you never have to read it. `other` stays in REL_PTYPE for old rows.
+    "strategic":     "Partnership / MoU",
+}
+
+# THE RELATIONSHIPS THAT ARE NOT PARTNERSHIPS. The model is asked to NAME these rather
+# than answer NONE, because "the tab shows things that are not partnerships" and "the
+# corpus is quiet" look identical in a log that only counts refusals. Each one was
+# visible on the dashboard on 2026-09-06:
+#
+#   acquisition  Adani/Alpha Design and Adani/General Aeronautics, both typed
+#                "Acquisition / stake". Ownership has its own home -- serving.
+#                competitor_structure, filled by step_structure from these same
+#                propositions with an ownership prompt that explicitly excludes
+#                partnerships. Storing it here duplicated the claim under a name that
+#                said the opposite.
+#   customer     Adani/Indian Navy, typed "Supply / customer" -- one bucket for a
+#                supplier and a buyer, which are opposite relationships.
+#   investment   capital is not a business relationship of this kind.
+#   award        a procurement outcome, not an alliance.
+#
+# Kept OUT of PART_TYPES on purpose: a value in both maps would be storable.
+PART_NOT_A_TIE = {
+    "acquisition": "ownership -- step_structure owns it",
+    "customer":    "a sale, not a partnership",
+    "investment":  "capital, not a partnership",
+    "award":       "a procurement outcome, not a partnership",
+}
 
 PART_PROMPT = """Below is ONE extracted statement from a defence-news article, with its
-supporting quote. Decide: does it state a partnership, joint venture, MoU, alliance,
-licence or teaming agreement between two NAMED organizations (companies or agencies)?
+supporting quote. Decide what business relationship, if any, it states between two
+NAMED organizations.
 
-If not -- or if either side is not a named organization, or the tie is merely announced
-intent with no named counterpart -- reply exactly: NONE
+Reply exactly NONE if: either side is not a named organization; the statement only
+mentions both without stating a relationship; the tie is announced intent with no named
+counterpart; the two sides are the same company or one is part of the other; or the
+quote does not support it.
 
-Otherwise reply with ONLY this JSON, in ENGLISH:
+THESE ARE NOT PARTNERSHIPS. If the statement describes one, say so in `rel` using the
+word given:
+  acquisition  - one buys, merges with, or takes a stake in the other
+  customer     - the buyer is the END USER: an armed force, government, agency, airline
+                 or operator that will USE the product. A COMPANY buying parts, work or
+                 services to build into its own product is NOT a customer -- that is
+                 `supply` or `manufacturing`, with `a` as the side doing the work.
+  investment   - one funds the other
+  award        - a government or agency picks a winner for a programme
+
+DECIDE `rel` IN THIS ORDER. Stop at the first that fits:
+   1  the text names a jointly owned company or a joint venture     -> jv
+   2  one makes or assembles something for the other                -> manufacturing
+   3  one supplies parts, subsystems or services to the other       -> supply
+   4  one licenses the other's design or intellectual property      -> licensing
+   5  technology transfer, ToT, or shared engineering               -> technology
+   6  they research or develop something NEW together               -> rnd
+   7  one fits its product into the other's platform                -> integration
+   8  one sells, resells or distributes the other's product         -> distribution
+   9  ONLY if the text names the agreement (MoU, LOI, alliance, teaming,
+      "collaboration") but says NOTHING about what they will do     -> strategic
+
+Reply with ONLY this JSON, in ENGLISH:
 {"a": "<organization 1 -- ONE name, never 'X and Y'>",
  "b": "<organization 2 -- ONE name, never 'X and Y'>",
- "rel": "<exactly one of: jv | tech | supply | mou | acq | other>",
- "note": "<one line stating what was agreed, exactly as the quote says -- an MoU is not a
-          contract, a plan is not a delivery>",
- "date": "<date of the agreement ONLY if stated, else null>",
+ "rel": "<one of: jv | manufacturing | supply | licensing | technology | rnd |
+          integration | distribution | strategic | acquisition | customer |
+          investment | award>",
+ "basis": "<the words from the Quote that decided `rel`, copied VERBATIM, at most 15
+           words. If nothing in the Quote states what they do together, use rule 9.>",
+ "note": "<one line stating what was agreed, exactly as the quote says -- an MoU is not
+          a contract, a plan is not a delivery>",
+ "status": "<active if it is in force; ended if the quote says it has ended, was
+            dissolved or expired; announced if it is signed but not yet operating>",
+ "date": "<date the relationship STARTED, ONLY if stated, else null>",
+ "ended": "<date it ENDED, ONLY if the quote says it ended, else null>",
  "country": "<country of organization b ONLY if stated, else null>"}
 
 If the statement ties THREE or more organizations, pick the one pair the quote actually
@@ -1269,6 +1408,76 @@ Article: %s
 Statement: %s %s %s
 Quote: "%s"
 """
+
+
+# WHAT THE MODEL'S OWN `basis` SPAN MUST CONTAIN for a narrow type to stand. Run on the
+# SPAN, never on the quote: a 300-character defence quote contains "technology" and
+# "develop" almost unconditionally, so gating the quote passes everything. A fifteen-word
+# span the model had to copy out cannot be vacuous the same way -- and `_in_hay` proves
+# it was really copied rather than invented.
+#
+# DOWNGRADE, NEVER REFUSE. A mis-typed tie is still a tie; vague and true beats specific
+# and wrong. This stops a FABRICATED type (jv or licensing with nothing behind it); it
+# does not stop a misreading where the vocabulary is genuinely present.
+# MEASURED, THEN NARROWED TO THREE. The first version gated all eight narrow types and
+# made the labelling WORSE: on the same 80 statements the catch-all went from 57% to
+# 80%, `technology` from 4 to 0 and `supply` from 5 to 1. Reading the seven downgrades
+# says why -- the model's basis quotes the CONTEXT that decided the type, not the type's
+# own keyword. "Combined with Rheinmetall's capabilities" is a real technology tie;
+# "we are also the prime contractor" is a real supply tie; neither contains the word the
+# gate was looking for.
+#
+# So it now guards only the three types with lexis distinctive enough that a basis
+# lacking it means the label was invented rather than read -- which is what the gate was
+# ever for. jv is the consequential one: it asserts a jointly owned company, and two
+# equity purchases reached the live tab wearing it. The other five keep their answer;
+# `basis` is still parsed and stored for every type, as the evidence for the LABEL that
+# the tab has never had.
+PART_BASIS_RX = {
+    "jv":           re.compile(r"joint venture|\bjv\b|jointly (?:owned|held)", re.I),
+    "licensing":    re.compile(r"licen[cs]", re.I),
+    "distribution": re.compile(r"distribut|resell|dealer|channel", re.I),
+}
+
+def _trim_name(name):
+    """Punctuation a company name never ends in. Run BOTH before and after canon_name:
+    the suffix fold is what leaves the comma behind."""
+    return re.sub(r"[\s,;:.\-]+$", "", str(name or "")).strip()
+
+
+def _basis_in(span, hay):
+    """Was this span really COPIED out of the evidence, or invented to justify a label?
+
+    Not `_in_hay`: that needs a designator or two content tokens of four characters, so
+    a true two-word basis ("supply", "joint venture") could never pass it. The prompt
+    asks for the words VERBATIM, so verbatim is the test -- normalised for whitespace
+    and case, and nothing else. A model that paraphrases instead of copying fails here,
+    which is the correct answer to "show me the words".
+    """
+    if not span or not hay:
+        return False
+    n = lambda t: re.sub(r"[^a-z0-9]+", " ", str(t).lower()).strip()
+    sp, h = n(span), n(hay)
+    return bool(sp) and sp in h
+
+
+# A jointly owned company, as words. Used to tell an acquisition from a JV in a note
+# that carries ownership language: both are ownership, only one is a tie.
+JV_RX = re.compile(r"(joint venture|\bjv\b|jointly (?:owned|held))", re.I)
+
+# OWNERSHIP WORDS OWN_RX DOES NOT CARRY. It requires a qualifier -- "majority stake",
+# "controlling shareholding" -- or an `acquir*` verb, so the live tab's own wording,
+# "Strategic stake in drone company", matched nothing and was published as a JOINT
+# VENTURE. Kept local to this step rather than widened into OWN_RX: that regex is
+# step_structure's candidate filter over the whole corpus, and changing what it selects
+# is a separate measurement from fixing what this step stores.
+PART_OWN_RX = re.compile(r"\bstakes?\s+in\b|\bequity\b|\bshareholding\b", re.I)
+
+# A museum, a charity or a trade body is a sponsorship or a membership, not a business
+# partnership. Universities, institutes and research councils are deliberately NOT here:
+# CSIR, the Kyiv School of Economics and Aalto-yliopisto are real R&D counterparties.
+NONCOMMERCIAL_RX = re.compile(
+    r"\b(museum|foundation|charit\w*|association|federation|chamber of)\b", re.I)
 
 
 # Function words that mark English prose. Single-character tokens are excluded on
@@ -1299,138 +1508,628 @@ def is_english(text, min_tok=5):
     return hits >= (1 if len(toks) <= 8 else 2)
 
 
-def parse_partnership(raw, hay=None):
+def parse_partnership(raw, hay=None, name_hay=None):
+    """-> dict or None. `rel` may be one of PART_TYPES (storable) or PART_NOT_A_TIE
+    (a real relationship that is not a partnership); the caller decides which.
+
+    Returning the excluded kinds rather than None is deliberate. A silent NONE makes
+    "the model correctly refused an acquisition" indistinguishable from "the model saw
+    nothing", and the acquisitions on the tab were never noticed because nothing counted
+    them.
+
+    TWO HAYSTACKS, because the two checks ask different questions. The ORGANISATIONS
+    must come from the statement itself (`name_hay` = subject/predicate/object): a name
+    that appears only in the surrounding quote is a co-mention, and that is how
+    "Lockheed Martin <-> NATO" was manufactured out of "Lockheed Martin has been a
+    strategic partner in Europe". The BASIS is copied out of the quote by definition, so
+    it is checked against the wider `hay`. `name_hay` defaults to `hay`, which is the
+    old single-haystack behaviour.
+    """
     d = _json_reply(raw)
     if d is None:
         return None
     a, b = _s(d.get("a"), 90), _s(d.get("b"), 90)
     note = _s(d.get("note"), 300)
-    rel = (_s(d.get("rel"), 12) or "").lower()
+    rel = (_s(d.get("rel"), 16) or "").lower()
     if not a or not b or not note:
+        return None
+    # "Merlin," -- the model copies a name out of "Merlin, Inc." and keeps the comma.
+    # _s strips whitespace and nothing else, so the punctuation reached the tab.
+    a, b = _trim_name(a), _trim_name(b)
+    if not a or not b:
         return None
     if not is_one_org(a) or not is_one_org(b):
         return None                       # 'X and Y' in one field is two orgs, refused
+    # A PHRASE IS NOT A FIRM. aliases.is_description reads the capitalisation shape --
+    # a name capitalises throughout, a phrase carried out of a sentence does not. It
+    # existed for the roster and was never applied here, so "Australian industry" was
+    # stored as a supply partner of Kongsberg.
+    #
+    # ONLY ON MULTI-WORD NAMES. is_description splits on non-word characters, so a
+    # hyphenated single word reads as "capitalised then lowercase" and it calls
+    # "Aalto-yliopisto" a description -- a Finnish university this file's own tests
+    # already pin as a real R&D counterparty. A description is a phrase; a phrase has
+    # a space in it.
+    if (" " in a and is_description(a)) or (" " in b and is_description(b)):
+        return None
+    # A museum is a sponsorship, not a business relationship: "Patria partners with the
+    # Finnish Aviation Museum" is true, and is not competitive intelligence.
+    if NONCOMMERCIAL_RX.search(a) or NONCOMMERCIAL_RX.search(b):
+        return None
     if is_force(a) or is_force(b):
         return None                       # 'den brasilianska regeringen' is not a
+    # A COUNTRY IS NOT AN ORGANISATION. serving_fill.country_names() exists for exactly
+    # this -- its own docstring says "'Thailand', 'Australia' and 'India' all reached
+    # signal_card.company" -- and it was never applied to a partnership side. Probing
+    # the live 14b against the real corpus stored "Paramount Group <-> Kazakhstan" as
+    # a strategic partnership and "Elbit Systems <-> Australia" as a customer: the
+    # country is the market or the buyer, never the partner.
+    _cn = country_names()
+    if fold_name(a) in _cn or fold_name(b) in _cn:
+        return None
     if not has_proper_name(a) or not has_proper_name(b):
         return None                       # NAMED organization -- the prompt's own rule
     if not is_english(note):
         return None                       # one-word / untranslated notes are labels
-    if hay is not None and not (_in_hay(a, hay) and _in_hay(b, hay)):
-        return None                       # both orgs must come from the statement
-    a, b = canon_name(a), canon_name(b)   # one identity per side (client group folds)
+    _nh = name_hay if name_hay is not None else hay
+    if _nh is not None and not (_in_hay(a, _nh) and _in_hay(b, _nh)):
+        return None                       # both orgs must come from the STATEMENT
+    # AND AGAIN AFTER CANONICALISATION, because canon_name is what CREATES the problem:
+    # "Merlin, Inc." trims to "Merlin, Inc", then the legal-suffix fold drops "Inc" and
+    # hands back "Merlin," with the comma restored. Trimming only on the way in looked
+    # like a fix and shipped the same broken name -- measured on the live 14b, twice.
+    a, b = _trim_name(canon_name(a)), _trim_name(canon_name(b))
+    if not a or not b:
+        return None
     if slug(a) == slug(b):
         return None
-    if rel not in ("jv", "tech", "supply", "mou", "acq", "other"):
+    # ONE CORPORATE FAMILY IS NOT A TIE. "Nammo Cheltenham supplies Nammo" and
+    # "Rheinmetall / American Rheinmetall Munitions" are ownership, and a reader would
+    # not call either a partnership. Containment either way, on folded names.
+    _fa, _fb = fold_name(a), fold_name(b)
+    if _fa and _fb and (word_rx(_fa).search(_fb) or word_rx(_fb).search(_fa)):
         return None
-    return {"a": a, "b": b, "rel": rel, "note": note,
+    if rel not in PART_TYPES and rel not in PART_NOT_A_TIE:
+        return None
+    # THE MIRROR OF parse_structure's GUARD, which has kept partnership language out of
+    # ownership since it was written -- and had no counterpart, so ownership language
+    # flowed freely the other way. Checked on the NOTE, exactly as the original does:
+    # the hand-written rows had precisely this shape, `rel: jv` over a note reading
+    # "Strategic stake in drone company". A joint venture is jointly OWNED, so it is
+    # the one ownership word that stays a tie.
+    if (OWN_RX.search(note) or PART_OWN_RX.search(note)) and not JV_RX.search(note):
+        rel = "acquisition"
+    # THE MODEL'S OWN EVIDENCE FOR THE TYPE. A narrow type has to be able to point at
+    # the words it came from; one that cannot is a guess wearing a specific label.
+    basis = _s(d.get("basis"), 160) or ""
+    downgraded = False
+    _brx = PART_BASIS_RX.get(rel)
+    if _brx is not None and not (_brx.search(basis)
+                                 and (hay is None or _basis_in(basis, hay))):
+        rel, downgraded = "strategic", True
+    # A tie the source says is over is still worth showing -- as over. It had no
+    # representation at all before, so the only way to say it was to write it into the
+    # type label, which is how "Historical Joint Venture (Ended 2013)" came to render
+    # as a live alliance edge identical to the current ones.
+    status = (_s(d.get("status"), 12) or "").lower()
+    # A DATE HAS A DIGIT IN IT. `_s` nulls "null"/"none"/"n/a" and nothing else, so a
+    # model answering the "else null" instruction with "ongoing", "no", "-", "present"
+    # or "not applicable" produced a truthy `ended` -- and the rule below then read
+    # that as a stated end date and flipped a live joint venture to ended. Measured:
+    # 'ongoing', 'no', 'not applicable', '-' and 'present' all did exactly that.
+    # A bare number is the opposite mistake: _s refuses non-strings, so the model
+    # answering {"ended": 2013} lost a real end year.
+    _raw_end = d.get("ended")
+    if isinstance(_raw_end, (int, float)) and not isinstance(_raw_end, bool):
+        _raw_end = str(int(_raw_end))
+    ended = _s(_raw_end, 40)
+    if ended and not any(c.isdigit() for c in ended):
+        ended = None
+    if status not in ("active", "ended", "announced"):
+        status = "ended" if ended else "active"
+    if ended and status != "ended":
+        status = "ended"                  # a stated end date outranks a guessed status
+    return {"a": a, "b": b, "rel": rel, "note": note, "status": status,
+            "ended": ended, "basis": basis, "downgraded": downgraded,
             "date": _s(d.get("date"), 40), "country": _s(d.get("country"), 60)}
 
 
-REL_PTYPE = {"jv": "Joint venture", "tech": "Technology / ToT",
-             "supply": "Supply / customer", "mou": "MoU / strategic",
-             "acq": "Acquisition / stake", "other": "Partnership"}
+def tie_confidence(urls, side):
+    """-> (confidence, why). The publishability rule already grades the source; this
+    step called it and threw the verdict away, keeping only the prose.
+
+    `publishable` returns (ok, why, tier, n_independent) and `ok` was assigned to a
+    variable nothing read, so a tie from one anonymous blog and a tie stated by the
+    manufacturer were stored identically and the UI had nothing to tell them apart
+    with. Three values, because that is what the rule actually distinguishes.
+    """
+    ok, why, tier, n = publishable(urls, side)
+    if tier == "official":
+        return "official", why
+    if ok and (n or 0) >= 2:
+        return "corroborated", why
+    return "single_source", why
+
+
+# The label a reader sees, keyed by `rel`. PART_TYPES is the definition; the six legacy
+# keys stay so rows written before 2026-09-06 still print a label instead of their raw
+# key. `supply` deliberately no longer says "Supply / customer" -- a supplier and a
+# buyer are opposite relationships and that one bucket held both.
+REL_PTYPE = dict(PART_TYPES)
+REL_PTYPE.update({"tech": "Technology / ToT", "mou": "MoU / strategic",
+                  "acq": "Acquisition / stake", "other": "Partnership"})
+
+# How many statements ONE competitor is worth asking about in a single pass.
+# See bucket_partnership_candidates for why a cap exists at all.
+#
+# A value of 0 or less is IGNORED rather than honoured. `if per_comp and ...` reads 0 as
+# "no cap", so `KSSL_PART_PER_COMP=0` would have been an undocumented way to reinstate
+# the unbounded pass this whole mechanism exists to prevent -- and it would have looked
+# like a way to turn the feature off.
+PART_PER_COMP = int(os.environ.get("KSSL_PART_PER_COMP") or 0) or 40
+if PART_PER_COMP < 1:
+    PART_PER_COMP = 40
+
+# The client gets its own, larger budget. serving.partner -- the client's whole partner
+# roster, and what the overlap read measures every rival against -- is deleted and
+# rebuilt from scratch each pass out of this ONE bucket. A rival capped at 40 loses its
+# 41st-strongest statement; the client capped at 40 loses part of the roster itself.
+PART_CLIENT_CAP = int(os.environ.get("KSSL_PART_CLIENT_CAP") or 0) or 200
+
+# Statements that assert a tie outright, as against ones that only imply it. Used to
+# ORDER a competitor's statements so the cap above keeps the strongest -- never to gate
+# them, because "collaborates with" is weak evidence and still evidence.
+PART_STRONG_RX = re.compile(
+    r"(joint venture|\bjv\b|\bmou\b|memorandum|\bagreement|licen[cs]|consortium|"
+    r"partnership with|partnership between|partners with|partnered with|"
+    r"signed|teamed up|tie-?up|"
+    # THE NEW TYPES RANK TOO. Widening PART_RX without widening this one is how the
+    # cap quietly undoes the widening: a genuine "supplies engines to" scored the same
+    # as an over-match and lost the tie-break on quote length, so the very statements
+    # the supply/manufacturing/distribution types were added for were the ones the cap
+    # discarded first.
+    r"subcontract|contract manufactur|co-?develop|co-?produc|"
+    r"suppl(?:y|ies|ied|ier)(?!\s+(?:chain|of\b))|"
+    r"distribut(?:or|ion)|resell|channel partner)", re.I)
+
+# The client's own ties go to serving.partner, not to a competitor row, so they need a
+# bucket of their own. Not a comp_id: no competitor may ever be called this.
+CLIENT_BUCKET = "__client__"
+
+# THE TWO STATEMENTS THAT DECIDE WHICH TIES SURVIVE A PASS, named so the test can run
+# the ones that ship instead of a retyped copy that drifts. A drifted copy of the reset
+# is exactly the failure that hides here: it would still look like a working test while
+# production quietly doubled or deleted every tie.
+#
+# RESET: drop only what this writer put there. A revived tie and a hand-written one both
+# carry a different `origin` (or none at all) and both stay. The old predicate was
+# `p ? 'origin'`, which kept the ENRICHED rows too -- harmless only for as long as the
+# step never reached its own commit.
+#
+# NEVER RUN UNSCOPED WHILE THE PASS IS IN FLIGHT. The two scoped forms below are what
+# the step uses, and the reason is the whole point of the per-bucket commits: a global
+# reset committed up front empties every competitor before the first model call, so an
+# interrupted pass leaves the tab THINNER than it found it -- the opposite of the
+# guarantee. A competitor is reset once, at the moment its first tie of this pass is
+# written, inside the same transaction as that write.
+_PART_RESET = """UPDATE serving.competitors
+                    SET partners = coalesce((SELECT jsonb_agg(p)
+                          FROM jsonb_array_elements(coalesce(partners,'[]'::jsonb)) p
+                         WHERE p->>'origin' IS DISTINCT FROM 'enriched'), '[]'::jsonb)
+                  WHERE origin='pipeline'"""
+# One competitor, immediately before this pass's first write to it.
+PART_RESET_ONE_SQL = _PART_RESET + " AND comp_id = %s"
+# The sweep, and only on a COMPLETE pass: every competitor this pass found nothing for
+# still holds last pass's ties, and a tie the corpus no longer supports must not live
+# forever. A run that stopped early has not looked at them yet, so it must not judge
+# them -- hence the caller's `if not stop`.
+PART_RESET_REST_SQL = _PART_RESET + " AND NOT (comp_id = ANY(%s::text[]))"
+
+# APPEND: add this batch in front of whatever the reset left. No second filter here --
+# re-filtering on the way in is how the archive revival got erased the first time.
+PART_APPEND_SQL = """UPDATE serving.competitors
+                        SET partners = %s::jsonb || coalesce(partners, '[]'::jsonb),
+                            updated_at = now()
+                      WHERE comp_id=%s AND origin='pipeline'"""
+
+
+def bucket_partnership_candidates(profiles, docs, props_by_doc,
+                                  per_comp=PART_PER_COMP,
+                                  client_cap=PART_CLIENT_CAP):
+    """Which statements are worth one model call each, grouped by whose row the answer
+    can land on.  -> ({bucket: [(document_id, prop)]}, stats)
+
+    THE BOUND THAT MAKES THIS STEP FINISH. It used to take every proposition whose
+    predicate matched PART_RX and ask the model about each one: 4,546 calls on the
+    staging corpus, ~7,000 on production's, issued sequentially against a farm that
+    fails over to a CPU box under load. Measured 2026-09-06: the production enrich
+    container had been inside this one step for eight hours and had never once reached
+    its own summary line. Nothing kills the pass -- entrypoint.sh runs it to completion
+    and only then sleeps -- so this is not a timeout, it is a step that takes most of a
+    day while steps 4-10 wait behind it, and that loses everything to any interruption
+    in that window because the whole step used to commit once at the end.
+
+    Two observations cut that to a few hundred without weakening a single answer:
+
+      1. ONLY ASK WHAT CAN BE STORED. A tie lands on a competitor row (or on
+         serving.partner, for the client). A statement naming neither is asked about,
+         answered, parsed, gated -- and then counted as an orphan and dropped. Of the
+         4,546 candidates, 1,448 name a tracked competitor or the client. The other
+         3,098 calls were paid for and discarded before this function existed.
+
+      2. THE SAME SENTENCE ARRIVES MANY TIMES. Wire copy is syndicated, and the same
+         subject/predicate/object reaches the corpus from a dozen domains. Deduped per
+         bucket, 1,448 becomes 1,397.
+
+    The cap is what turns a bound into a guarantee: one competitor held 237 statements,
+    and a corpus that grows makes that number grow with it. At 40 per competitor the
+    whole step is 656 calls on staging -- roughly an hour -- and the number stops
+    depending on how big the corpus gets. Statements are ordered by PART_STRONG_RX
+    first, so what the cap discards is always the weakest evidence, and ties are broken
+    on (document_id, subject) so the same corpus asks the same questions twice running.
+
+    A bucket is not an assertion that the tie belongs to that competitor -- the model
+    still names both sides and step_partnerships still lands the answer on whichever
+    side it profiles, possibly both. The bucket only decides what is worth asking.
+
+    THE CEILING THIS BUYS THE THROUGHPUT WITH, stated plainly. The ordering is
+    deterministic, so a competitor over the cap is asked about the SAME strongest 40
+    statements every pass, and the other 197 are never asked at all -- not "asked
+    later". On the staging corpus that is 760 statements a pass, across the 19 buckets
+    that hit the cap. Deliberate for now: the ranking puts the outright assertions
+    first, and a tie that only ever appears in weak language is the one most likely to
+    be refused anyway. The upgrade is not a bigger cap -- it is to remember which
+    statements have already been judged and spend each pass's budget on the ones that
+    have not, which needs a table this step does not have yet. `KSSL_PART_PER_COMP`
+    raises the cap in the meantime, linearly in cost.
+    """
+    # The client is excluded from the competitor regexes on purpose. step_companies can
+    # write a pipeline row with dir='client', and if it does, every statement naming
+    # Bharat Forge would land in that row's bucket AND in CLIENT_BUCKET -- two model
+    # calls for one statement, the second of which dies in seen_pairs AFTER it has been
+    # paid for. Its ties belong in serving.partner either way.
+    rxs = [(p["comp_id"], word_rx(p["name"])) for p in profiles
+           if not is_client(p["name"])]
+    client_rxs = [word_rx(m) for m in CLIENT_MARKS]
+    buckets = {}
+    n_cand = n_named = n_dup = 0
+    for did in sorted(props_by_doc):
+        if did not in docs:
+            continue
+        for pr in props_by_doc[did]:
+            if not PART_RX.search(pr["p"] or ""):
+                continue
+            n_cand += 1
+            hay = ("%s %s %s %s" % (pr["s"], pr["p"], pr["o"], pr["q"])).lower()
+            hits = [cid for cid, rx in rxs if rx.search(hay)]
+            if any(rx.search(hay) for rx in client_rxs):
+                hits.append(CLIENT_BUCKET)
+            if not hits:
+                continue
+            n_named += 1
+            for b in hits:
+                buckets.setdefault(b, []).append((did, pr))
+
+    # RANK FIRST, THEN DEDUPE, THEN CAP -- in that order, and the order is the point.
+    # Deduping during collection would keep whichever copy the corpus happened to yield
+    # first; ranking first means the survivor of a set of rewrites is the strongest
+    # phrasing with the longest quote, which is the one most likely to be answerable.
+    n_capped = 0
+    for b, rows in buckets.items():
+        rows.sort(key=lambda dp: (0 if PART_STRONG_RX.search(dp[1]["p"] or "") else 1,
+                                  -len(dp[1]["q"] or ""), dp[0], dp[1]["s"] or ""))
+        # KEYED ON THE TWO ENDS, NOT ON THE WHOLE SENTENCE. `seen_pairs` in
+        # step_partnerships is keyed on the pair of organisations the model names, so a
+        # second statement about the same two companies can never produce a second
+        # stored tie -- it is a call paid for and then thrown away. Wire copy rewrites
+        # the verb and leaves the ends alone: "is partnering with", "collaborates with"
+        # and "partnered with" are all the same Rheinmetall/Lockheed tie, and an s+p+o
+        # key treats each rewrite as a new question.
+        #
+        # MEASURED BEFORE ADOPTING, because it trades coverage for calls: on the
+        # staging corpus it takes 1,456 uncapped calls to 1,376, and the 78 statements
+        # it gives up sit in 63 (subject, object) groups. The twelve largest were read
+        # by hand and every one was the same tie in different words. It is a 5% saving,
+        # not a large one -- the value is that the cap below now counts roughly
+        # "distinct counterparties" rather than "distinct sentences".
+        # THE DUPLICATES ARE THE CORROBORATION. Dropping them outright made
+        # `corroborated` unreachable: tie_confidence was called with the one surviving
+        # document's url, so `publishable` never saw two independent domains and every
+        # tie in the system graded `single_source` -- a three-value scale shipping as
+        # two. The sibling documents are the evidence that the same pair is stated in
+        # more than one place, which is exactly what the source bar asks. Carried on
+        # the kept row rather than asked about again: one call, all the urls.
+        seen, keep, alt = set(), [], {}
+        for did, pr in rows:
+            ends = (fold_name(pr["s"] or ""), fold_name(pr["o"] or ""))
+            if ends in seen:
+                n_dup += 1
+                alt.setdefault(ends, []).append(did)
+                continue
+            seen.add(ends)
+            keep.append((did, pr))
+        for did, pr in keep:
+            ends = (fold_name(pr["s"] or ""), fold_name(pr["o"] or ""))
+            if alt.get(ends):
+                # capped: the source bar needs two independent domains, not fifty
+                pr["alt_docs"] = alt[ends][:8]
+        cap = client_cap if b == CLIENT_BUCKET else per_comp
+        if cap and len(keep) > cap:
+            n_capped += len(keep) - cap
+            keep = keep[:cap]
+        buckets[b] = keep
+    calls = sum(len(v) for v in buckets.values())
+    return buckets, {"candidates": n_cand, "named": n_named, "duplicate": n_dup,
+                     "over_cap": n_capped, "calls": calls,
+                     "buckets": len(buckets)}
+
+
+def owned_elsewhere(props_by_doc, did, pr):
+    """-> the sibling proposition proving this pair is an ACQUISITION, or None.
+
+    THE ONE ERROR CLASS THAT SAYS THE OPPOSITE OF THE TRUTH on the tab. Adani's 50%
+    purchase of General Aeronautics reached the model as `Adani Defence & Aerospace |
+    partnering with | General Aeronautics`, over a CEO quote saying "is partnering with
+    us" -- and the model answered `strategic`, faithfully. The acquisition is stated in
+    the SAME article, in a different proposition ("acquires | 50% equity stake in"),
+    which the partnership question never sees.
+
+    So look there before paying for the call. The predicate test is step_structure's own
+    candidate rule (OWN_RX over predicate+object), scoped to THIS statement's two ends
+    so a subsidiary aside about a third party cannot refuse a real tie -- measured on 33
+    dumped ties, document-wide scope would have refused up to 10 of them and pair scope
+    refuses exactly the one that is wrong.
+
+    A compound subject ("Saab and Embraer") folds to a string that matches nothing here,
+    so it is a miss and never a false refusal.
+    """
+    ends = [word_rx(fold_name(x)) for x in (pr.get("s"), pr.get("o"))
+            if fold_name(x or "")]
+    if len(ends) < 2:
+        return None
+    for sib in props_by_doc.get(did) or ():
+        if sib is pr or not OWN_RX.search("%s %s" % (sib.get("p") or "",
+                                                     sib.get("o") or "")):
+            continue
+        spo = fold_name("%s %s %s" % (sib.get("s") or "", sib.get("p") or "",
+                                      sib.get("o") or ""))
+        if all(rx.search(spo) for rx in ends):
+            return sib
+    return None
 
 
 def step_partnerships(cur, con, docs, props_by_doc, limit=None):
-    cur.execute("DELETE FROM serving.partner WHERE origin='pipeline' AND ord < %s",
-                (REV_ORD0,))
-    # Blank only what THIS writer put there. The reset used to empty the column
-    # outright, which silently deleted every revived tie on the next run.
-    cur.execute("""UPDATE serving.competitors
-                      SET partners = coalesce((SELECT jsonb_agg(p) FROM
-                            jsonb_array_elements(partners) p
-                            WHERE p ? 'origin'), '[]'::jsonb)
-                    WHERE origin='pipeline'""")
+    """Read partnership ties out of the corpus and land them on the competitor rows.
+
+    COMMITS AS IT GOES, one flush per bucket. The old shape did every model call and
+    then committed once at the very end, so anything that interrupted a pass -- a
+    deploy, the farm dying, the DB socket dropping into run()'s retry -- threw away
+    every tie it had found, across a window that was most of a day. Partial progress is
+    the whole point: 30 competitors rewritten and 14 still holding last pass's ties
+    beats 44 rolled back.
+
+    Which is why the reset is PER COMPETITOR and inside the same transaction as the
+    write that replaces it (see flush). A global reset committed up front would empty
+    all 44 before the first model call, and an interrupted pass would then leave the
+    tab emptier than it found it -- a worse outcome than the rollback it replaced.
+
+    TWO THINGS THE COMMITS CHANGE FOR AN OPERATOR, neither of them new bugs but both
+    newly reachable:
+
+      * `--limit` IS NOT A DRY RUN. It used to be near enough to one, because nothing
+        committed until the end and a Ctrl-C undid the lot. Now every bucket it gets
+        through is written, and a complete run rebuilds serving.partner. Point it at
+        staging, not at production, when smoke-testing.
+      * A HAND-RUN SCRIPT CAN LOSE A FLUSH. revive_partners.py, discover_ties.py and
+        mark_shared.py each SELECT the whole partners column and write it back. That
+        raced with a single commit at the end of the pass for a moment; it now races
+        with an hour of them. Run them when the enrich loop is stopped.
+    """
     profiles = load_profiles(cur)
     if not profiles:
         print("partnerships: no profiled companies -- run companies first", flush=True)
         return {"written": 0, "refused": 0, "skipped": 0}
+    prof_ids = {p["comp_id"] for p in profiles}
     prof_rx = [(p, [word_rx(p["name"])]) for p in profiles]
 
-    cands = []
-    for did, prs in props_by_doc.items():
-        for pr in prs:
-            if PART_RX.search(pr["p"]):
-                cands.append((did, pr))
-    found, refused, seen_pairs, calls, offp = [], 0, set(), 0, 0
-    for did, pr in cands:
-        if limit and calls >= limit:
-            break
-        calls += 1
-        hay = ("%s %s %s %s" % (pr["s"], pr["p"], pr["o"], pr["q"])).lower()
-        try:
-            raw = _ask(PART_PROMPT % (docs[did]["title"] or did, pr["s"], pr["p"],
-                                      pr["o"], clip(pr["q"], 300)), npredict=300)
-        except Exception as e:                                    # noqa: BLE001
-            refused += 1
-            print("  %s: %s" % (did, e), flush=True)
-            continue
-        got = parse_partnership(raw, hay)
-        if got is None:
-            refused += 1
-            continue
-        # A tie is intelligence only if it touches a KSSL line. The two org names are
-        # the headline (never a product word), so the note is judged as the body: a
-        # negative term there refuses the tie unless a KSSL line is named -- "forged and
-        # machined aero-engine parts" (Safran) stays, on `forged`.
-        if off_portfolio("", got["note"], title="%s / %s" % (got["a"], got["b"])):
-            offp += 1
-            continue
-        key = frozenset((slug(got["a"]), slug(got["b"])))
-        if key in seen_pairs:
-            continue
-        seen_pairs.add(key)
-        got["url"] = docs[did]["url"]
-        got["source"] = docs[did]["source"]
-        found.append(got)
+    buckets, bstats = bucket_partnership_candidates(profiles, docs, props_by_doc)
+    print("partnerships: %d candidate prop(s) -> %d naming a tracked company "
+          "(%d duplicate, %d over the %d/company cap) -> %d model call(s) "
+          "across %d bucket(s)"
+          % (bstats["candidates"], bstats["named"], bstats["duplicate"],
+             bstats["over_cap"], PART_PER_COMP, bstats["calls"], bstats["buckets"]),
+          flush=True)
 
-    comp_partners = {p["comp_id"]: [] for p in profiles}
-    client_rows, orphans = [], []
-    for g in found:
-        landed = False
-        for side, other in ((g["a"], g["b"]), (g["b"], g["a"])):
-            # The document this tie was read from IS its evidence, and it was being
-            # thrown away: five ties reached the tab with no source at all, on a
-            # page whose rule is that every tie carries one a reader can check.
-            ok, why, _t, _n = publishable([g["url"]], side)
-            entry = {"id": slug(other), "label": esc(other),
-                     "ptype": REL_PTYPE[g["rel"]], "rel": g["rel"],
-                     "note": esc(g["note"]), "country": g["country"],
-                     "date": g["date"], "src": g["url"],
-                     # honest either way: an uncorroborated single source says so
-                     "srcnote": why, "origin": "enriched"}
-            if is_client(side):
-                client_rows.append((other, g))
-                landed = True
-            cid = slug(side)
-            if cid in comp_partners:
-                comp_partners[cid].append(entry)
-                landed = True
-            else:   # alias form ("Bharat Forge Limited") -> boundary match
-                for p, rxs in prof_rx:
-                    if any(rx.search(side.lower()) for rx in rxs):
-                        comp_partners[p["comp_id"]].append(entry)
-                        landed = True
-                        break
-        if not landed:
-            # Neither side is a profiled company or the client: the tie is real but
-            # has nowhere to be shown. Counted and named, never silently dropped --
-            # 'N ties found' used to be printed over ties nothing stored.
-            orphans.append("%s / %s" % (g["a"], g["b"]))
-    n_upd = 0
-    for cid, plist in comp_partners.items():
-        if plist:
-            # keep the revived ties this writer did not find -- setting the column
-            # outright is how the archive revival got erased the first time
-            cur.execute("""UPDATE serving.competitors
-                              SET partners = %s::jsonb || coalesce((
-                                    SELECT jsonb_agg(p) FROM jsonb_array_elements(partners) p
-                                     WHERE p ? 'origin'), '[]'::jsonb),
-                                  updated_at = now()
-                            WHERE comp_id=%s AND origin='pipeline'""",
-                        (json.dumps(plist), cid))
-            n_upd += 1
+    # One query for every document this pass may cite, rather than one per tie.
+    _as_of = {}
+    try:
+        _dids = sorted({d for rows in buckets.values() for d, _p in rows})
+        for _d in _dids:
+            _as_of[_d] = article_date(cur, _d)
+    except Exception as e:                                            # noqa: BLE001
+        print("partnerships: article dates unavailable (%s) -- ties will carry no "
+              "as_of" % e, flush=True)
+
+    reset_done = set()
+
+    def flush(pending):
+        """Write one bucket's ties and commit. THIS is the partial progress: a pass
+        that dies keeps every bucket it finished, and every competitor it never reached
+        keeps the ties it already had.
+
+        The reset is per competitor and lives in the SAME transaction as the write that
+        replaces it, so a competitor is never left holding nothing. Once per pass:
+        a second bucket landing on the same competitor appends to the first."""
+        n = 0
+        for cid_, plist in pending.items():
+            if not plist:
+                continue
+            if cid_ not in reset_done:
+                cur.execute(PART_RESET_ONE_SQL, (cid_,))
+                reset_done.add(cid_)
+            cur.execute(PART_APPEND_SQL, (json.dumps(plist), cid_))
+            n += cur.rowcount
+        con.commit()
+        return n
+
+    found = refused = errored = calls = downgraded = 0
+    seen_pairs, not_tie, by_type = set(), {}, {}
+    client_rows, orphans, ownership, written_to = [], [], [], set()
+    stop = False
+    def _ask_one(item):
+        """One model call, in a worker thread. Returns everything the sequential half
+        needs, so nothing but the HTTP wait happens in parallel."""
+        did_, pr_ = item
+        try:
+            return item, _ask(PART_PROMPT % (docs[did_]["title"] or did_, pr_["s"],
+                                             pr_["p"], pr_["o"],
+                                             clip(pr_["q"], 300)), npredict=300), None
+        except Exception as e:                                    # noqa: BLE001
+            return item, None, e
+
+    for _bucket, rows in buckets.items():
+        pending = {}
+        # THE FREE REFUSALS FIRST. owned_elsewhere reads propositions already in memory,
+        # so a pair the same article calls an acquisition never reaches the model.
+        todo = []
+        for did, pr in rows:
+            _own = owned_elsewhere(props_by_doc, did, pr)
+            if _own is not None:
+                not_tie["acquisition"] = not_tie.get("acquisition", 0) + 1
+                ownership.append("%s / %s (same article: %s %s)"
+                                 % (pr["s"], pr["o"], _own.get("p"), _own.get("o")))
+                continue
+            todo.append((did, pr))
+        if limit:
+            room = max(0, limit - calls)
+            if len(todo) > room:
+                todo, stop = todo[:room], True
+
+        # ENRICH_WORKERS AT A TIME, not one. The serving node offers six parallel slots
+        # and this step used exactly one of them -- measured on the farm dashboard, the
+        # pinned 14b sat at 2/6 running while a pass crawled through it single file at
+        # 7.6 tok/s. step_companies has taken the node ENRICH_WORKERS-wide since it was
+        # written; this is the same shape.
+        #
+        # ONLY THE HTTP WAIT IS PARALLEL. ex.map preserves input order, so the answers
+        # are processed in exactly the order a sequential pass would have seen them --
+        # seen_pairs, the flush order and the commits all stay deterministic, and the
+        # cursor is still touched by one thread.
+        answers = []
+        if todo:
+            with ThreadPoolExecutor(max_workers=min(ENRICH_WORKERS, len(todo))) as ex:
+                answers = list(ex.map(_ask_one, todo))
+            calls += len(todo)
+
+        for (did, pr), raw, err in answers:
+            if err is not None:
+                # NOT a refusal. The farm 502s and fails over mid-pass, and counting an
+                # outage as "the model said no" hides it inside a quality number.
+                errored += 1
+                print("  %s: %s" % (did, err), flush=True)
+                continue
+            hay = ("%s %s %s %s" % (pr["s"], pr["p"], pr["o"], pr["q"])).lower()
+            name_hay = ("%s %s %s" % (pr["s"], pr["p"], pr["o"])).lower()
+            got = parse_partnership(raw, hay, name_hay=name_hay)
+            if got is None:
+                refused += 1
+                continue
+            if got.get("downgraded"):
+                downgraded += 1
+            # NOT A PARTNERSHIP, and named as such rather than silently dropped.
+            # Acquisitions belong to step_structure, which mines these same
+            # propositions with an ownership prompt; a customer, an investor and a
+            # programme award are not business partnerships at all.
+            if got["rel"] in PART_NOT_A_TIE:
+                not_tie[got["rel"]] = not_tie.get(got["rel"], 0) + 1
+                if got["rel"] == "acquisition":
+                    ownership.append("%s / %s" % (got["a"], got["b"]))
+                continue
+            # off_portfolio() USED TO GATE HERE, and it was the wrong question. It
+            # refuses any text naming a product class KSSL has no line in -- radar,
+            # sonar, EW, optics, satcom, C4I -- which is a rule about what KSSL sells.
+            # This tab is about who a COMPETITOR works with, and "Rheinmetall and
+            # Hensoldt sign a radar supply agreement" is precisely the intelligence it
+            # exists to carry. The gate stays where it belongs, on cards and matchups.
+            key = frozenset((slug(got["a"]), slug(got["b"])))
+            if key in seen_pairs:
+                continue
+            seen_pairs.add(key)
+            by_type[got["rel"]] = by_type.get(got["rel"], 0) + 1
+            got["url"] = docs[did]["url"]
+            got["source"] = docs[did]["source"]
+            # Every document that stated this same pair, so the source bar can see
+            # more than one domain. `url` stays the ONE citation a reader opens.
+            got["urls"] = [docs[did]["url"]] + [docs[d]["url"] for d in
+                                                pr.get("alt_docs") or []
+                                                if d in docs]
+            found += 1
+
+            # LAND IT ON EVERY SIDE THAT HAS A ROW, not only on this bucket's company:
+            # a tie between two tracked rivals belongs under both, and the bucket only
+            # decided which statement was worth asking about.
+            landed = False
+            for side, other in ((got["a"], got["b"]), (got["b"], got["a"])):
+                # The document this tie was read from IS its evidence, and it was being
+                # thrown away: five ties reached the tab with no source at all, on a
+                # page whose rule is that every tie carries one a reader can check.
+                conf, why = tie_confidence(got["urls"], side)
+                entry = {"id": slug(other), "label": esc(other),
+                         "ptype": REL_PTYPE[got["rel"]], "rel": got["rel"],
+                         "note": esc(got["note"]), "country": got["country"],
+                         "date": got["date"], "src": got["url"],
+                         # honest either way: an uncorroborated single source says so
+                         "srcnote": why,
+                         # the verdict, not just the prose about it
+                         "confidence": conf,
+                         # a tie the source says is over renders as over, instead of
+                         # being written into the type label as "(Ended 2013)"
+                         "status": got["status"], "ended": got["ended"],
+                         # THE ONLY HONEST THING A 2010 ARTICLE CAN SAY. `status` is
+                         # "as of this document", and without the document's date an
+                         # alliance that collapsed in 2024 reads as current because a
+                         # 2023 article called it active.
+                         "as_of": _as_of.get(did),
+                         # the words the model says decided the type, so a reader can
+                         # check the LABEL and not only the tie
+                         "basis": got.get("basis") or None,
+                         "origin": "enriched"}
+                if is_client(side):
+                    client_rows.append((other, got))
+                    landed = True
+                cid = slug(side)
+                if cid in prof_ids:
+                    pending.setdefault(cid, []).append(entry)
+                    landed = True
+                else:   # alias form ("Bharat Forge Limited") -> boundary match
+                    for p, rxs in prof_rx:
+                        if any(rx.search(side.lower()) for rx in rxs):
+                            pending.setdefault(p["comp_id"], []).append(entry)
+                            landed = True
+                            break
+            if not landed:
+                # Neither side is a profiled company or the client: the tie is real but
+                # has nowhere to be shown. Counted and named, never silently dropped --
+                # 'N ties found' used to be printed over ties nothing stored.
+                orphans.append("%s / %s" % (got["a"], got["b"]))
+        written_to.update(k for k, v in pending.items() if v)
+        flush(pending)
+        if stop:
+            break
+
+    # THE SWEEP. Competitors this pass found nothing for still hold last pass's ties,
+    # and a tie the corpus no longer supports must not live forever. Only on a COMPLETE
+    # pass: a run that stopped at its --limit has not looked at them.
+    if not stop:
+        cur.execute(PART_RESET_REST_SQL, (sorted(reset_done),))
+        con.commit()
+
+    # THE CLIENT'S OWN ROSTER, deleted and re-inserted in ONE committed transaction.
+    # The delete used to open the step; with the per-bucket commits above that would
+    # leave serving.partner empty for the whole pass, and empty for good if the pass
+    # died before reaching here.
+    cur.execute("DELETE FROM serving.partner WHERE origin='pipeline' AND ord < %s",
+                (REV_ORD0,))
     seen_c = set()
     for i, (other, g) in enumerate(client_rows, start=1):
         if slug(other) in seen_c or is_client(other):
@@ -1445,17 +2144,45 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
                     ("plp_%02d" % i, ORD0 + i, esc(other), g["rel"],
                      REL_PTYPE[g["rel"]], esc(g["note"]), g["date"], g["country"]))
     con.commit()
-    print("partnerships: %d tie(s) found from %d candidate props, %d refused; "
-          "%d competitor(s) updated, %d client partner row(s), %d tie(s) stored nowhere "
-          "(both sides unprofiled)"
-          % (len(found), len(cands), refused, n_upd, len(seen_c), len(orphans)),
-          flush=True)
+
+    print("partnerships: %d tie(s) found from %d model call(s), %d refused, "
+          "%d call(s) errored; %d competitor(s) updated, %d client partner row(s), "
+          "%d tie(s) stored nowhere (both sides unprofiled)"
+          % (found, calls, refused, errored, len(written_to), len(seen_c),
+             len(orphans)), flush=True)
     for o in orphans[:10]:
         print("  not stored: %s" % o, flush=True)
-    print("partnerships: %d tie(s) off-portfolio (no KSSL line named)" % offp, flush=True)
-    return {"written": len(found) - len(orphans), "refused": refused, "off_portfolio": offp,
-            "client_rows": len(seen_c), "competitors_updated": n_upd,
-            "dropped_unprofiled": len(orphans)}
+    # SAY WHAT WAS REFUSED AND WHY, per kind. These were on the tab typed as
+    # partnerships until 2026-09-06 and nobody noticed, because nothing counted them --
+    # a filter that silently removes rows is indistinguishable from a quiet corpus.
+    if not_tie:
+        print("partnerships: %d statement(s) named a relationship that is not a "
+              "partnership -- %s"
+              % (sum(not_tie.values()),
+                 ", ".join("%s %d (%s)" % (k, n, PART_NOT_A_TIE[k])
+                           for k, n in sorted(not_tie.items(), key=lambda kv: -kv[1]))),
+              flush=True)
+    for o in ownership[:5]:
+        print("  ownership, for step_structure: %s" % o, flush=True)
+    # THE TYPE DISTRIBUTION, because a catch-all that eats everything looks exactly like
+    # a corpus with nothing specific in it. Measured before the ordered prompt:
+    # `strategic` was 61% and jv/licensing/rnd/distribution were never produced at all.
+    if by_type:
+        print("partnerships: types -- %s%s"
+              % (", ".join("%s %d" % (k, n) for k, n in
+                           sorted(by_type.items(), key=lambda kv: -kv[1])),
+                 ("; %d downgraded to strategic (the model could not point at the "
+                  "words for its own label)" % downgraded) if downgraded else ""),
+              flush=True)
+    if stop:
+        print("partnerships: stopped at the --limit of %d call(s); what was found up "
+              "to there is committed" % limit, flush=True)
+    return {"written": found - len(orphans), "refused": refused, "errored": errored,
+            "calls": calls, "by_type": by_type, "downgraded": downgraded,
+            "not_a_tie": sum(not_tie.values()), "not_a_tie_by_kind": not_tie,
+            "client_rows": len(seen_c), "competitors_updated": len(written_to),
+            "dropped_unprofiled": len(orphans), "candidates": bstats["candidates"],
+            "named": bstats["named"], "over_cap": bstats["over_cap"]}
 
 
 # ----------------------------------------------------- step 2b: corporate structure
@@ -2947,10 +3674,22 @@ def _demo():
     assert "Saab" in m and is_client("Bharat Forge Ltd") and not is_client("Saab")
     assert canon_name("Rafael") == canon_name("Rafael Advanced Defence Systems")
     # --- step 2: partnership parser ---
-    ph = "arquus and daimler truck signed a joint bid alliance"
+    ph = ("arquus and daimler truck signed a joint bid alliance joint venture "
+          "to jointly modernise logistics trucks")
     pk = parse_partnership('{"a":"Arquus","b":"Daimler Truck","rel":"jv",'
+                           '"basis":"joint venture",'
                            '"note":"agreed to jointly modernise logistics trucks","date":null,"country":null}', ph)
-    assert pk and pk["rel"] == "jv"
+    assert pk and pk["rel"] == "jv", pk
+    # A NARROW TYPE MUST POINT AT ITS OWN WORDS. Same answer with no basis: a label with
+    # nothing behind it drops to the catch-all rather than being stored as a fact.
+    pn = parse_partnership('{"a":"Arquus","b":"Daimler Truck","rel":"jv",'
+                           '"note":"agreed to jointly modernise logistics trucks"}', ph)
+    assert pn and pn["rel"] == "strategic" and pn["downgraded"], pn
+    # ...and a basis the quote never carried is not evidence either.
+    pf = parse_partnership('{"a":"Arquus","b":"Daimler Truck","rel":"jv",'
+                           '"basis":"a jointly owned company nobody mentioned",'
+                           '"note":"agreed to jointly modernise logistics trucks"}', ph)
+    assert pf and pf["rel"] == "strategic", pf
     assert parse_partnership('{"a":"Arquus","b":"Boeing","rel":"jv","note":"agreed to jointly modernise logistics trucks"}',
                              ph) is None, "org not in statement refuses"
     assert parse_partnership('{"a":"A","b":"A","rel":"jv","note":"agreed to jointly modernise logistics trucks"}', None) is None
@@ -2958,26 +3697,85 @@ def _demo():
                              '"note":"agreed to jointly modernise logistics trucks"}', ph) is None, "unknown rel refuses"
     assert parse_partnership('{"a":"Arquus and Daimler Truck","b":"Renault",'
                              '"rel":"jv","note":"agreed to jointly modernise logistics trucks"}', None) is None,         "two orgs jammed into one field refuse"
-    bfh = "bharat forge ltd and paramount group agreed to produce the mbombe 4"
+    bfh = "bharat forge ltd and paramount group agreed to produce and supply the mbombe 4"
     pc = parse_partnership('{"a":"Bharat Forge Ltd","b":"Paramount Group",'
-                           '"rel":"supply","note":"agreed to jointly modernise logistics trucks"}', bfh)
+                           '"rel":"supply","basis":"supply",'
+                           '"note":"agreed to jointly modernise logistics trucks"}', bfh)
     assert pc and pc["a"] == "Kalyani Strategic Systems", \
         "the client side folds to the ONE client identity"
     # audit M10: a government noun phrase is not a named organization
     gh = "saab and den brasilianska regeringen signed an agreement"
     assert parse_partnership('{"a":"Saab","b":"den brasilianska regeringen",'
-                             '"rel":"mou","note":"agreed to build aircraft together"}',
+                             '"rel":"strategic","note":"agreed to build aircraft together"}',
                              gh) is None, "'the Brazilian government' is not a name"
     ah = "patria and aalto-yliopisto signed a research agreement together"
-    assert parse_partnership('{"a":"Patria","b":"Aalto-yliopisto","rel":"tech",'
+    assert parse_partnership('{"a":"Patria","b":"Aalto-yliopisto","rel":"rnd",'
                              '"note":"collaborates"}', ah) is None, \
         "a one-word note states nothing that was agreed"
-    assert parse_partnership('{"a":"Patria","b":"Aalto-yliopisto","rel":"tech",'
+    assert parse_partnership('{"a":"Patria","b":"Aalto-yliopisto","rel":"rnd",'
                              '"note":"a Rheinmetall \u00e9s a magyar korm\u00e1ny '
                              'k\u00f6z\u00fcl megállapod\u00e1s"}', ah) is None, \
         "an untranslated note belongs in the evidence, not in the label"
     assert is_english("agreed to co-produce the Simha 4x4 in India")
     assert not is_english("k\u00f6z\u00fctti meg\u00e1llapod\u00e1s alapj\u00e1n")
+    # --- the ten types, and the four that are not partnerships -------------------
+    # Every label must exist, or a real answer stores a KeyError instead of a tie.
+    assert set(PART_TYPES) & set(PART_NOT_A_TIE) == set(), \
+        "a kind cannot be both storable and refused"
+    for _k in PART_TYPES:
+        assert REL_PTYPE[_k], "every type prints a label"
+    sh = ("rheinmetall and knds signed a joint venture to manufacture supply licence "
+          "technology transfer research integrate distribute forged hulls under a "
+          "subcontract")
+    _BASIS = {"jv": "joint venture", "manufacturing": "manufacture", "supply": "supply",
+              "licensing": "licence", "technology": "technology transfer",
+              "rnd": "research", "integration": "integrate",
+              "distribution": "distribute", "strategic": ""}
+    for _rel in PART_TYPES:
+        _g = parse_partnership('{"a":"Rheinmetall","b":"KNDS","rel":"%s","basis":"%s",'
+                               '"note":"agreed to work together on forged hulls"}'
+                               % (_rel, _BASIS[_rel]), sh)
+        assert _g and _g["rel"] == _rel, "type %s must survive: %r" % (_rel, _g)
+    # The excluded kinds come BACK, they are not None -- a silent refusal is why the
+    # acquisitions on the tab went unnoticed for weeks.
+    for _rel in PART_NOT_A_TIE:
+        _g = parse_partnership('{"a":"Rheinmetall","b":"KNDS","rel":"%s",'
+                               '"note":"agreed to work together on forged hulls"}'
+                               % _rel, sh)
+        assert _g and _g["rel"] == _rel, "%s must be named, not silently dropped" % _rel
+    assert parse_partnership('{"a":"Rheinmetall","b":"KNDS","rel":"acq",'
+                             '"note":"agreed to work together on forged hulls"}',
+                             sh) is None, "the retired six-value keys are not accepted"
+    # --- status and ended --------------------------------------------------------
+    # "Historical Joint Venture (Ended 2013)" was a TYPE LABEL, because there was
+    # nowhere else to say it, and the graph drew it as a live alliance.
+    _st = parse_partnership('{"a":"Mahindra","b":"BAE Systems","rel":"jv",'
+                            '"basis":"joint venture",'
+                            '"note":"the joint venture was dissolved in 2013",'
+                            '"status":"ended","ended":"2013"}',
+                            "mahindra and bae systems dissolved their joint venture")
+    assert _st and _st["status"] == "ended" and _st["ended"] == "2013"
+    _st2 = parse_partnership('{"a":"Mahindra","b":"BAE Systems","rel":"jv",'
+                             '"basis":"joint venture",'
+                             '"note":"the joint venture was dissolved in 2013",'
+                             '"status":"active","ended":"2013"}',
+                             "mahindra and bae systems dissolved their joint venture")
+    assert _st2["status"] == "ended", "a stated end date outranks a guessed status"
+    _st3 = parse_partnership('{"a":"Mahindra","b":"BAE Systems","rel":"jv",'
+                             '"basis":"joint venture",'
+                             '"note":"the two companies agreed to build vehicles",'
+                             '"status":"nonsense"}',
+                             "mahindra and bae systems agreed a joint venture to build vehicles")
+    assert _st3["status"] == "active", "an unusable status falls back, it does not crash"
+    # --- confidence --------------------------------------------------------------
+    # publishable()'s verdict was computed and thrown away; only its prose was kept.
+    _c, _w = tie_confidence(["https://www.rheinmetall.com/x"], "Rheinmetall")
+    assert _c == "official", "the maker's own page is official for its own tie"
+    _c2, _ = tie_confidence(["https://idrw.org/a", "https://janes.com/b"], "Rheinmetall")
+    assert _c2 == "corroborated", "two independent domains corroborate"
+    _c3, _ = tie_confidence(["https://idrw.org/a"], "Rheinmetall")
+    assert _c3 == "single_source", "one news domain is a single source, and says so"
+    assert tie_confidence([], "Rheinmetall")[0] == "single_source", "no source is not official"
     # --- products as objects (the two boundaries) ---
     # Read: every Python consumer wants names, and the reference archive still holds the
     # bare-string form it was seeded with and is never rebuilt into.

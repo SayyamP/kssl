@@ -77,6 +77,33 @@
   .pg-node.ptr.rel-supply circle{fill:#1d3147;stroke:#5b9bd5;stroke-width:2}
   .pg-node.ptr.rel-mou circle{fill:#2a2a30;stroke:#b8b8c0;stroke-width:1.5}
   .pg-node.ptr.rel-acq circle{fill:#3a2347;stroke:#b266c9;stroke-width:2}
+  /* The ten types the enrichment writes (enrich_serving.PART_TYPES). Without a rule
+     here a node keeps the inline cluster fill and the drawer's 8px dot renders with no
+     background at all -- invisible, not merely uncoloured. Grouped by family so the
+     colour still means something: green = jointly owned, amber = knowledge moving,
+     blue = things moving, grey = intent. */
+  .pg-node.ptr.rel-technology circle{fill:#3a2f15;stroke:#e0a020;stroke-width:2}
+  .pg-node.ptr.rel-licensing circle{fill:#3a2f15;stroke:#c98f2a;stroke-width:2}
+  .pg-node.ptr.rel-rnd circle{fill:#33301a;stroke:#c2b23a;stroke-width:2}
+  .pg-node.ptr.rel-manufacturing circle{fill:#1d3147;stroke:#4a86c0;stroke-width:2}
+  .pg-node.ptr.rel-distribution circle{fill:#1b3340;stroke:#4fa3b8;stroke-width:2}
+  .pg-node.ptr.rel-integration circle{fill:#23303f;stroke:#7fa8c9;stroke-width:2}
+  .pg-node.ptr.rel-strategic circle{fill:#2a2a30;stroke:#b8b8c0;stroke-width:1.5}
+  .pg-node.ptr.rel-other circle{fill:#2a2a30;stroke:#9aa0aa;stroke-width:1.5}
+  /* A relationship the source says is over is drawn, but drawn as over. */
+  .pg-node.ptr.st-ended circle{stroke-dasharray:2 3;opacity:.6}
+
+  /* Status and source-confidence tags. Small, and they sit beside the type rather
+     than inside it -- "Historical Joint Venture (Ended 2013)" written INTO the type
+     label is exactly what these replace. */
+  .tie-tag{display:inline-block;margin-left:6px;padding:1px 6px;border-radius:2px;
+           font-family:var(--mono);font-size:9px;letter-spacing:.04em;
+           text-transform:uppercase;vertical-align:1px;white-space:nowrap}
+  .tie-tag.ended{background:#3a2020;color:#e08a7c;border:1px solid #5a2f2a}
+  .tie-tag.announced{background:#2a2a30;color:#b8b8c0;border:1px solid #3d3d45}
+  .tie-tag.conf-official{background:#16302a;color:#77bf9a;border:1px solid #24483d}
+  .tie-tag.conf-corroborated{background:#1b2b3a;color:#7fb0d8;border:1px solid #2a4256}
+  .tie-tag.conf-single_source{background:#332815;color:#d9b45e;border:1px solid #4a3a1e}
   .pg-node.ptr.foreign circle{stroke-dasharray:none}
   .pg-node.ptr.govt circle{stroke-dasharray:3 2}
 
@@ -123,6 +150,14 @@
   .pg-rel .rmark.rel-supply{background:#3a6ea5}
   .pg-rel .rmark.rel-mou{background:#8a8a93}
   .pg-rel .rmark.rel-acq{background:#7a3a8f}
+  .pg-rel .rmark.rel-technology{background:#9a6a08}
+  .pg-rel .rmark.rel-licensing{background:#8a6316}
+  .pg-rel .rmark.rel-rnd{background:#8a7f1e}
+  .pg-rel .rmark.rel-manufacturing{background:#3a6ea5}
+  .pg-rel .rmark.rel-distribution{background:#2f6b7d}
+  .pg-rel .rmark.rel-integration{background:#55708c}
+  .pg-rel .rmark.rel-strategic{background:#8a8a93}
+  .pg-rel .rmark.rel-other{background:#71767f}
   .pg-rellist .pg-rel{cursor:pointer;transition:all .12s;padding:10px 10px;margin:0 0 12px 0}
   .pg-rellist .pg-rel:hover{background:var(--l-bg-2);border-color:var(--l-line)}
   .pg-rel .rnote{font-family:var(--mono);font-size:10px;color:var(--d-txt-3);line-height:1.4}

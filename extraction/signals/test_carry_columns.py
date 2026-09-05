@@ -38,6 +38,8 @@ SAMPLE = {
     "global_locations": [{"country": "India"}],
     "company_size": "5,000 employees",
     "strategic_positioning": "a sentence about positioning",
+    "partners": [{"id": "saab", "label": "Saab", "ptype": "Joint venture",
+                  "rel": "jv", "note": "a tie a human wrote", "origin": "revived"}],
     "hq": "Pune, India",
 }
 

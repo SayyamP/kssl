@@ -131,7 +131,14 @@ export default function Partnerships() {
               h: `Tie: ${selCo.name} and ${tp.label}`,
               rows: [
                 ["Kind", nd(tp.kind)],
-                ["Relationship", rel[tp.rel] || nd(tp.rel)],
+                // ptype FIRST. REL_LABEL is five legacy keys in serving.ui_config, so
+                // the ten types the pipeline now writes fell through to `nd(tp.rel)`
+                // and this report printed the raw key -- "manufacturing", "rnd".
+                ["Relationship", nd(tp.ptype) !== "—" ? tp.ptype : (rel[tp.rel] || nd(tp.rel))],
+                ["Status", tp.status === "ended"
+                  ? `ended${tp.ended ? ` (${tp.ended})` : ""}`
+                  : nd(tp.status)],
+                ["Source confidence", nd(tp.confidence)],
                 ["Country", nd(tp.country)],
                 ["Date", nd(tp.date)],
                 ["Deal", nd(tp.deal)],
@@ -145,7 +152,8 @@ export default function Partnerships() {
           h: "Mapped partners",
           rows: partners.map((x) => [
             x.label || x.name || x.id,
-            [x.kind, rel[x.rel] || x.rel, x.country].filter(Boolean).join(" · "),
+            [x.kind, x.ptype || rel[x.rel] || x.rel, x.country,
+             x.status === "ended" ? "ENDED" : null].filter(Boolean).join(" · "),
           ]),
         },
         selCo.threat ? { h: "Threat read", rows: [selCo.threat] } : null,
