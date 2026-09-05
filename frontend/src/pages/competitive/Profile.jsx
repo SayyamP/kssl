@@ -47,26 +47,6 @@ const firstValue = (v) => {
   return typeof v === "string" ? v.trim() || null : null;
 };
 
-/* Annual revenue carries its reporting period, and the period is the whole point: a
-   figure with no year cannot be read as "the latest". The harvest stores it alongside
-   the amount as {value, detail, url, line} (pipeline/harvest/promote.py), and `detail`
-   is the period exactly as the source wrote it -- "in 2025", "FY 2024-25". It was being
-   dropped on the floor because only `value` was ever read. Markup unchanged: this puts
-   the year into the same single string the panel already renders. */
-const revenueOf = (v) => {
-  if (!Array.isArray(v) || !v.length) return firstValue(v);
-  const hit = v.find((x) => x && (typeof x === "string" ? x.trim() : x.value));
-  if (!hit) return null;
-  if (typeof hit === "string") return hit.trim() || null;
-  /* A straddling fiscal year is shown verbatim -- "FY 2024-25" is not "2024", and
-     picking either half of it states something the source did not. */
-  const d = String(hit.detail || "").trim();
-  const fy = d.match(/(?:FY\s*-?\s*)?20\d\d\s*[-/]\s*\d{2,4}/i);
-  const yr = d.match(/20\d\d/);
-  const period = fy ? fy[0].replace(/\s+/g, " ") : yr ? yr[0] : null;
-  return period ? `${hit.value} (${period})` : hit.value || null;
-};
-
 const joinList = (v) => {
   if (!Array.isArray(v) || !v.length) return null;
   const names = v
@@ -85,7 +65,7 @@ const getCompanyDetailsMeta = (p) => {
     hq: p.hq || DASH,
     globalLocs: joinList(p.global_locations) || DASH,
     size: p.company_size || DASH,
-    revenue: revenueOf(p.sales) || DASH,
+    revenue: firstValue(p.sales) || DASH,
     sector: p.sector || DASH,
     /* assess is 100% filled and already grounded against the corpus. */
     assess: p.assess || null,

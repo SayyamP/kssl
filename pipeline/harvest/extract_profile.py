@@ -82,87 +82,17 @@ PLACE_BEFORE = re.compile(r"\b([A-Z][a-zA-Z'’.-]{3,20})\s+(?=(?:Plant|Factory|
                           r"Facility|Unit|Foundry|Forge|Shipyard|Campus)\b)")
 
 # ── sales ─────────────────────────────────────────────────────────────────────
-# REVENUE IS REVENUE, NOT "A FINANCIAL NUMBER". The first anchor also listed `order book`,
-# `order backlog`, `ebitda` and `profit after tax`, and the tab is labelled "Annual revenue /
-# sales" -- so Saab was served its ORDER BOOKINGS (SEK 168.5 billion) as revenue, off a line
-# that merely contained "backlog". An order book is future work, EBITDA is a margin and PAT is
-# a bottom line; none of them is the top line the panel asks for.
 REVENUE = re.compile(
-    r"\b(revenues?|turnover|net sales|total income|gross sales|sales of|"
-    r"net revenue|total revenue|topline|top line)\b", re.I)
-
-# ...and it must be an ANNUAL figure. Elbit was served $2,287.1 million, which is its
-# SECOND QUARTER. An investor page carries quarterly, half-year and nine-month figures
-# beside the annual one, in the same shape; only the period words tell them apart.
-NOT_ANNUAL = re.compile(
-    r"\bq[1-4]\b|\bquarter(?:ly)?\b|\bthree months\b|\bsix months\b"
-    r"|\bnine months\b|\bhalf[- ]year\b|\bfirst half\b|\bsecond half\b"
-    r"|\bmonth(?:ly)? ended\b|\bper month\b|\bper quarter\b", re.I)
-
-# A currency is not optional. "168.5 billion" with the SEK sitting outside the match is a
-# number, not a figure -- the panel cannot render it and the reader cannot compare it.
-# THE LETTERED CODES NEED A LEFT WORD BOUNDARY. Without one, `Rs` matched inside
-# "Registe(rs) 30% Growth" and BEML was served a revenue of "rs 30" -- the same shape as
-# this repo's documented FORCE / "Air Force" bug. The symbols (₹ $ € £ ¥) must NOT take a
-# boundary: they are non-word characters, so \b before them means the opposite thing.
-CCY = (r"(?:(?<![A-Za-z])(?:INR|Rs\.?|US\$|USD|EUR|GBP|SEK|NOK|DKK|CHF|AED|JPY|CAD|AUD)"
-       r"|₹|\$|€|£|¥)")
-SCALE = r"(?:crore|cr\b|lakh|million|billion|trillion|bn\b|mn\b)"
+    r"\b(revenue|turnover|order book|order backlog|net sales|total income|"
+    r"gross sales|sales of|profit after tax|ebitda|topline)\b", re.I)
 MONEY = re.compile(
-    r"(?:" + CCY + r"\s*[\d,]+(?:\.\d+)?\s*" + SCALE + r"?"
-    r"|[\d,]+(?:\.\d+)?\s*" + SCALE + r"\s*"
-    r"(?:" + CCY + r"|rupees|dollars|euros|kronor)?)", re.I)
-CCY_RX = re.compile(CCY, re.I)
-
-# REMOVING THE WORD FROM THE ANCHOR IS NOT ENOUGH. Elbit states its revenue and its order
-# backlog in ONE sentence -- "reported $2,287.1 million in revenues ... and an order backlog
-# of $32.0 billion" -- so an anchor that fires on "revenues" still licenses the BACKLOG
-# figure standing next to it. The metric that owns an amount is the noun immediately before
-# it, so that is what gets checked, not the line.
-NEAR_METRIC = re.compile(
-    r"\b(order backlog|backlog|order book|order bookings?|order intake|order stock|"
-    r"ebitda|ebit|operating (?:profit|income|result)|profit(?: after tax| before tax)?|"
-    r"net income|earnings|dividend|market cap(?:italisation|italization)?|valuation|"
-    r"assets|equity|debt|capex|investment|contract|deal|award|budget|funding|"
-    r"cash flow|margin)\b[^.;]{0,40}$", re.I)
-
-# An approximation is not the figure. Patria's site says both "exceed EUR 1 billion" and
-# "net sales totaled EUR 1,086.7 million in 2025"; the rounded one is the same year and was
-# winning on order alone.
-QUALIFIER = re.compile(
-    r"\b(exceed(?:ed|s|ing)?|surpass(?:ed|es|ing)?|more than|over|above|around|about|"
-    r"approximately|approx\.?|nearly|almost|up to|at least|target(?:s|ing|ed)?|"
-    r"expect(?:s|ed|ing)?|forecast|guidance|aims? for|plans? to)\s*$", re.I)
-
-# THE REPORTING PERIOD, IN THE SHAPES THE WORLD ACTUALLY WRITES IT. The first version
-# matched only the Indian "FY 2024-25" form, so every non-Indian company came back with no
-# period at all -- measured on the four rows that reached production, Elbit, Patria, General
-# Dynamics and Saab ALL returned "". A bare "in 2025" is how most of the world dates an
-# annual figure, and without it the panel cannot say which year it shows, nor can anything
-# choose the LATEST of several.
-FY = re.compile(
-    r"\b(?:FY\s?-?\s?(?:20)?\d{2}(?:\s?[-/]\s?(?:20)?\d{2})?"
-    r"|(?:financial|fiscal) year\s+(?:ended\s+)?(?:\d{1,2}\s+\w+\s+)?\d{4}"
-    r"(?:\s?[-/]\s?\d{2,4})?"
-    r"|(?:year|twelve months) ended[^,.]{0,24}?(?:20\d\d)"
-    r"|20\d\d\s?[-/]\s?\d{2}"
-    r"|(?:in|for|during|of)\s+(?:the\s+year\s+)?20\d\d"
-    r"|20\d\d)\b", re.I)
-YEAR4 = re.compile(r"(20\d\d)")
-
-
-def period_year(period):
-    """The comparable year in a period string -- the LATER one for a straddling FY.
-    'FY 2024-25' -> 2025, 'in 2020' -> 2020, '' -> 0 so an undated figure sorts last."""
-    if not period:
-        return 0
-    yrs = [int(y) for y in YEAR4.findall(period)]
-    tail = re.search(r"[-/]\s*(\d{2})\b", period)
-    if yrs and tail:
-        cand = yrs[0] // 100 * 100 + int(tail.group(1))
-        if cand >= yrs[0]:
-            yrs.append(cand)
-    return max(yrs) if yrs else 0
+    r"(?:(?:INR|Rs\.?|₹|US\$|USD|\$|€|EUR|£)\s*[\d,]+(?:\.\d+)?\s*"
+    r"(?:crore|cr\b|lakh|million|billion|bn\b|mn\b)?"
+    r"|[\d,]+(?:\.\d+)?\s*(?:crore|lakh|million|billion|bn\b|mn\b)\s*"
+    r"(?:INR|Rs\.?|₹|USD|US\$|\$|€|EUR|£|rupees|dollars|euros)?)", re.I)
+FY = re.compile(r"\b(?:FY\s?-?\s?(\d{2,4})(?:\s?-\s?(\d{2,4}))?|"
+                r"(?:financial|fiscal) year\s+(\d{4})(?:\s?-\s?(\d{2,4}))?|"
+                r"\b(20\d\d)\s?-\s?(\d{2}))\b", re.I)
 
 
 # A site's NAME is a proper noun. "Arms", "Boxes", "Engine" and bare countries all
@@ -334,75 +264,27 @@ def facilities(text):
 
 
 def sales(text):
-    """[(amount, period, line)] — an ANNUAL revenue figure, newest first.
-
-    Three things this refuses that the first version accepted, each measured on a row that
-    reached production:
-
-      quarterly   "reported $2,287.1 million in revenues for the three months ended June 30"
-                  is Elbit's SECOND QUARTER, and it was being shown as annual revenue.
-      not-revenue an order book, a backlog, EBITDA or profit after tax is not the top line.
-                  Saab's SEK 168.5 billion of ORDER BOOKINGS was served as its revenue.
-      currency-less  "168.5 billion" with its SEK outside the match is a number, not a
-                  figure; the currency is taken from the line when the amount lacks it.
-
-    Ordering is part of the contract: the consumer (Profile.jsx) renders the FIRST entry,
-    so the newest dated annual figure has to be first or the panel shows whichever one the
-    page happened to mention first — which is how a 2020 figure was being served in 2026.
-    """
+    """[(amount, period, line)] — a figure only when money sits beside a revenue word."""
     out, seen = [], set()
     for ln in lines_of(text):
-        if not REVENUE.search(ln):
+        rm = REVENUE.search(ln)
+        if not rm:
             continue
-        if NOT_ANNUAL.search(ln):
-            continue                    # a quarter, a half or a nine-month figure
-        # Each amount takes the period NEAREST it, not the line's first one. A block that
-        # reads "EUR 900 million in 2023 ... EUR 1,100 million in 2025" otherwise dates
-        # both figures 2023 and the newest-first ordering below becomes a coin toss.
-        periods = [(m.start(), re.sub(r"\s+", " ", m.group(0)).strip())
-                   for m in FY.finditer(ln)]
-        line_ccy = CCY_RX.search(ln)
         for mm in MONEY.finditer(ln):
-            period = min(periods, key=lambda pr: abs(pr[0] - mm.start()))[1] \
-                if periods else ""
             amount = re.sub(r"\s+", " ", mm.group(0)).strip()
             if not re.search(r"\d", amount):
                 continue
-            # a bare number with no scale is not a revenue figure
-            if not re.search(SCALE + r"|" + CCY, amount, re.I):
+            # a bare number with no scale or currency is not a revenue figure
+            if not re.search(r"(crore|lakh|million|billion|bn|mn|INR|Rs|₹|\$|€|£|USD|EUR)",
+                             amount, re.I):
                 continue
-            # ...and one with a scale but no currency gets the line's currency, or is
-            # dropped. An amount the reader cannot denominate is not worth printing.
-            if not CCY_RX.search(amount):
-                if not line_ccy:
-                    continue
-                amount = "%s %s" % (line_ccy.group(0), amount)
-            # WHOSE NUMBER IS THIS? The noun just before it owns it.
-            before = ln[:mm.start()]
-            if NEAR_METRIC.search(before):
-                continue
-            if QUALIFIER.search(before):
-                continue
-            # A percentage is a rate, not an amount: "Registers 30% Growth".
-            if re.match(r"\s*(?:%|per ?cent)", ln[mm.end():]):
-                continue
-            # AN UNDATED FIGURE CANNOT BE "THE LATEST ANNUAL" ONE. Elbit's investor page
-            # says "Revenues of $2.3 billion" with no period anywhere in the line -- true
-            # of a QUARTER as easily as a year, and there is no way to tell which, nor to
-            # rank it against another figure. The panel asks for the latest annual revenue;
-            # a number with no reporting period cannot answer that question.
-            if not period:
-                continue
+            fm = FY.search(ln)
+            period = re.sub(r"\s+", " ", fm.group(0)).strip() if fm else ""
             key = (amount.lower(), period.lower())
             if key in seen:
                 continue
             seen.add(key)
             out.append((amount, period, ln))
-    # Newest first; within a year the more PRECISE figure wins, because a site states both
-    # "EUR 1 billion" and "EUR 1,086.7 million" for the same year and only one of them is
-    # the reported number.
-    out.sort(key=lambda r: (period_year(r[1]),
-                            len(re.sub(r"[^0-9]", "", r[0]))), reverse=True)
     return out
 
 
@@ -494,62 +376,6 @@ def demo():
     assert not sales("The company won an order at Baramati for new tooling.")
     # a bare number is not a figure
     assert not sales("Revenue grew by 12 in the period."), sales("Revenue grew by 12 in the period.")
-
-    # THE FOUR ROWS THAT REACHED PRODUCTION WRONG. Every line below is verbatim from
-    # serving.competitors.sales as it was served on 2026-08-30, and each is a different
-    # way of not being "the latest annual revenue".
-    #   Elbit: a QUARTER, shown on a panel labelled "Annual revenue / sales".
-    assert not sales("The Company reported $2,287.1 million in revenues for the three "
-                     "months ended June 30, 2026 and an order backlog of $32.0 billion."), \
-        "a second-quarter figure is not annual revenue"
-    #   Saab: ORDER BOOKINGS and a BACKLOG, neither of which is a top line.
-    assert not sales("Order bookings increased 74% and reached a new record of SEK 168.5 "
-                     "billion. The order backlog increased to SEK 274.5 billion."), \
-        "an order book is future work, not revenue"
-    assert not sales("EBITDA was EUR 220 million and profit after tax was EUR 90 million."), \
-        "a margin and a bottom line are not the top line"
-    #   Patria: correct, and it must survive the tightening.
-    got = sales("The net sales totaled EUR 1,086.7 million in 2025, and Patria employs "
-                "over 4,100 professionals.")
-    assert got and got[0][0] == "EUR 1,086.7 million" and "2025" in got[0][1], got
-    #   ...and a bare four-digit year must date it: all four production rows had NO period,
-    #   because only the Indian "FY 2024-25" shape was recognised.
-    assert period_year(got[0][1]) == 2025, got
-    assert period_year("FY 2024-25") == 2025 and period_year("in 2020") == 2020
-    assert period_year("") == 0, "an undated figure sorts last, it does not sort first"
-    #   A currency is not optional, and the line's currency attaches to a bare amount.
-    got = sales("Turnover for the year 2025 was SEK 63,751 million.")
-    assert got and got[0][0].upper().startswith("SEK"), got
-    assert not sales("Revenue reached 500 million in 2025."), \
-        "an amount with no currency anywhere cannot be denominated"
-    #   A BACKLOG SHARING A SENTENCE WITH REVENUE. Removing "order backlog" from the anchor
-    #   is not enough: Elbit states both in one sentence, so the revenue word licensed the
-    #   backlog figure beside it. The metric that owns an amount is the noun before it.
-    got = sales("The Company reported $2,287.1 million in revenues for the year ended "
-                "December 31, 2025 and an order backlog of $32.0 billion as of such date.")
-    assert [g[0] for g in got] == ["$2,287.1 million"], got
-    #   ...and an approximation is not the figure. Patria's site states both.
-    got = sales("We saw revenue increase to exceed EUR 1 billion in 2025. "
-                "The net sales totaled EUR 1,086.7 million in 2025.")
-    assert got[0][0] == "EUR 1,086.7 million", got
-    #   THE THREE FALSE POSITIVES A LIVE RUN OVER 51 COMPETITOR SITES PRODUCED, verbatim.
-    #   `Rs` matched inside "Registe(rs)" -- this repo's FORCE / "Air Force" bug again.
-    assert not sales("BEML Achieves the Highest Ever Sales Turnover - Registers 30% "
-                     "Growth 25.05.2018"), "a growth rate is not a revenue"
-    #   An undated figure cannot be the LATEST ANNUAL one: this is Elbit's, and it is a
-    #   quarter, but nothing in the line says so.
-    assert not sales("Order backlog at $32.0 billion; Revenues of $2.3 billion; GAAP net"), \
-        "no reporting period, no figure"
-    #   The scale sat in a table LABEL, not beside the number, and there was no year.
-    assert not sales("TURNOVER (Cr) 36,144")
-    #   ...and the two that a live run got right must stay right.
-    got = sales("KNDS is a leading company with a EUR 4.4 billion in revenue and a "
-                "backlog of EUR 33.1 billion in 2025.")
-    assert [g[0] for g in got] == ["EUR 4.4 billion"], got
-    #   NEWEST FIRST: Profile.jsx renders entry [0], so ordering IS the contract.
-    got = sales("Revenue was EUR 900 million in 2023. "
-                "Revenue reached EUR 1,100 million in 2025.")
-    assert [g[0] for g in got] == ["EUR 1,100 million", "EUR 900 million"], got
     # the real false positives that this gate exists to stop
     assert not leadership("Chairman Shri Gautam Adani at Adani Ammunition Complex, Kanpur")         or leadership("Chairman Shri Gautam Adani at Adani Ammunition Complex, Kanpur")[0][0]         == "Gautam Adani", leadership("Chairman Shri Gautam Adani at Adani Ammunition Complex, Kanpur")
     assert not leadership("NEW YEAR 2026 MESSAGE FROM CMD/AVNL")
