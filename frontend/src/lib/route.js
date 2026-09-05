@@ -42,7 +42,11 @@ export const RAIL = {
   ],
   technology: [
     { view: "t-overview", label: "Overview", ix: "grid", overview: true },
-    { view: "innovation", label: "Innovation Pipeline", ix: "01" },
+    // "Innovations", not "Innovation Pipeline": the rail is 244px at its widest and the
+    // longer label needed 119px of a 107px slot, so it rendered "Innovation Pip..." at
+    // EVERY viewport, 1920 included. The page's own header still reads Innovation
+    // Pipeline -- a nav label is not the page title.
+    { view: "innovation", label: "Innovations", ix: "01" },
   ],
 };
 

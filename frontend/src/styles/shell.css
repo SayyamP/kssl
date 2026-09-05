@@ -1,6 +1,6 @@
   /* ============ MAIN GRID ============ */
-  .shell{display:grid;grid-template-columns:clamp(190px, 15vw, 232px) 1fr;flex:1;overflow:hidden;overflow-x:hidden !important;max-width:100%;min-height:0;height:100%}
-  .shell.ov-nosel{grid-template-columns:clamp(190px, 15vw, 232px) 1fr}
+  .shell{display:grid;grid-template-columns:clamp(206px, 15vw, 244px) 1fr;flex:1;overflow:hidden;overflow-x:hidden !important;max-width:100%;min-height:0;height:100%}
+  .shell.ov-nosel{grid-template-columns:clamp(206px, 15vw, 244px) 1fr}
   .shell.ov-nosel .ctx.v-overview{display:none}
   .ctx.v-overview.revealed{animation:panelSlideWide .42s cubic-bezier(.22,.61,.36,1)}
 

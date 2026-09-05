@@ -19,7 +19,17 @@
   .tech-body.has-sel .tech-card{padding-right:36px}
   .tech-list-h{padding:14px 22px;border-bottom:1px solid var(--d-line);position:sticky;top:0;background:var(--d-bg);z-index:3}
   .tech-list-h .eyebrow{color:var(--d-txt-3);display:block;margin-bottom:5px}
-  .tech-list-h .lh-note{font-family:var(--mono);font-size:11px;color:var(--d-txt-4)}
+  /* .lh-note is NOT scoped to the header. It used to be `.tech-list-h .lh-note`, and
+     the domain-level notice below the header is a SIBLING of that header, not a child --
+     so it matched no rule at all and rendered as 14px Archivo across the full 1368px pane
+     while the header note beside it was 11px mono at 343px. One class, two renderings, on
+     all eight domain tabs. A class whose only rule is a descendant selector is unstyled
+     everywhere else it is used, and nothing in the build could see that. */
+  .lh-note{font-family:var(--mono);font-size:11px;color:var(--d-txt-4)}
+  .tech-list-h .lh-note{color:var(--d-txt-4)}
+  /* the domain-level notice: the header's own horizontal inset, so it lines up with the
+     eyebrow above it rather than starting at the pane edge */
+  .tech-list-note{padding:9px 22px;border-bottom:1px solid var(--d-line);opacity:.75}
   .innov{border-bottom:1px solid var(--d-line);padding:15px 22px;cursor:pointer;transition:background .1s;position:relative;background:var(--d-bg-1)}
   .innov:hover{background:var(--d-bg-2)}
   .innov.sel{background:var(--d-bg-3)}

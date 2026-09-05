@@ -146,3 +146,40 @@ jobs:
             echo "== $t"
             python "$t"
           done
+
+  # The RENDERED page. Every other gate in this repository reads source or data; not one
+  # of them renders anything, so a class name that matches no CSS rule was invisible to
+  # all of them. `.lh-note` was written as `.tech-list-h .lh-note` and the notice that
+  # uses it is a SIBLING of that header -- it rendered 14px sans across the full pane
+  # beside an 11px mono note, on all eight Technology tabs, with a green build.
+  #
+  # No screenshots and no baseline: a pixel differ's baseline would have been taken from
+  # the broken page. ui_audit.mjs asserts invariants that are wrong on their own terms.
+  # It runs against the built bundle with the committed dataset snapshot, so it needs no
+  # database and no network.
+  layout:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build the bundle and serve it
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          npx vite preview --port 5179 --strictPort &
+          npx wait-on http://127.0.0.1:5179 -t 60000
+      - name: Chromium
+        working-directory: frontend
+        # --no-save: playwright must not enter package.json, or `npm ci` in the image
+        # build downloads a browser into the production frontend image.
+        run: |
+          npm i --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: Layout audit + canary
+        working-directory: frontend
+        env:
+          UI_DATASET: ../db/live_dataset.json
+        run: node ui_audit.mjs

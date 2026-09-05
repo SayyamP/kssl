@@ -271,7 +271,7 @@ export default function Innovation() {
               assessed" 1,101 times reads as a page that failed to load, and printing
               nothing at all leaves a reader wondering whether the field exists. */}
           {list.length && !list.some((iv) => has(iv.whatsNew)) ? (
-            <div className="lh-note" style={{ padding: "6px 0 2px", opacity: 0.75 }}>
+            <div className="lh-note tech-list-note">
               Dated developments are not assessed on these records — the extractor does
               not yet emit that field. Background, maturity and analyst impact below are.
             </div>
