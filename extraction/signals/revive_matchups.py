@@ -784,15 +784,28 @@ def rebuild(row, docs, prows=()):
             # disagreement between the two figures is recorded for the report.
             # Compared in the base unit, against EVERY figure the archive wrote: "16,000
             # kg" agrees with "16 tonnes", and "24.7 km BT / 30 km BB" agrees with 30.
-            want = pk["base"][0]
+            # An archive figure whose unit cannot be read ("155/52" under a bare
+            # label) is compared raw against the workbook's raw figure instead.
+            want_base, want_raw = pk["base"][0], pk["n"]
+            kv_n = norm(s.get("kv") or "")
             olds = []
             for n_ in numbers(s.get("kv")):
                 try:
-                    v_, _q = to_base(n_, unit_at(norm(s.get("kv") or ""), norm(s.get("kv") or "").find(n_) + len(n_)) or u)
-                    olds.append(v_ if v_ is not None else float(n_))
+                    v_, _q = to_base(n_, unit_at(kv_n, kv_n.find(n_) + len(n_)) or u)
+                    olds.append((v_, float(n_)))
                 except ValueError:
                     continue
-            if want and olds and not any(o and abs(o - want) / o <= PARITY_DEADBAND for o in olds):
+
+            def _agree(o, w):
+                return o is not None and w is not None and o and abs(o - w) / o <= PARITY_DEADBAND
+
+            agree = any(_agree(ob, want_base) or _agree(oraw, want_raw) for ob, oraw in olds)
+            # "8-14 personnel" agrees with 12: a range the workbook's figure falls inside
+            raws = [oraw for _ob, oraw in olds]
+            if (not agree and len(raws) == 2 and "-" in kv_n and want_raw is not None
+                    and min(raws) <= want_raw <= max(raws)):
+                agree = True
+            if want_raw is not None and olds and not agree:
                 rep["portfolio_disagree"].append((lab, s.get("kv"), pk["kv"]))
             e["kv"], e["kp"] = pk["kv"], "s"
             rep["portfolio_specs"] += 1
