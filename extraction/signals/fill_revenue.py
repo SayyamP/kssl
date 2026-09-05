@@ -212,6 +212,31 @@ def rank(rows):
                                        len(re.sub(r"\D", "", r["value"]))), reverse=True)
 
 
+# Corporate-structure words: what may sit around a company name and still be THE SAME
+# company. "Kongsberg Gruppen", "Patria Group" and "IDV Group S.r.l." are the firms
+# themselves; aliases.fold() already strips the legal suffixes (Ltd, Inc, Corp), and
+# these are the group words it deliberately keeps because they can carry identity
+# elsewhere in the pipeline.
+_STRUCT = {"group", "groupe", "grupo", "gruppen", "gruppe", "gruppo", "koncern",
+           "holding", "holdings", "srl", "sarl", "sas", "kg", "aktiebolag", "oy"}
+
+
+def same_org(subject, name):
+    """Does `subject` name the SAME organisation as `name`, or a unit inside it?
+
+    THE NAME MATCH IS WORD-BOUNDED, WHICH IS NOT THE SAME AS BEING THE COMPANY.
+    `(?<!\w)Raytheon(?!\w)` matches "Raytheon Space and Airborne Systems", so a
+    division's 2004 revenue was served as Raytheon's own annual revenue -- the only
+    figure the company had, and wrong. What is left of the subject after the name is
+    removed decides it: corporate-structure words are the same firm, and anything
+    else ("Space and Airborne Systems", "Missiles & Defense") names a business unit
+    whose revenue is a SUBSET, the same reason `arms revenues` is refused above.
+    """
+    own = set(fold_name(name).split())
+    extra = [t for t in fold_name(subject).split() if t not in own]
+    return all(t in _STRUCT for t in extra)
+
+
 def collect(cur):
     """{comp_id: [row, ...]} -- every competitor's annual revenue figures, best first."""
     # THE CLIENT IS NOT ITS OWN COMPETITOR. serving.competitors carries the Kalyani
@@ -240,7 +265,8 @@ def collect(cur):
         if not usable_source(url):
             continue
         subj = subject or ""
-        hits = [cid for cid, _n, rx in pats if rx.search(subj)]
+        hits = [cid for cid, n, rx in pats
+                if rx.search(subj) and same_org(subj, n)]
         if not hits:
             cid = folded.get(fold_name(canon_name(subj)))
             hits = [cid] if cid else []
@@ -362,6 +388,15 @@ def run(dsn=DSN, apply=False, crawler=False):
 
 
 def _demo():
+    # The subject must be the COMPANY, not a unit inside it. Every string below is a
+    # real p.subject from extracted.proposition.
+    assert same_org("Kongsberg Gruppen", "KONGSBERG")
+    assert same_org("Patria Group", "Patria")
+    assert same_org("IDV Group S.r.l.", "IDV")
+    assert same_org("Rheinmetall AG", "Rheinmetall")          # fold() drops 'AG'
+    assert not same_org("Raytheon Space and Airborne Systems", "Raytheon")
+    assert not same_org("Raytheon and UTC", "Raytheon")
+
     # Every string below is a real ev_quote from extracted.proposition.
     ok = figures("", "General Dynamics employs more than 120,000 people worldwide and "
                      "generated $52.6 billion in revenue in 2025.")
