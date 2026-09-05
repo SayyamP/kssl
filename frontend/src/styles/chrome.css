@@ -1,5 +1,9 @@
   /* ============ TOP BAR ============ */
-  .topbar{display:flex;align-items:stretch;height:54px;border-bottom:1px solid var(--d-line);background:var(--d-bg);flex-shrink:0}
+  /* overflow:hidden clips the ::after scan sweep. It animates to translateX(100vw+140px),
+     which extended the bar's -- and every ancestor's -- scrollWidth past the viewport by
+     up to 170px depending on where in its 7s cycle you measured. A decorative sweep must
+     not make the page think it has content off-screen. */
+  .topbar{display:flex;align-items:stretch;height:54px;border-bottom:1px solid var(--d-line);background:var(--d-bg);flex-shrink:0;overflow:hidden}
   .brand{display:flex;align-items:center;gap:14px;padding:0 20px;border-right:1px solid var(--d-line);cursor:pointer;transition:opacity .12s}
   .brand:hover{opacity:.85}
   .wordmark{font-family:var(--sans);font-weight:800;font-size:22px;letter-spacing:-.02em;line-height:1;color:#fff}
