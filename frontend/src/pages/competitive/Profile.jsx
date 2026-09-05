@@ -47,6 +47,19 @@ const firstValue = (v) => {
   return typeof v === "string" ? v.trim() || null : null;
 };
 
+/* A revenue figure without its year is ambiguous — "$68.9 billion" could be any of the
+   six figures the corpus holds for a company. `detail` carries the reporting period the
+   extractor tied the amount to, so show it. Undated figures (kept only when the sentence
+   calls itself annual) have an empty `detail` and render as the bare amount. */
+const firstFigure = (v) => {
+  if (!Array.isArray(v)) return firstValue(v);
+  const hit = v.find((x) => x && (typeof x === "string" ? x.trim() : x.value));
+  if (!hit) return null;
+  if (typeof hit === "string") return hit.trim() || null;
+  const period = (hit.detail || "").trim().replace(/^(?:in|for|during|of)\s+/i, "");
+  return period ? `${hit.value} (${period})` : hit.value || null;
+};
+
 const joinList = (v) => {
   if (!Array.isArray(v) || !v.length) return null;
   const names = v
@@ -65,7 +78,7 @@ const getCompanyDetailsMeta = (p) => {
     hq: p.hq || DASH,
     globalLocs: joinList(p.global_locations) || DASH,
     size: p.company_size || DASH,
-    revenue: firstValue(p.sales) || DASH,
+    revenue: firstFigure(p.sales) || DASH,
     sector: p.sector || DASH,
     /* assess is 100% filled and already grounded against the corpus. */
     assess: p.assess || null,
