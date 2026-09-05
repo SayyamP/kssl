@@ -845,9 +845,11 @@ def maker_from_title(title):
 _GAIN_RX = re.compile(
     r"\b(won|wins?|awarded|award|contract|order|selected|delivered?|acquired|secured|"
     r"rights|deal|bagged|clinch(?:ed)?)\b", re.I)
-_HELI_RX = re.compile(r"\b(helicopter|rotorcraft|rotary-wing)\b", re.I)
+_HELI_RX = re.compile(r"\b(helicopters?|rotorcraft|rotary[- ]wing)\b", re.I)
 _LASER_RX = re.compile(r"\b(laser|directed[- ]energy|high-energy)\b", re.I)
-_AUTOCANNON_RX = re.compile(r"\b\d{2}\s*[x×]\s*\d{2,}\s*mm\b", re.I)
+# 20-57mm is an autocannon; "5.56x45mm" is a carbine and "12.7x99mm" a heavy machine gun.
+# The old \b\d{2} matched the "56" after the dot in 5.56x45 and made a carbine a conflict.
+_AUTOCANNON_RX = re.compile(r"(?<![\d.])(?:[2-5]\d)\s*[x×]\s*\d{2,}\s*mm\b", re.I)
 # Hebrew / Arabic / Cyrillic / CJK / Japanese -- the prompt says English; a card in the
 # source language is unusable in the UI, and the 7B echoes the source when it slips.
 _NONLATIN_RX = re.compile(r"[֐-׿؀-ۿЀ-ӿ一-鿿぀-ヿ]")
@@ -925,7 +927,7 @@ def strip_kssl_tail(sowhat):
 # ---------------------------------------------------------------------------------
 # OFF-PORTFOLIO SUBJECT GATE
 #
-# The client's report: "there are some camera signals that KSSL doesn't work in".
+# The client's first report: "there are some camera signals that KSSL doesn't work in".
 # Measured on the live rows, it was not just cameras -- about a third of every served
 # surface was about a product class KSSL has no line in, and 33 of 103 THREAT badges
 # were off-portfolio. The one that names the problem:
@@ -935,9 +937,6 @@ def strip_kssl_tail(sowhat):
 #
 # WHY IT GOT THROUGH. parse_card's only subject test was `if cat not in cats` -- that
 # the LLM's label is one of the nine, never that the ARTICLE is about that category.
-# The prompt says "if it fits none, reply NONE - never stretch", and a prompt is not a
-# gate: this file's own mantra, earned four times already. CAT_META[..]["kw"] has held a
-# keyword list per category all along and nothing in the card path ever read it.
 #
 # WHY A NEGATIVE LIST, NOT A POSITIVE ONE. Requiring a CAT_META keyword in the title is
 # the obvious fix and it is wrong: measured, it refuses ~70% of RELEVANT cards, because
@@ -946,39 +945,158 @@ def strip_kssl_tail(sowhat):
 #
 # THE OVERRIDE IS THE LOAD-BEARING PART. A negative word alone would refuse
 # "BrahMos fired from a Su-30" (aircraft) and "Archer howitzer with a radar-guided
-# shell" (radar) -- both real missile/artillery signals. So a hit is IGNORED when the
-# card's own category keyword is also present: the article is then about KSSL's line,
-# mentioning the other thing. Off-portfolio means the SUBJECT is elsewhere, not that a
-# foreign word appears.
+# shell" (radar) -- both real missile/artillery signals. So a hit is IGNORED when a
+# KSSL line is also named: the article is then about KSSL's line, mentioning the other
+# thing. Off-portfolio means the SUBJECT is elsewhere, not that a foreign word appears.
+#
+# THE SECOND REPORT (2026-09-05): "for each should be KSSL relevant means portfolio
+# relevant because otherwise it will not make sense" -- the whole site, not the feed.
+# Audited again, on every surface, with the client's own 59-product master list
+# (portfolio.py) as ground truth. Three faults, each pinned in test_portfolio_surfaces.py:
+#
+#   1. THE SUBJECT IS THE HEADLINE. The gate looked at one blob of title + what (+ in
+#      the audit, sowhat -- which names the category by construction). "Thales wins
+#      U.S. Marine Corps order for Minerva cameras" was served because "vehicles"
+#      appeared in the body. Now: a negative term in the TITLE with no KSSL line named
+#      in the title is off-portfolio; a negative term only in the BODY is an accessory
+#      (the radar on a Skyranger, the SAL guidance on an Excalibur, the helicopter a
+#      Spike was fired from) unless nothing anywhere names a KSSL line.
+#   2. THE OVERRIDE MATCHED PREFIXES AND CORPUS-BROAD WORDS. `isr` rescued "Israeli",
+#      `vehicle` rescued field hospitals and cameras, `marg` would rescue "margin".
+#      Now whole-word (plural-tolerant), with the words that describe a NAVY or a
+#      SENSOR rather than a product dropped (the same set enrich_serving already
+#      drops for the competitor gate), and with the names the corpus actually uses
+#      for KSSL's lines added -- the client's own product list first (portfolio.py),
+#      then the corpus product names the competitor gate had already earned.
+#   3. BUGS: the autocannon rule matched "5.56x45mm" (a carbine became a conflict);
+#      "Orbital ATK" hit `orbital`; bare `laser` hit laser GUIDANCE, which is how a
+#      155mm shell or a rocket is steered, not a laser weapon.
+#
+# WHAT THE CLIENT'S FILE CHANGED. It lists a Counter-UAS mobile system, a ground rover
+# (ECARS), a loitering munition, MRSAM and Spike subsystems, torpedo homing-head MRO,
+# naval guns and tank drivelines. So counter-drone, UGV, loitering-munition, missile-
+# subsystem and vehicle-MRO news is ON-portfolio and none of those words is negative
+# here. The file is incomplete by the client's own account, so it only ever ADDS.
+import portfolio as _portfolio                                        # noqa: E402
+
 _OFF_PORTFOLIO_RX = re.compile(
     r"\b("
     # optics / sensors -- the client's own example
-    r"camera|cameras|thermal imag\w*|night[- ]vision|image intensif\w*|optronic\w*|"
-    r"electro[- ]optical|eo/ir|periscope|binocular\w*|"
+    r"cameras?|thermal imag\w*|night[- ]vision|image intensif\w*|optronic\w*|"
+    r"electro[- ]optical|eo/ir|periscopes?|binocular\w*|targeting pods?|vision suites?|"
     # sights: the client's complaint is optics, so name the forms they appear in.
     # NOT a bare "sight" -- "line of sight" and "sighted in" are ordinary prose.
-    r"sight system|(?:weapon|thermal|smart|optical|aiming|reflex|holographic)[- ]sights?|"
-    r"aiming device|telescope|"
-    # radar / sonar / EW / signals
-    r"radar|sonar|electronic warfare|jammer|jamming|signals intelligence|"
+    r"sight systems?|(?:weapon|thermal|smart|optical|aiming|reflex|holographic)[- ]sights?|"
+    r"aiming devices?|telescopes?|"
+    # radar / sonar / EW / signals / communications
+    r"radars?|sonars?|electronic warfare|ew (?:suite|system)s?|jammers?|jamming|"
+    r"signals intelligence|communications? systems?|comms|tacan|navigation systems?|"
+    r"datalinks?|radios?|satcom|antennas?|transceivers?|"
+    r"combat (?:management )?systems?|command[- ]and[- ]control|c4i|c5isr|c2 systems?|"
+    r"mission systems?|"
     # space
-    r"satellite\w*|spacecraft|orbital|in[- ]orbit|lunar|launch vehicle|constellation|"
+    r"satellites?|spacecraft|orbital(?!\s+atk)|in[- ]orbit|on[- ]orbit|lunar|"
+    r"launch vehicles?|constellations?|space (?:force|launch|robotics|domain|test)|"
+    r"electromagnetic launchers?|"
     # software / IT / comms
-    r"software|cyber ?security|cyber range|data platform|battle[- ]management|"
-    r"air[- ]traffic|cloud comput\w*|semiconductor\w*|wafer\w*|"
+    r"software|cyber ?security|cyber range|cyber\w*|data platforms?|battle[- ]management|"
+    r"air[- ]traffic|cloud comput\w*|cloud|semiconductor\w*|wafers?|fib(?:er|re)[- ]optic|"
     # manned aircraft and engines
-    r"helicopter\w*|rotorcraft|rotary[- ]wing|fighter jet|fighter aircraft|trainer jet|"
-    r"transport aircraft|airliner|aero[- ]?engine|turbofan|eVTOL|"
-    r"aw1\d\d|aw2\d\d|nh90|m-346|gripen|f-35|c-130|kc-46|a400m|su-30|"
-    # directed energy
-    r"laser|directed[- ]energy|high[- ]power microwave|"
+    r"helicopters?|rotorcraft|rotary[- ]wing|fighter jets?|fighter aircraft|fighters|"
+    r"trainer jets?|trainer aircraft|pilot training|flight training|"
+    r"transport aircraft|airliners?|aero[- ]?engines?|turbofans?|turboprops?|jet engines?|eVTOL|"
+    r"aw1\d\d\w*|aw2\d\d\w*|nh90|m-346\w*|m-345|gripen\w*|f-35\w*|f-16\w*|f-15\w*|"
+    # "typhoon" only as the fighter: Rafael's TYPHOON is a naval gun mount and Roketsan's
+    # Typhoon is a ballistic missile -- both real rows, both KSSL lines
+    r"f/a-18\w*|c-130\w*|kc-46|a400m|su-30\w*|rafale|eurofighter|typhoon (?:fighter|jet)s?|gcap|fcas|"
+    r"tempest|apache|ah-64\w*|black hawk|uh-60\w*|mh-60\w*|seahawk|chinook|ch-47\w*|"
+    r"c-27j|c-390|p-8\w*|(?<!nora )b-52\w*|b-1b|t-7a?|"        # Nora B-52 is a howitzer
+    # directed energy -- a laser WEAPON. Laser GUIDANCE (SAL, laser-guided, designator)
+    # is how KSSL's own shells and rockets are steered and is not listed.
+    r"laser weapons?|laser (?:weapon )?systems?|laser cannons?|laser (?:source|demonstrator)s?|"
+    r"high[- ]energy lasers?|\d+ ?kw(?:-class)? lasers?|helws?|directed[- ]energy|"
+    r"high[- ]power microwave|"
     # medical / training / civil / corporate
-    r"medical|hospital|field hospital|ambulance|"
-    r"training contract|simulation|simulator\w*|"
-    r"order intake|revenue guidance|annual results|sustainability report"
+    r"medical|hospitals?|field hospitals?|ambulances?|"
+    r"training contract|simulation|simulators?|"
+    r"order intake|revenue guidance|fy\d\d guidance|annual results|sustainability report"
     r")\b", re.I)
 
+# Phrases that must never band and must never condemn: normalised BEFORE either check.
+#   * an UNMANNED helicopter is a UAV, whatever the model called it;
+#   * the platform a weapon is fired FROM is where it was, not what the story is about
+#     ("Spike NLOS missile fired from Apache helicopter", "LRASM fit checks on F-35");
+#   * a space rocket is not artillery.
+_UNMANNED_PLATFORM_RX = re.compile(
+    r"\b(?:unmanned|uncrewed|autonomous|robotic|optionally[- ]piloted|remotely[- ]piloted)"
+    r"[- ]+(?:helicopter|rotorcraft|rotary[- ]wing|tiltrotor|fighter(?: jets?| aircraft)?|"
+    r"combat aircraft|aircraft|jets?)\w*", re.I)
+_LAUNCH_PLATFORM_RX = re.compile(
+    r"\b(?:from|on|aboard|onto|off)\s+(?:an?\s+|the\s+|its\s+)?(?:[A-Za-z0-9/.-]+\s+){0,2}?"
+    r"(?:helicopters?|rotorcraft|fighters?|fighter (?:jets?|aircraft)|jets?|aircraft|bombers?|"
+    r"f-\d\d\w*|f/a-18\w*|su-\d\d\w*|apache|ah-64\w*|eurofighter|typhoon|rafale|gripen\w*|"
+    r"b-1b|b-52\w*)\b", re.I)
+_LAUNCHED_FROM_RX = re.compile(
+    r"\b(?:helicopter|ship|air|submarine|surface)[- ](?:launched|borne|transported|mounted)\b", re.I)
+_SPACE_ROCKET_RX = re.compile(
+    r"\b(?:hybrid|sounding|space|orbital|suborbital) rockets?\b|\brocket (?:engine|motor)s?\b", re.I)
+
+
+def _subject_text(text):
+    """The text with the phrases above neutralised, so the checks see the subject."""
+    if not text:
+        return ""
+    t = _UNMANNED_PLATFORM_RX.sub(" unmanned uas ", text)
+    t = _LAUNCH_PLATFORM_RX.sub(" platform ", t)
+    t = _LAUNCHED_FROM_RX.sub(" launched ", t)
+    t = _SPACE_ROCKET_RX.sub(" propulsion ", t)
+    return t
+
+
+# CAT_META words that band a NAVY or a SENSOR, not a product KSSL sells -- the same
+# set enrich_serving._GATE_DROP removes for the competitor gate. `vehicle` is how a
+# camera order and a field-hospital order were rescued; `isr` (as a prefix) rescued
+# "Israeli"; `naval` rescued a helicopter delivery.
+_OVERRIDE_DROP = {"vehicle", "naval", "marine", "isr", "male", "swarm", "troop"}
+
+# Corpus product names for KSSL's lines that CAT_META lacks. Every entry was taken from a
+# real served row a human reads as obviously on-portfolio and the keyword list could not
+# see -- the competitor gate's earned list (enrich_serving._GATE_ADD) plus the ones the
+# innovation surface added. Keyed by the CAT_META display label.
+_OVERRIDE_ADD = {
+    "artillery": ["nemo", "archer", "himars", "m777", "self-propelled howitzer",
+                  "mobile howitzer", "ramjet artillery", "cannon", "chain gun", "mortar",
+                  "excalibur", "guided rocket", "rocket launcher", "rch 155"],
+    "ammunition": ["dpicm", "cased telescoped", "munition", "guided munition", "airburst",
+                   "air-bursting", "projectile", "120mm", "30mm", "35mm", "40mm"],
+    "small arms": ["negev", "arad", "ak-203", "ak200", "belt-fed", "shotgun"],
+    "protected & armoured vehicles": [
+        "6x6", "humvee", "hmmwv", "jltv", "rws", "remote weapon station",
+        "active protection", "aps", "ifv", "light tank", "main battle tank", "mbt",
+        "combat vehicle", "armoured platform", "armored platform", "leopard", "boxer",
+        "lynx", "turret", "weapon station"],
+    "marine / naval": ["uuv", "unmanned underwater", "autonomous underwater", "remus",
+                       "hugin", "seafox", "seacat", "mrauv", "underwater vehicle"],
+    "uavs & drones": ["unmanned aerial system", "uncrewed aerial", "unmanned aircraft system",
+                      "unmanned air system", "unmanned air vehicle", "unmanned systems",
+                      "unmanned system", "switchblade", "kargu", "warmate", "fpv",
+                      "black hornet", "collaborative combat", "cca", "ucav", "unmanned combat",
+                      "loyal wingman", "rpas", "interceptor drone", "drone interceptor",
+                      "ugs", "a-ugs"],
+    "missiles & air defence": [
+        "pac-3", "nasams", "samp/t", "iris-t", "aster", "surface-to-air", "cruise missile",
+        "air-defence", "air-defense", "manpads", "shorad", "m-shorad", "strike missile",
+        "ballistic missile", "jsm", "nsm", "anti-ship", "anti-tank", "interceptor", "nlaw",
+        "javelin", "hellfire", "jagm", "apkws", "laser-guided", "lrasm", "amraam", "aim-120",
+        "aim-260", "aim-424", "agm-158", "sm-2", "sm-3", "sm-6", "asbm"],
+    "precision components & forgings": ["forged", "machined", "machining", "armour steel",
+                                        "armor steel", "armox", "barrel", "casting",
+                                        "titanium"],
+}
+
 _CAT_KW = None
+_LINE_RX = None        # [(label, source, compiled regex)] -- source is "file" or "keyword"
+_MODIFIER_RX = None
 
 
 def _cat_keywords():
@@ -1006,45 +1124,149 @@ def _cat_keywords():
     return _CAT_KW
 
 
-def off_portfolio(cat, text):
-    """True when the SUBJECT is a product class KSSL has no line in.
+def _term_rx(terms):
+    """One regex for a list of terms: whole-word, plural-tolerant, hyphen/space-tolerant.
 
-    Advisory in the same way the roster gate is: with no CAT_META the override is
-    disabled and this becomes a plain negative list, never a crash.
+    A term ending in a digit ("155", "5.56", "ak-203") is closed by a non-digit so that
+    "155mm" and "5.56x45" still match; a word term may take an s/es plural. Whole-word
+    on BOTH sides: `isr` no longer reaches "Israeli", `marg` no longer reaches "margin".
+    """
+    parts = []
+    for t in sorted(set(t.strip().lower() for t in terms if t and t.strip()), key=len,
+                    reverse=True):
+        body = r"[\s-]+".join(re.escape(p) for p in re.split(r"[\s-]+", t) if p)
+        if re.fullmatch(r"[\d.]+", t):
+            # a bare number ("155", "5.56") is a calibre only next to its unit or its
+            # case length -- "$155M radar contract" must not rescue itself
+            parts.append(body + r"(?:\s*mm\b|\s*[x×]\s*\d|/\d)")
+        elif t[-1].isdigit():
+            parts.append(body + r"(?!\d)")
+        else:
+            parts.append(body + r"(?:e?s)?(?![\w-])")
+    if not parts:
+        return None
+    # A hyphen BEFORE the term is allowed ("micro-drone", "mini-UAV" are drones); a hyphen
+    # AFTER it is not ("drone-mounted radar", "vehicle-mounted radar" are about the radar).
+    return re.compile(r"(?<![\w$€£.,])(?:" + "|".join(parts) + r")", re.I)
+
+
+def _line_rxs():
+    """-> [(label, source, rx)]: the client's file anchors first, then CAT_META keywords
+    (minus the dropped words, plus the corpus names). Built once."""
+    global _LINE_RX, _MODIFIER_RX
+    if _LINE_RX is None:
+        out = []
+        all_terms = []
+        for label, anchors in _portfolio.ANCHORS.items():
+            rx = _term_rx(anchors)
+            if rx:
+                out.append((label.lower(), "file", rx))
+                all_terms.extend(anchors)
+        for label, kws in _cat_keywords().items():
+            terms = [k for k in kws if k not in _OVERRIDE_DROP] + _OVERRIDE_ADD.get(label, [])
+            rx = _term_rx(terms)
+            if rx:
+                out.append((label, "keyword", rx))
+                all_terms.extend(terms)
+        _LINE_RX = out
+        # An anchor that directly MODIFIES a negative term describes the foreign thing
+        # ("submarine combat system", "missile radar", "armoured vehicle cameras") and
+        # must not rescue it. Built from the same vocabulary.
+        # ATOMIC, so the longest anchor at a position is the only one tried: without it
+        # "Drone Jammer System" backtracks from "drone jammer" (a KSSL C-UAS product) to
+        # "drone" + jammer and strips the very anchor that names the line.
+        anchor_rx = _term_rx(all_terms)
+        _MODIFIER_RX = (re.compile(r"(?>" + anchor_rx.pattern + r")\s+(?="
+                                   + _OFF_PORTFOLIO_RX.pattern + r")", re.I)
+                        if anchor_rx else None)
+    return _LINE_RX
+
+
+def _line_named(cat, text):
+    """-> "file" | "keyword" | None: does this text name a KSSL line?
+
+    ANY line, not only the card's own category: the LLM's label is the thing we already
+    know is unreliable, and the client's loitering munition sits under UAVs while the
+    model files Kalashnikov's under Missiles. `cat` is kept for callers and for the
+    audit's per-category breakdown; it does not narrow the search.
     """
     if not text:
+        return None
+    rxs = _line_rxs()
+    if _MODIFIER_RX is not None:
+        text = _MODIFIER_RX.sub(" ", text)
+    found = None
+    for _label, source, rx in rxs:
+        if rx.search(text):
+            if source == "file":
+                return "file"
+            found = "keyword"
+    return found
+
+
+def off_portfolio(cat, text, title=None):
+    """True when the SUBJECT is a product class KSSL has no line in.
+
+    With a `title`, the headline is the subject: a negative term there with no KSSL
+    line named there refuses the row; a negative term only in `text` (the body) is an
+    accessory unless nothing anywhere names a line. Without a title (the old call
+    shape) `text` is one blob and both tests run on it.
+
+    Advisory in the same way the roster gate is: with no CAT_META the override falls
+    back to the client's file anchors, never a crash.
+    """
+    if not text and not title:
         return False
-    hit = _OFF_PORTFOLIO_RX.search(text)
-    if not hit:
-        return False
-    # the card's own category, named in the same text -> the article is about KSSL's
-    # line and merely mentions the other thing
-    for kw in _cat_keywords().get((cat or "").lower(), ()):
-        if len(kw) < 3:
-            # a 2-char keyword ("k9", "155") is matched whole so it cannot fire inside
-            # an unrelated word
-            if re.search(r"\b%s\b" % re.escape(kw), text, re.I):
-                return False
-        elif re.search(r"\b%s" % re.escape(kw), text, re.I):
+    head = _subject_text(title or "")
+    body = _subject_text(text or "")
+    if title is None:
+        if not _OFF_PORTFOLIO_RX.search(body):
             return False
-    return True
+        return _line_named(cat, body) is None
+    if head.strip() and _OFF_PORTFOLIO_RX.search(head):
+        return _line_named(cat, head) is None
+    if body.strip() and _OFF_PORTFOLIO_RX.search(body):
+        return _line_named(cat, head + " " + body) is None
+    return False
 
 
-def category_conflict(cat, text):
-    """fix4: True when the article's own words contradict the LLM's category pick."""
+def portfolio_evidence(cat, text, title=None):
+    """-> "file" | "keyword" | None: what names the KSSL line in this row. For the audit's
+    provenance column ("this judgement rests on the client's file" vs "on the keyword
+    gate"); not a gate."""
+    return _line_named(cat, _subject_text("%s %s" % (title or "", text or "")))
+
+
+# Only the weapon forms: laser GUIDANCE steers KSSL's own shells and rockets.
+_LASER_WEAPON_RX = re.compile(
+    r"\b(laser weapons?|laser (?:weapon )?systems?|laser cannons?|high[- ]energy lasers?|"
+    r"\d+ ?kw(?:-class)? lasers?|helws?|directed[- ]energy|high-energy)\b", re.I)
+
+
+def category_conflict(cat, text, title=None):
+    """fix4: True when the article's own words contradict the LLM's category pick.
+
+    With a `title` the headline is judged (the body's helicopter is where a missile was
+    fired from); without one, the whole text. A helicopter is a conflict for EVERY
+    category unless the same headline names a KSSL line -- the AW249 the story is about
+    versus the Apache a Spike was fired from.
+    """
     c = (cat or "").lower()
-    # Fires for EVERY category. It used to require "vehicle" or "small arms" in the
-    # label, so a helicopter filed under UAVs & Drones walked straight through --
-    # "Leonardo wins 15 helicopter order from Avincis" was served as a drone signal.
-    # A helicopter is not any of the nine, whatever the model called it.
-    if _HELI_RX.search(text):
+    subj = _subject_text(title if title is not None else text)
+    if title is not None and not subj.strip():
+        subj = _subject_text(text)
+    if _HELI_RX.search(subj) and _line_named(cat, subj) is None:
         return True
-    if _LASER_RX.search(text) and ("drone" in c or "uav" in c):
+    # A laser weapon filed under drones is usually a counter-UAS story. The client's list
+    # HAS a Counter-UAS mobile system, so the same override applies: "DRDO vehicle-mounted
+    # counter-drone system with high-energy laser and gun" stays, DragonFire alone does not.
+    if (_LASER_WEAPON_RX.search(subj) and ("drone" in c or "uav" in c)
+            and _line_named(cat, subj) is None):
         return True
-    if _AUTOCANNON_RX.search(text) and (c == "small arms" or "drone" in c or "uav" in c):
+    if _AUTOCANNON_RX.search(subj) and (c == "small arms" or "drone" in c or "uav" in c):
         return True
     if re.search(r"\b(aew&?c|early[- ]warning|awacs|maritime patrol aircraft|globaleye)\b",
-                 text, re.I) and ("drone" in c or "uav" in c):
+                 subj, re.I) and ("drone" in c or "uav" in c):
         return True                      # an AEW&C aircraft is not a drone
     return False
 
@@ -1102,9 +1324,11 @@ def parse_card(raw, cats, props=None, comp_patterns=None, known_rx=None):
     ev = (whatv + " " + title)
     if _NONLATIN_RX.search(title + " " + company + " " + sowhat):
         return None                      # the model failed to output English -> unusable in UI
-    if category_conflict(cat, ev):
+    # The HEADLINE is the subject and `what` is the body: a radar in the body of a
+    # howitzer story is an accessory, a camera in the headline is the story.
+    if category_conflict(cat, whatv, title=title):
         return None                      # fix4: helicopter-in-armoured, laser-in-drones, etc.
-    if off_portfolio(cat, ev):
+    if off_portfolio(cat, whatv, title=title):
         return None                      # fix6: cameras, satellites, software, field hospitals
     # fix2: recover the MAKER when the LLM named a force (buyer/customer) as the actor, and
     # make an award/partnership/expansion COMPETITIVE. Search the TITLE too -- the winner is
@@ -1145,7 +1369,7 @@ def parse_card(raw, cats, props=None, comp_patterns=None, known_rx=None):
     # A label is not a subject. "Leonardo DRS ... 50,000 Thermal Imaging Cameras"
     # carried cat="UAVs & Drones", so in_core was True, _GAIN_RX matched "contract"
     # and Leonardo is on the roster -- three greens and a red badge for a camera deal.
-    in_core = cat.lower() in _CORE_CATS and not off_portfolio(cat, ev)
+    in_core = cat.lower() in _CORE_CATS and not off_portfolio(cat, whatv, title=title)
     if direction == "threat" and not (gain and pillar == "competitive" and in_core):
         direction = "watch"
     elif gain and pillar == "competitive" and in_core:
@@ -1583,6 +1807,57 @@ def _demo():
     print("ok")
 
 
+def regate(dsn=DSN, apply=False):
+    """Re-run the subject gate over the cards ALREADY SERVED.
+
+    fill() is append-only: signal_seen claims a document once and the card written for
+    it is never revisited. So a gate tightened on 2026-09-05 changed nothing on the
+    dashboard -- the 179 rows it refuses were all written 09-01..09-04 and were still
+    served a day later, "Leonardo wins 15 helicopter order" among them. Every future
+    tightening has the same shape, so this pass exists: judge each served card by its
+    title (subject) and its detail's `what` (body), report per lane and per badge, and
+    with --apply delete card + detail. signal_seen is left alone, so the document is not
+    re-read and the card does not come back. Report-only by default: a corpus-wide
+    delete is something an operator reads first.
+    """
+    import psycopg2
+    con = psycopg2.connect(dsn)
+    cur = con.cursor()
+    cur.execute("""SELECT c.id, c.lane, c.dir, c.tags, c.title, d.what
+                     FROM serving.signal_card c
+                     LEFT JOIN serving.signal_detail d ON d.id = c.id
+                    WHERE c.origin = 'pipeline'""")
+    rows = cur.fetchall()
+    gone, by_lane, threats = [], {}, []
+    for cid, lane, direction, tags, title, what in rows:
+        why = None
+        if category_conflict(tags, what or "", title=title):
+            why = "conflict"
+        elif off_portfolio(tags, what or "", title=title):
+            why = "off_portfolio"
+        if why is None:
+            continue
+        gone.append(cid)
+        by_lane[lane] = by_lane.get(lane, 0) + 1
+        if direction == "threat":
+            threats.append(title)
+        print("  %-13s %-11s %-5s [%s] %s" % (why, lane, direction or "", tags or "", title),
+              flush=True)
+    print("regate: %d served card(s), %d fail the subject gate (%s); %d of them wore a "
+          "THREAT badge" % (len(rows), len(gone),
+                            ", ".join("%s %d" % kv for kv in sorted(by_lane.items())),
+                            len(threats)), flush=True)
+    if apply and gone:
+        cur.execute("DELETE FROM serving.signal_detail WHERE id = ANY(%s)", (gone,))
+        cur.execute("DELETE FROM serving.signal_card WHERE id = ANY(%s)", (gone,))
+        con.commit()
+        print("regate: deleted %d card(s) and their details" % len(gone), flush=True)
+    elif gone:
+        print("regate: report only -- re-run with --apply to delete them", flush=True)
+    con.close()
+    return gone
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--dsn", default=DSN)
@@ -1590,8 +1865,14 @@ if __name__ == "__main__":
     ap.add_argument("--only", default=None,
                     help="one document_id, for the article bench")
     ap.add_argument("--demo", action="store_true")
+    ap.add_argument("--regate", action="store_true",
+                    help="re-run the subject gate over the SERVED cards and report; "
+                         "add --apply to delete the rows that fail it")
+    ap.add_argument("--apply", action="store_true")
     a = ap.parse_args()
     if a.demo:
         _demo()
+    elif a.regate:
+        regate(a.dsn, apply=a.apply)
     else:
         fill(a.dsn, limit=a.limit, only=a.only)
