@@ -53,10 +53,11 @@ sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent))
 
 from serving_fill import (  # noqa: E402  (helpers are REUSED, not duplicated)
-    DSN, MODEL, article_date, ask, clip, date_label, esc, is_dup,
+    DSN, MODEL, article_date, ask, category_conflict, clip, date_label, esc, is_dup,
     is_fetch_fallback, is_listing, is_recent_ym, is_relevant, kssl_cats, load_terms,
-    parse_date, recent_cutoff, suppressed_ids, title_tokens,
+    off_portfolio, parse_date, recent_cutoff, suppressed_ids, title_tokens,
 )
+import portfolio  # noqa: E402  (the client's product list + the tag join, shared)
 from llmapi import client as llm_client  # noqa: E402  (every model call goes through the API)
 # `publishable` (the tier-graded source bar) lives in the ENGINE's source_tiers; the pipeline's
 # own source_tiers.py is a different module (tier_of/LABEL), so load the engine copy by path
@@ -1303,7 +1304,7 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
         for pr in prs:
             if PART_RX.search(pr["p"]):
                 cands.append((did, pr))
-    found, refused, seen_pairs, calls = [], 0, set(), 0
+    found, refused, seen_pairs, calls, offp = [], 0, set(), 0, 0
     for did, pr in cands:
         if limit and calls >= limit:
             break
@@ -1319,6 +1320,13 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
         got = parse_partnership(raw, hay)
         if got is None:
             refused += 1
+            continue
+        # A tie is intelligence only if it touches a KSSL line. The two org names are
+        # the headline (never a product word), so the note is judged as the body: a
+        # negative term there refuses the tie unless a KSSL line is named -- "forged and
+        # machined aero-engine parts" (Safran) stays, on `forged`.
+        if off_portfolio("", got["note"], title="%s / %s" % (got["a"], got["b"])):
+            offp += 1
             continue
         key = frozenset((slug(got["a"]), slug(got["b"])))
         if key in seen_pairs:
@@ -1395,7 +1403,8 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
           flush=True)
     for o in orphans[:10]:
         print("  not stored: %s" % o, flush=True)
-    return {"written": len(found) - len(orphans), "refused": refused,
+    print("partnerships: %d tie(s) off-portfolio (no KSSL line named)" % offp, flush=True)
+    return {"written": len(found) - len(orphans), "refused": refused, "off_portfolio": offp,
             "client_rows": len(seen_c), "competitors_updated": n_upd,
             "dropped_unprofiled": len(orphans)}
 
@@ -1960,7 +1969,7 @@ def step_geo(cur, con, docs, props_by_doc, limit=None):
         print("geo: no profiled companies -- run companies first", flush=True)
         return {"written": 0, "refused": 0, "skipped": 0}
     pats = build_countries()
-    written, refused, calls, no_src = 0, 0, 0, 0
+    written, refused, calls, no_src, offp = 0, 0, 0, 0, 0
     for p in profiles:
         gid = p["comp_id"]
         _dids, cprops = company_mentions({p["name"]}, docs, props_by_doc)
@@ -1989,6 +1998,14 @@ def step_geo(cur, con, docs, props_by_doc, limit=None):
             g = parse_geo(raw, hay)
             if g is None:
                 refused += 1
+                continue
+            # A footprint row is intelligence only if it is about a KSSL line: audited
+            # 2026-09-05, 36 of 275 served rows were helicopter plants, F-35 deliveries,
+            # radar and satellite production. No category on this surface, so the
+            # override is ANY KSSL line named ("Helicopters / naval guns" stays).
+            if (off_portfolio("", g["note"], title=g["name"])
+                    or category_conflict("", g["note"], title=g["name"])):
+                offp += 1
                 continue
             # cite the document the summary came FROM, not the group's first one
             hit = pick_src("%s %s" % (g["name"], g["note"]), use)
@@ -2021,9 +2038,9 @@ def step_geo(cur, con, docs, props_by_doc, limit=None):
                      {"rival": "threat", "client": "client"}.get(p["dir"], "watch"),
                      p["hq"], p["dir"] == "client"))
     con.commit()
-    print("geo: %d presence row(s) written, %d refused, %d with no statement to cite"
-          % (written, refused, no_src), flush=True)
-    return {"written": written, "refused": refused, "no_src": no_src}
+    print("geo: %d presence row(s) written, %d refused, %d off-portfolio, %d with no "
+          "statement to cite" % (written, refused, offp, no_src), flush=True)
+    return {"written": written, "refused": refused, "off_portfolio": offp, "no_src": no_src}
 
 
 # -------------------------------------------------------------------- step 4: tenders
@@ -2311,7 +2328,7 @@ def step_innovations(cur, con, docs, props_by_doc, limit=None):
             props_t = [(pr["s"], pr["p"], pr["o"]) for pr in prs]
             if is_relevant(patterns, docs.get(did, {}).get("title"), props_t):
                 cand.add(did)
-    written, refused, dup, calls, own = 0, 0, 0, 0, 0
+    written, refused, dup, calls, own, offp = 0, 0, 0, 0, 0, 0
     seen, per_area, seen_urls, seen_products = [], {}, set(), set()
     for did in sorted(cand):
         prs = props_by_doc.get(did)
@@ -2335,6 +2352,19 @@ def step_innovations(cur, con, docs, props_by_doc, limit=None):
         it = parse_innov(raw, area_ids, hay)
         if it is None:
             refused += 1
+            continue
+        # THE SUBJECT GATE, on this surface too. Audited 2026-09-05: 1,127 served
+        # innovations, ~20% about a class KSSL has no line in (a Trailblazer CAMERA
+        # system, a DEIMOS laser weapon, software for SPY-6 radars) -- and the card
+        # gate applied naively refused a third of the wrong rows, because an innovation
+        # names its accessories (the radar on a Skyranger, the SAL guidance on an
+        # Excalibur). So: headline `t` is the subject, `body` is the accessories. The
+        # tech area is joined to the serving tag through portfolio.TECH_AREA_TO_TAG --
+        # an explicit map, never the label.
+        tag = portfolio.TECH_AREA_TO_TAG.get(it["area"], "")
+        if (category_conflict(tag, it["body"], title=it["t"])
+                or off_portfolio(tag, it["body"], title=it["t"])):
+            offp += 1
             continue
         # The Innovation Pipeline is rival intelligence. Half of it -- 13 of 26 rows,
         # 5 of the 8 under Artillery -- was the client's own product launches read
@@ -2366,10 +2396,11 @@ def step_innovations(cur, con, docs, props_by_doc, limit=None):
                      docs[did]["source"], docs[did]["url"]))
         written += 1
     con.commit()
-    print("innovations: %d written, %d refused, %d duplicate(s), %d client-group "
-          "advance(s) held back (from %d candidate doc(s))"
-          % (written, refused, dup, own, len(cand)), flush=True)
-    return {"written": written, "refused": refused, "dup": dup, "own": own}
+    print("innovations: %d written, %d refused, %d off-portfolio, %d duplicate(s), %d "
+          "client-group advance(s) held back (from %d candidate doc(s))"
+          % (written, refused, offp, dup, own, len(cand)), flush=True)
+    return {"written": written, "refused": refused, "off_portfolio": offp, "dup": dup,
+            "own": own}
 
 
 # ------------------------------------------------------------------- step 6: sources

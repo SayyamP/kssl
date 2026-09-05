@@ -180,6 +180,19 @@ case "${1:-worker}" in
     log "signals starting: fill serving cards every ${SIGNALS_EVERY_S:-120}s via ${OLLAMA_URL:-VPS-A}"
     cd "$HERE/signals"
     while true; do
+      # THE GATE MUST REACH THE CARDS ALREADY SERVED. serving_fill is append-only (a document
+      # is claimed once, its card never revisited), so the subject gate tightened on
+      # 2026-09-05 changed nothing on the dashboard: the ~230 cards it refuses had all been
+      # written 09-01..09-04 and were still served -- "Leonardo wins 15 helicopter order"
+      # under UAVs, "Thales wins U.S. Marine Corps order for Minerva cameras" under vehicles,
+      # 23 of them wearing a THREAT badge. Re-judging the served rows each pass is what makes
+      # a gate change (this one and every later one) show up. REPORT-ONLY by default: the
+      # log lists what would go; KSSL_REGATE_APPLY=1 is the operator's decision to delete.
+      if [ "${KSSL_REGATE_APPLY:-0}" = "1" ]; then
+        python3 serving_fill.py --regate --apply || log "regate failed (continuing)"
+      else
+        python3 serving_fill.py --regate || log "regate report failed (continuing)"
+      fi
       python3 serving_fill.py --limit "${KSSL_SIGNALS_LIMIT:-1000}" || log "signal fill failed (continuing)"
       sleep "${SIGNALS_EVERY_S:-120}"
     done
