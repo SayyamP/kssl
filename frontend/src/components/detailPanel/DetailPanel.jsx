@@ -23,8 +23,8 @@ export default function DetailPanel({ detail, onClose }) {
     srcChips(detail.srcs) ||
     srcChips(detail.url ? [{ label: "", url: detail.url }] : null);
 
-  /* "At a glance" is four rows out of the pipeline — Company, Category, Date, Primary
-     lens (serving_fill.py), and this panel used to append Publisher and Stance.
+  /* "At a glance" used to be four rows out of the pipeline — Company, Category, Date,
+     Primary lens (serving_fill.py) — and this panel used to append Publisher and Stance.
 
      TASKS #16 removes three of them: Stance, Date and Publisher. None is lost to the
      reader — each is still on screen, in the place it belongs:
@@ -36,12 +36,19 @@ export default function DetailPanel({ detail, onClose }) {
        Publisher  the source chips at the foot of the panel, which carry the link as
                   well as the host — a bare hostname was the same fact without the URL.
 
-     So the list keeps only what nothing else shows. The rows still missing (contract
-     value, quantity, counterparty, programme) live inside the free-text ev_quote of
-     extracted.proposition. Pulling them out with regexes HERE would be manufacturing
-     structure from prose; they belong in serving_fill.py, emitted from the typed spans
-     that already carry their quote. */
-  const DROPPED_FACTS = new Set(["stance", "date", "publisher"]);
+     So the list keeps only what nothing else shows. The rows that were missing (deal
+     value, quantity, counterparty, programme, system, key person) are now written by
+     serving_fill.py from the document's TYPED spans (glance.py), each with the sentence
+     that proves it in f[2] -- the tooltip and the "sourced" mark below. They were not
+     regexed out of prose here, because that would be manufacturing structure the
+     extractor never asserted.
+
+     Primary lens goes the same way as Stance: the pillar is the coloured pill in this
+     header and the dirtag on the feed row (the client: "we already tagged it there, so
+     no need of redundant info"). The writer no longer emits it; this filter also hides
+     the row on every card stored before the change, and on the reference rows, which
+     carry it too. */
+  const DROPPED_FACTS = new Set(["stance", "date", "publisher", "primary lens"]);
   const facts = (detail.facts || []).filter(
     (f) => !DROPPED_FACTS.has(String(f[0]).trim().toLowerCase()),
   );
