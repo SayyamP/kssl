@@ -117,6 +117,26 @@ export function partnerNews(data, compId, partnerLabel) {
 }
 
 /* Self-check: `node src/lib/news.js` (or import newsSelfCheck from a page). */
+/* THE FEED IS A HEADLINE, NOT AN ARCHIVE.
+ *
+ * Profile opened six articles and grew by six on every click with no ceiling, so
+ * Rheinmetall's 56 rows ended as 55 stacked cards in a 28%-wide column. Products
+ * had no limit at all -- `feedProdArticles.map(...)` rendered every article naming
+ * the product. Either way the page just grows downward and the sections beneath it
+ * are pushed out of reach.
+ *
+ * So: the feed carries the newest FEED_N, and everything else -- including those
+ * FEED_N, because a reader looking for one article should not have to work out
+ * which surface it is on -- is listed in full below, newest first. The split is a
+ * pure function so it can be tested rather than eyeballed.
+ */
+export const FEED_N = 6;
+
+export function feedSplit(articles, n = FEED_N) {
+  const all = Array.isArray(articles) ? articles : [];
+  return { feed: all.slice(0, n), rest: all.slice(n), all, total: all.length };
+}
+
 export function newsSelfCheck() {
   const data = {
     competitorNews: {

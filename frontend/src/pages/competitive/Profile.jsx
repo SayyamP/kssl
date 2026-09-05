@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
-import { companyNews } from "../../lib/news";
+import { companyNews, feedSplit, FEED_N } from "../../lib/news";
 import { facetOptionsByName } from "../../lib/countryFacet";
 import Thumb from "../../components/thumb/Thumb.jsx";
 import SourceLink from "../../components/sourceLink/SourceLink.jsx";
@@ -69,7 +69,11 @@ const joinList = (v) => {
 };
 
 /* feed cards opened per "View more" click */
-const NEWS_PAGE = 6;
+/* Superseded by feedSplit/FEED_N in lib/news.js. The feed used to open at six and
+   grow by six per click with no ceiling, so Rheinmetall's 56 articles became 55
+   stacked cards in a 28%-wide column and pushed Facilities, Partnerships and
+   everything else under it off the page. */
+const NEWS_PAGE = FEED_N;
 
 const getCompanyDetailsMeta = (p) => {
   if (!p) return null;
@@ -160,6 +164,7 @@ export default function Profile() {
      already listed every article, so the button could not have done anything; the
      stack now opens NEWS_PAGE at a time and the button says how many remain. */
   const [newsShown, setNewsShown] = useState(NEWS_PAGE);
+  const [showAllNews, setShowAllNews] = useState(false);
 
   useEffect(() => {
     const pend = takePending("profile");
@@ -667,7 +672,7 @@ export default function Profile() {
 
                     {/* COLUMN 2: NEWS FEED STACK */}
                     <div className="ln-feed-stack">
-                      {feedArticles.slice(0, newsShown).map((item, idx) => (
+                      {feedSplit(feedArticles).feed.map((item, idx) => (
                         <div
                           key={item.id || idx}
                           className="ln-feed-card"
@@ -686,10 +691,14 @@ export default function Profile() {
                           </div>
                         </div>
                       ))}
-                      {feedArticles.length > newsShown ? (
+                      {feedSplit(feedArticles).rest.length ? (
                         <button
                           type="button"
-                          onClick={() => setNewsShown((n) => n + NEWS_PAGE)}
+                          onClick={() => {
+                            setShowAllNews(true);
+                            const el = document.getElementById('all-company-news');
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          }}
                           style={{
                             width: "100%",
                             padding: "10px",
@@ -810,6 +819,76 @@ export default function Profile() {
                 </div>
               )}
             </Sec>
+
+            {/* EVERY ARTICLE, NEWEST FIRST.
+                The feed above carries the newest few. This is the whole record for
+                this company, so an article that leaves the feed is still reachable
+                rather than merely gone -- capping the feed without this would hide
+                news instead of organising it. Rendered as rows, not cards: 56 cards
+                is what the cap was for. */}
+            {companyArticles.length > FEED_N ? (
+              <Sec
+                title="News"
+                note={`All ${companyArticles.length} sourced articles naming ${displayName}, newest first`}
+              >
+                <div id="all-company-news">
+                  {(showAllNews ? companyArticles : companyArticles.slice(0, 20)).map((item, idx) => (
+                    <div
+                      key={item.id || `all-${idx}`}
+                      onClick={() => setActiveArticle(item)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setActiveArticle(item);
+                        }
+                      }}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "104px 1fr 150px",
+                        gap: "14px",
+                        alignItems: "baseline",
+                        padding: "10px 12px",
+                        cursor: "pointer",
+                        borderBottom: "1px solid var(--d-line)",
+                        background: idx % 2 === 0 ? "var(--d-bg-2)" : "transparent",
+                      }}
+                    >
+                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)" }}>
+                        {item.ago}
+                      </span>
+                      <span style={{ fontSize: "13px", color: "var(--d-txt-1)" }}>
+                        {item.title}
+                      </span>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)", textAlign: "right" }}>
+                        {item.category} · {item.source}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                {!showAllNews && companyArticles.length > 20 ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllNews(true)}
+                    style={{
+                      width: "100%",
+                      padding: "10px",
+                      marginTop: "10px",
+                      background: "var(--d-bg-2)",
+                      border: "1px solid var(--d-line)",
+                      borderRadius: "6px",
+                      color: "var(--d-txt-2)",
+                      fontFamily: "var(--mono)",
+                      fontSize: "12px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Show the remaining {companyArticles.length - 20}
+                  </button>
+                ) : null}
+              </Sec>
+            ) : null}
 
             {/* 5. FACILITIES (RENDERED IN ROWS, NOT CARDS) */}
             <Sec title="Facilities & Operating Units" note="Physical manufacturing plants, operating units & hardware assignment">

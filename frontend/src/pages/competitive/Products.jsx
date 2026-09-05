@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useAppState, useHeaderReport } from "../../state/AppState";
 import { revenueOptions } from "../../lib/revenueFacet";
 import { useData } from "../../state/DataProvider";
-import { companyNews, productNews } from "../../lib/news";
+import { companyNews, productNews, feedSplit } from "../../lib/news";
 import { formatLabel, formatSectorName, formatProductName } from "../../lib/profile";
 import { specValueWithUnit } from "../../lib/specs";
 import { unescapeEntities } from "../../lib/html";
@@ -1039,7 +1039,9 @@ export default function Products() {
 
                   {/* COLUMN 2: NEWS FEED STACK */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {feedProdArticles.map((item, idx) => (
+                    {/* Capped. This had no slice at all, so every article naming
+                       the product rendered and the panel grew without limit. */}
+                    {feedSplit(feedProdArticles).feed.map((item, idx) => (
                       <div
                         key={item.id || idx}
                         onClick={() => setActiveProdArticle(item)}
