@@ -1678,9 +1678,13 @@ def glance_rows(cur, did, company, title, stats=None):
                      FROM extracted.span WHERE document_id=%s AND type = ANY(%s)
                     ORDER BY start_c""", (did, list(glance.FACT_SPAN_TYPES)))
     spans = cur.fetchall()
+    # The article itself, because span offsets index it exactly: a span no proposition
+    # happened to cover is still quotable from its own sentence (glance._own_prop).
+    cur.execute("SELECT text FROM extracted.document WHERE document_id=%s", (did,))
+    got = cur.fetchone()
     refused = {}
     rows = glance.glance_facts(company, title, props, spans, is_buyer=is_buyer,
-                               refused=refused, esc=esc)
+                               refused=refused, esc=esc, article=got[0] if got else None)
     if stats is not None:
         stats["glance_rows"] = stats.get("glance_rows", 0) + len(rows)
         stats["glance_refused"] = stats.get("glance_refused", 0) + sum(refused.values())

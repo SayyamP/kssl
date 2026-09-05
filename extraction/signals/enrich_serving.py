@@ -901,6 +901,55 @@ def archive_bands(name):
     return _ARCHIVE_BANDS.get(fold_name(canon_name(name or ""))) or set()
 
 
+# How many extracted statements a profile call is allowed to read, and HOW they are chosen.
+#
+# THE BUG THIS REPLACES. It used to be `cprops[:25]` -- the first 25 statements in
+# document order. company_mentions returns every statement of every document that names
+# the company, grouped by document, so for a company the corpus covers heavily the first
+# 25 statements all come from ONE arbitrary article. Measured on production:
+#
+#   Saab      2,262 docs, 12,051 statements -> profile listed ONE product ("Nimbrix"),
+#                                              role=integrator  -> refused
+#   Leonardo  1,701 docs,  7,834 statements -> products [], dir=other  -> refused
+#   Northrop    475 docs,  1,113 statements -> a torpedo and a mine detector
+#   HSW          14 docs,     19 statements -> Borsuk IFV, artillery barrels -> admitted
+#
+# The signature is unmistakable: the more the corpus knows about a company, the worse its
+# profile. The two biggest rivals on the feed -- Saab at 46 signal cards, Leonardo at 41 --
+# had no competitor row at all, so the Competitor tab disagreed with its own feed.
+#
+# The fix is to SPREAD: one statement per document, round-robin, so 60 statements come
+# from 60 different articles instead of one. Re-measured the same way, Saab comes back
+# rival/prime with Carl-Gustaf M4, RBS 70 NG and Gripen E, and Leonardo with the Hitfist
+# turret -- both admitted. Babcock (services) and Naval Group (shipyard) still refuse,
+# which is the gate working rather than the sample failing.
+#
+# Note what this does NOT do: it does not prefer statements that mention KSSL's
+# categories. Choosing the evidence by the answer we want would make the portfolio gate
+# self-fulfilling. Every document gets an equal voice; only the count went up.
+PROFILE_STATEMENTS = 60
+
+
+def spread_statements(cprops, n=PROFILE_STATEMENTS):
+    """n of `cprops` [(doc_id, prop), ...] spread across documents, not the first n."""
+    by_doc = {}
+    for did, pr in cprops:
+        by_doc.setdefault(did, []).append((did, pr))
+    out, i = [], 0
+    while len(out) < n:
+        took = False
+        for d in by_doc:
+            if i < len(by_doc[d]):
+                out.append(by_doc[d][i])
+                took = True
+                if len(out) >= n:
+                    break
+        if not took:
+            break
+        i += 1
+    return out
+
+
 def competes_with_kssl(prof, name=""):
     """-> (admit, reason). Is this profile a DIRECT DEFENCE COMPETITOR, or merely a company
     the corpus mentions near defence?
@@ -1039,7 +1088,7 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
         if limit and len(plan) >= limit:
             over_limit += 1
             continue
-        use = cprops[:25]
+        use = spread_statements(cprops)
         plan.append({
             "name": name, "dids": dids, "use": use,
             "lines": "\n".join(prop_line(pr, docs[did]["url"]) for did, pr in use),

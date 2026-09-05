@@ -24,7 +24,12 @@ what a not-yet-chosen partner will have to raise). So every row here passes four
 
   1. QUOTED    the span lies inside a proposition's evidence sentence, and that sentence
                shows the span's exact text at the span's offset (a misaligned quote
-               cannot prove anything and is refused, not trusted);
+               cannot prove anything and is refused, not trusted). Failing that -- and
+               most spans fail it, because propositions reach only a handful of an
+               article's sentences -- the quote is the article's OWN sentence around the
+               span, sliced at the span's offsets from extracted.document.text. Then the
+               anchor has no subject or object to lean on and only the strict route is
+               left (see _own_prop);
   2. ANCHORED  the card's company is named in that proposition's subject or object, or
                in the span's own `in_article` -- the extractor tied THIS value to THIS
                company, we did not infer it from co-occurrence;
@@ -136,11 +141,65 @@ def _quoted_in(span, props):
     return [], ("misaligned" if inside else "unquoted")
 
 
-def _anchor_prop(company, span, props):
+# a sentence boundary: a terminator followed by whitespace and a new sentence's opening,
+# or a hard line break. Abbreviations ("U.S. Army") are the known miss -- the cost is a
+# quote that starts a few words early, never a wrong value.
+_SENT_SPLIT = re.compile(r"(?<=[.!?。！？])[\s ]+(?=[\"'“‘(\[]?[^\s\W_])"
+                         r"|[\r\n]+")
+_SENT_PAD = 400                 # a "sentence" longer than this is broken text, not prose
+
+
+def own_sentence(article, start, end):
+    """The article's own sentence around [start:end), as (lo, hi). Pure slicing -- the
+    offsets are the extractor's, so the text between them is the article verbatim."""
+    lo, hi = max(0, start - _SENT_PAD), min(len(article), end + _SENT_PAD)
+    last = None
+    for m in _SENT_SPLIT.finditer(article, lo, start):
+        last = m
+    a = last.end() if last else lo
+    m = _SENT_SPLIT.search(article, end, hi)
+    b = m.start() if m else hi
+    return a, b
+
+
+def _own_prop(company, span, article):
+    """A proposition standing for the span's OWN sentence, for the case no real
+    proposition covers it.
+
+    WHY THIS EXISTS. The four gates ask that a value be quoted and anchored. Quoting was
+    implemented as "inside some proposition's evidence sentence" -- but propositions cover
+    a handful of an article's sentences (median ~12 of ~90 typed spans), so 'unquoted' was
+    the single largest refusal on production and half of all cards showed no rows at all.
+    Nothing about a value is less true because the proposition extractor stopped early.
+
+    So quoting is satisfied here by the article itself: the span's offsets index
+    extracted.document.text exactly (verified over 13,858 spans, 100% aligned), and the
+    quote is a slice of it. That is a STRONGER proof of the words than a proposition's
+    ev_quote, which can and does drift.
+
+    Anchoring is NOT relaxed. There is no subject or object to lean on, so the only route
+    left is the strict one: the extractor's own in_article must name the company. That is
+    the half of the anchor test that says "the extractor tied THIS value to THIS company",
+    and it is the half that co-occurrence cannot fake.
+
+    Relations are excluded by construction: counterparty() reads p.subject/p.object, which
+    are empty here, so an Organization can still only be tied by a real proposition."""
+    if not article or article[span.start_c:span.end_c] != span.text:
+        return None, "offset-drift"       # offsets index a different text; prove nothing
+    if not anchored(company, span.in_article):
+        return None, "unanchored"
+    a, b = own_sentence(article, span.start_c, span.end_c)
+    return Prop(None, "", "", "", a, b, article[a:b]), None
+
+
+def _anchor_prop(company, span, props, article=None):
     """The first quoting proposition that ties the span to the company: the company is
-    in its subject/object, or the span's own in_article names the company."""
+    in its subject/object, or the span's own in_article names the company. Falling back,
+    when no proposition covers the span at all, to the article's own sentence."""
     quoting, why = _quoted_in(span, props)
     if not quoting:
+        if why == "unquoted" and article:
+            return _own_prop(company, span, article)
         return None, why
     for p in quoting:
         if anchored(company, p.subject, p.object) or anchored(company, span.in_article):
@@ -455,7 +514,8 @@ def person_value(company, span, p, spans):
 
 
 # --- the block ---------------------------------------------------------------------------
-def glance_facts(company, title, props, spans, is_buyer=None, refused=None, esc=None):
+def glance_facts(company, title, props, spans, is_buyer=None, refused=None, esc=None,
+                 article=None):
     """[[label, value, quote], ...] for one card. `refused` (a dict) is incremented per
     '<type>:<reason>' for every candidate span the gates turned away."""
     props = [p if isinstance(p, Prop) else Prop(*p) for p in props]
@@ -474,7 +534,7 @@ def glance_facts(company, title, props, spans, is_buyer=None, refused=None, esc=
 
     for s in spans:
         if s.type == "Money":
-            p, why = _anchor_prop(company, s, props)
+            p, why = _anchor_prop(company, s, props, article)
             if not p:
                 refuse("money", why)
                 continue
@@ -484,7 +544,7 @@ def glance_facts(company, title, props, spans, is_buyer=None, refused=None, esc=
                 continue
             offer(label, (s.start_c,), s.text, p.ev_quote)
         elif s.type == "Count":
-            p, why = _anchor_prop(company, s, props)
+            p, why = _anchor_prop(company, s, props, article)
             if not p:
                 refuse("count", why)
                 continue
@@ -494,7 +554,7 @@ def glance_facts(company, title, props, spans, is_buyer=None, refused=None, esc=
                 continue
             offer("Quantity", (s.start_c,), val, p.ev_quote)
         elif s.type == "Program":
-            p, why = _anchor_prop(company, s, props)
+            p, why = _anchor_prop(company, s, props, article)
             if not p:
                 refuse("programme", why)
                 continue
@@ -504,7 +564,7 @@ def glance_facts(company, title, props, spans, is_buyer=None, refused=None, esc=
                 continue
             offer("Programme", (-(s.score or 0), s.start_c), val, p.ev_quote)
         elif s.type in ("WeaponSystem", "Platform", "Product"):
-            p, why = _anchor_prop(company, s, props)
+            p, why = _anchor_prop(company, s, props, article)
             if not p:
                 refuse("system", why)
                 continue
@@ -531,7 +591,7 @@ def glance_facts(company, title, props, spans, is_buyer=None, refused=None, esc=
                 continue
             offer(got[0], (-(s.score or 0), s.start_c), got[1], got[2])
         elif s.type == "Person":
-            p, why = _anchor_prop(company, s, props)
+            p, why = _anchor_prop(company, s, props, article)
             if not p:
                 refuse("person", why)
                 continue
@@ -878,6 +938,35 @@ def _demo():
     rows = glance_facts("Saab", "t", [Prop(0, "Saab & Bofors", "won", "a SEK 1bn order", 0, len(q25), q25)],
                         [sp("m", 20, 27, "SEK 1bn", "Money", "the order value")])
     assert rows == [["Deal value", "SEK 1bn", q25]], rows
+
+    # 10. the span's OWN sentence, for the spans no proposition covers. Propositions reach
+    #     a handful of an article's sentences, so this was the single largest refusal on
+    #     production ('unquoted') and the reason half of all panels showed nothing.
+    art = ("Saab AB reported a strong quarter. Saab has received an order for the Double "
+           "Eagle SAROV system from Remontowa. Deliveries start in 2027.")
+    j = art.index("Double Eagle SAROV")
+    only = [sp("w", j, j + 18, "Double Eagle SAROV", "WeaponSystem",
+               "the underwater vehicle Saab is delivering")]
+    sent = "Saab has received an order for the Double Eagle SAROV system from Remontowa."
+    ref10 = {}
+    assert glance_facts("Saab", "t", [], only, refused=ref10) == [], "no article, no row"
+    assert ref10 == {"system:unquoted": 1}, ref10
+    rows = glance_facts("Saab", "t", [], only, article=art)
+    assert rows == [["System", "Double Eagle SAROV", sent]], rows
+    #     ...anchoring is NOT relaxed with it: the extractor's in_article must still name
+    #     the company, so a span it tied to someone else stays refused.
+    other = [sp("w", j, j + 18, "Double Eagle SAROV", "WeaponSystem",
+                "the underwater vehicle Remontowa is buying")]
+    ref11 = {}
+    assert glance_facts("Saab", "t", [], other, article=art, refused=ref11) == [], "co-occurrence"
+    assert ref11 == {"system:unanchored": 1}, ref11
+    #     ...and offsets that do not index THIS text prove nothing, however plausible.
+    ref12 = {}
+    assert glance_facts("Saab", "t", [], only, article="a different article", refused=ref12) == []
+    assert ref12 == {"system:offset-drift": 1}, ref12
+    #     the sentence is cut at real boundaries, not at the paragraph
+    assert own_sentence(art, j, j + 18) == (art.index("Saab has received"),
+                                            art.index(" Deliveries start")), own_sentence(art, j, j + 18)
     print("ok")
 
 
