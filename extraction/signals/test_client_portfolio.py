@@ -120,6 +120,12 @@ check(isinstance(rof, dict) and rof["n"] is None and "burst" in rof["kv"].lower(
       "burst/sustained artillery rates are text only against a rds/min figure: %r" % (rof,))
 ltvw = side("KSSL · LTV", "pav", "Combat weight", "kg")
 check(isinstance(ltvw, pf.Refusal), "LTV GVM 12,000 kg sits under a hedged 'indexed ST-500-type table' heading: refused: %r" % (ltvw,))
+mpv = side("KSSL · MPV", "pav", "Combat weight", "kg")
+check(isinstance(mpv, pf.Refusal), "MPV 'Maximum GVW: 30 tonnes' is a chassis rating, not a combat weight: refused: %r" % (mpv,))
+check(pf._bore(".338/.408") == 8.59 and pf._bore("5.56x45") == 5.56 and pf._bore("155/52") == 155.0,
+      "an imperial calibre is read as a fraction of an inch, in mm")
+snip = fit("KSSL · CQB Carbine", "sa", [{"l": "Calibre", "cv": ".338 LM", "kv": "5.56x45mm"}])
+check(isinstance(snip, pf.Fit) and snip.bore == (5.56, 8.59), "a 5.56 carbine against a .338 rifle: bores differ (5.56 vs 8.59 mm): %r" % (snip and snip.bore,))
 ps = side("KSSL · M4", "pav", "Power / speed", "")
 check(isinstance(ps, dict) and ps["n"] is None, "a composite label with no unit on record gets text, never a number")
 nav = side("KSSL · Naval Guns", "naval", "Weight / dia", "kg")

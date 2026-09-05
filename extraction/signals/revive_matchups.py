@@ -782,14 +782,18 @@ def rebuild(row, docs, prows=()):
         if pk:
             # The archive's unsourced text is replaced by the workbook's, and a
             # disagreement between the two figures is recorded for the report.
-            old = numbers(s.get("kv"))
-            if pk["n"] is not None and old:
+            # Compared in the base unit, against EVERY figure the archive wrote: "16,000
+            # kg" agrees with "16 tonnes", and "24.7 km BT / 30 km BB" agrees with 30.
+            want = pk["base"][0]
+            olds = []
+            for n_ in numbers(s.get("kv")):
                 try:
-                    o = float(old[0])
-                    if o and abs(o - pk["n"]) / o > PARITY_DEADBAND:
-                        rep["portfolio_disagree"].append((lab, s.get("kv"), pk["kv"]))
+                    v_, _q = to_base(n_, unit_at(norm(s.get("kv") or ""), norm(s.get("kv") or "").find(n_) + len(n_)) or u)
+                    olds.append(v_ if v_ is not None else float(n_))
                 except ValueError:
-                    pass
+                    continue
+            if want and olds and not any(o and abs(o - want) / o <= PARITY_DEADBAND for o in olds):
+                rep["portfolio_disagree"].append((lab, s.get("kv"), pk["kv"]))
             e["kv"], e["kp"] = pk["kv"], "s"
             rep["portfolio_specs"] += 1
         # One URL per DOMAIN. The claim on screen is "N independent sources", so the
@@ -1008,8 +1012,9 @@ def main(apply=False, limit=None, portfolio_json=None):
     print("  revivable with evidence : %d" % len(built))
     print("  spec entries %d -> %d grounded (%.1f%%)"
           % (spec_in, spec_out, 100.0 * spec_out / max(spec_in, 1)))
-    print("  advantage bullets kept  : %d of %d"
-          % (sum(r["adv_kept"] for r in reports), sum(r["adv_in"] for r in reports)))
+    print("  advantage bullets kept  : %d of %d archived, plus %d from the workbook"
+          % (sum(r["adv_kept"] - r.get("adv_portfolio", 0) for r in reports),
+             sum(r["adv_in"] for r in reports), sum(r.get("adv_portfolio", 0) for r in reports)))
     for why, n in drops.most_common():
         print("  dropped: %-42s %d" % (why, n))
 

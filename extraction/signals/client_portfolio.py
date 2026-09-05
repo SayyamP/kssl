@@ -200,7 +200,10 @@ RECIPES = {
     ("art", "Mobility"): dict(keys=r"self-propelled speed|(maximum )?towing speed( on blacktop)?", unit=None,
                               compose=(("SP ", (r"self-propelled speed",)),
                                        ("tow ", (r"towing speed", r"maximum towing speed", r"towing speed on blacktop")))),
-    ("pav", "Combat weight"): dict(keys=r"combat weight.*|combat / gross weight|gvm|gvw|maximum gvw|kerb weight", unit="t",
+    # Combat weight is the vehicle as it fights. A kerb weight (unladen) and a
+    # "maximum GVW" (the chassis rating -- the MPV's 30 tonnes) are different numbers
+    # under similar words, so they are refused as "states nothing", not read as it.
+    ("pav", "Combat weight"): dict(keys=r"combat weight.*|combat / gross weight|gvm|gvw", unit="t",
                                    exclude=(_HEDGE, "hedged provenance in the workbook")),
     # `keys` decide the NUMBER (power, in hp); `extra` bullets may only join the text.
     ("pav", "Power / speed"): dict(keys=r"engine power|engine", unit="hp",
@@ -486,8 +489,11 @@ class Fit(object):
                    if f[2] in ("single", "bound")
                    and (want_q == "count" or _UNITS.get(f[1], (None,))[0] == want_q)]
         if not singles:
-            kinds = sorted(set(f[2] for _b, f in figs)) or ["text"]
-            REFUSALS["value is a %s, no single figure" % "/".join(kinds)] += 1
+            if any(f[2] in ("single", "bound") for _b, f in figs):
+                REFUSALS["figure is not written in the label's quantity (%s)" % want_q] += 1
+            else:
+                kinds = sorted(set(f[2] for _b, f in figs)) or ["text"]
+                REFUSALS["value is a %s, no single figure" % "/".join(kinds)] += 1
             return self._value(composed or cands[0]["v"], None, None, cands, why, tier)
         if recipe.get("choose") == "max":
             b, f = max(singles, key=lambda bf: _base(bf[1][0], bf[1][1] or recipe["unit"])[0] or 0)
@@ -603,8 +609,14 @@ def _primary_source(urls):
 
 
 def _bore(v):
-    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:mm)?", (v or "").replace(",", ""))
-    return float(m.group(1)) if m else None
+    """The bore in mm from a calibre as written. An imperial calibre is a decimal
+    fraction of an inch (".338 LM", ".50 BMG"): read as 338 mm it would still refuse
+    a 5.56 mm carbine, for the wrong reason and by a wrong number."""
+    m = re.search(r"(\.\d+|\d+(?:\.\d+)?)\s*(?:mm)?", (v or "").replace(",", ""))
+    if not m:
+        return None
+    tok = m.group(1)
+    return round(float(tok) * 25.4, 2) if tok.startswith(".") else float(tok)
 
 
 def match(bf, catkey, archive_specs, rows):
