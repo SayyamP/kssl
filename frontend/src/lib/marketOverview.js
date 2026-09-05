@@ -313,3 +313,36 @@ export function marketSelfCheck(tenders, marketCards) {
         "rather than letting a KSSL line go unnamed.",
     );
 }
+
+/* The report's two filters, each counted over the section's rows with the OTHER
+   facet applied -- so an option lists exactly the number it advertises, and an option
+   with no row behind it in this section does not exist. The category options were
+   ranked over all 136 tenders whatever the tab: "Ammunition (48)" over an awarded
+   list of 11. Same shape as the Tender Pipeline's facets. */
+const rowCat = (t, cat) => !cat || catOf(t) === cat || sliceLabel(catOf(t)) === cat;
+const rowCountry = (t, country) => !country || country === "all" || t.country === country;
+
+export function reportRows(scope, { country, cat } = {}) {
+  return (scope || [])
+    .filter((t) => rowCountry(t, country) && rowCat(t, cat))
+    .slice()
+    .sort((a, b) => (a.dl || 0) - (b.dl || 0));
+}
+
+export function reportFacets(scope, { country, cat } = {}) {
+  const rows = scope || [];
+  return {
+    countries: countriesOf(rows.filter((t) => rowCat(t, cat))),
+    cats: categoryRank(rows.filter((t) => rowCountry(t, country))).map((c) => ({ v: c.label, n: c.count })),
+  };
+}
+
+/* The note under the active table said "no tender on record publishes a value" as a
+   hard-coded string, on a corpus where 14 do. Measured from the rows instead. */
+export function valueNote(rows) {
+  const list = rows || [];
+  const priced = list.filter((t) => parseCr(t.value) > 0).length;
+  return priced
+    ? `${priced} of ${list.length} publish${priced === 1 ? "es" : ""} a value`
+    : "no tender listed here publishes a value";
+}

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { useAppState, useHeaderReport } from "../../state/AppState";
+import { revenueOptions } from "../../lib/revenueFacet";
 import { useData } from "../../state/DataProvider";
 import { companyNews, productNews } from "../../lib/news";
 import { formatLabel, formatSectorName, formatProductName } from "../../lib/profile";
@@ -140,6 +141,8 @@ const getCompanyFilterMeta = (d, cid, co) => ({
   revenueTier: co.revenue_filter || null,
 });
 
+const PRODUCTS_KEY = "kssl_products_cid";
+
 export default function Products() {
   const { data } = useData();
   const { setScope, jumpTo, takePending } = useAppState();
@@ -182,7 +185,28 @@ export default function Products() {
   }, [data, clientCid]);
 
   const firstCompCid = useMemo(() => (companyRoster[0] ? companyRoster[0].cid : ""), [companyRoster]);
-  const [selectedCid, setSelectedCid] = useState(firstCompCid);
+  /* Remembered, as the other sidebars remember theirs: this page reset to the first
+     company on every reload and every detour to another rail row. A saved id the
+     served roster no longer carries falls back to the first row. */
+  const [selectedCid, setSelectedCidState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(PRODUCTS_KEY);
+      if (saved && (saved === clientCid || companyRoster.some((r) => r.cid === saved))) return saved;
+    } catch (e) {}
+    return firstCompCid;
+  });
+  const setSelectedCid = (next) => {
+    setSelectedCidState(next);
+    try {
+      if (next) localStorage.setItem(PRODUCTS_KEY, next);
+      else localStorage.removeItem(PRODUCTS_KEY);
+    } catch (e) {}
+  };
+  /* The revenue facet, from the rows -- like the two selects above it. It was three
+     fixed options over a roster on which revenue_filter is null for every company
+     (0 of 42 live, 0 of 28 sample), so each one emptied the list. With no tier on
+     file there are no options, and the control is not drawn. */
+  const sidebarRevenue = useMemo(() => revenueOptions(companyRoster), [companyRoster]);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [productSearch, setProductSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -583,19 +607,23 @@ export default function Products() {
               ))}
             </select>
 
-            {/* 3. Revenue Filter */}
-            <select
-              aria-label="Filter companies by revenue"
-              className="mu-fsel"
-              onChange={(e) => setSidebarRevenueFilter(e.target.value)}
-              style={{ width: "100%" }}
-              value={sidebarRevenueFilter}
-            >
-              <option value="all">All Revenue</option>
-              <option value="high">High (&gt; ₹5,000 Cr / $1B+)</option>
-              <option value="mid">Mid (₹1,000 - ₹5,000 Cr)</option>
-              <option value="emerging">Emerging (&lt; ₹1,000 Cr)</option>
-            </select>
+            {/* 3. Revenue Filter -- only when the roster carries a tier to filter on */}
+            {sidebarRevenue.length ? (
+              <select
+                aria-label="Filter companies by revenue"
+                className="mu-fsel"
+                onChange={(e) => setSidebarRevenueFilter(e.target.value)}
+                style={{ width: "100%" }}
+                value={sidebarRevenueFilter}
+              >
+                <option value="all">All revenue tiers ({sidebarRevenue.length})</option>
+                {sidebarRevenue.map((o) => (
+                  <option key={o.v} value={o.v}>
+                    {o.l} ({o.n})
+                  </option>
+                ))}
+              </select>
+            ) : null}
           </div>
 
           <div className="mu-search">

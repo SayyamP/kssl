@@ -695,3 +695,22 @@ export function createGeo(d) {
     selfCheck,
   };
 }
+
+/* The Footprint Lookup's competitor menu, and the count line above it, must count the
+   same companies. The menu offered the whole roster -- 174 rows on the live dataset,
+   97 of them badged "0 mkts", each opening an empty panel -- while the count line
+   said 77. A competitor with no served market is not a footprint to look up. */
+export function geoCoveredCompetitors(d) {
+  const geoData = (d && d.geoData) || {};
+  return ((d && d.geoComps) || []).filter((c) => c && geoData[c.id] && Object.keys(geoData[c.id]).length > 0);
+}
+
+export function geoLookupCompetitors(d, country, query) {
+  const geoData = (d && d.geoData) || {};
+  const q = String(query || "").trim().toLowerCase();
+  return geoCoveredCompetitors(d).filter(
+    (c) =>
+      (!q || String(c.name || "").toLowerCase().includes(q)) &&
+      (!country || !!geoData[c.id][country]),
+  );
+}

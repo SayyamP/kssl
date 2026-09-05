@@ -6,14 +6,15 @@ import { formatDate } from "../../utils/formatDate";
 import {
   CATEGORY_COLOR,
   catOf,
-  categoryRank,
   closingWindows,
-  countriesOf,
   demandSplit,
   hostOf,
   initCategoryPalette,
   portalRows,
+  reportFacets,
+  reportRows,
   sliceLabel,
+  valueNote,
   windowOf,
 } from "../../lib/marketOverview";
 
@@ -193,7 +194,7 @@ function Chart({ title, note, empty, show, children }) {
 
 export default function MarketOverview() {
   const { data } = useData();
-  const { setScope } = useAppState();
+  const { setScope, takePending } = useAppState();
   const [section, setSectionRaw] = useState(savedSection);
   const [rows, setRows] = useState(TABLE_PAGE);
   const [country, setCountry] = useState("all");
@@ -202,34 +203,47 @@ export default function MarketOverview() {
   const setSection = (id) => {
     setSectionRaw(id);
     setRows(TABLE_PAGE);
-    /* the options are the new section's rows; a country picked in another section
-       may not exist in this one, and a filter matching nothing must not be silently
-       kept */
+    /* the options are the new section's rows; a country or category picked in another
+       section may not exist in this one, and a filter matching nothing must not be
+       silently kept. Both are reset -- the country alone was, and a category carried
+       across tabs was still filtering the awarded list. */
     setCountry("all");
+    setCat(null);
     try {
       localStorage.setItem(SECTION_KEY, id);
     } catch (e) {}
   };
 
+  /* A metric tile on the Market overview ("Already concluded", "Markets tracked")
+     opens the report on the section that holds what it counted. */
+  useEffect(() => {
+    const p = takePending("m-report");
+    if (p && p.section && SECTIONS.some((s) => s.id === p.section)) setSection(p.section);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takePending]);
+
   const tenders = data.tenders || [];
+  /* Palette first, from the whole corpus — every later colour lookup reads the map this
+     builds, so it must run before the facets, demandSplit and the filter's dots. */
+  useMemo(() => initCategoryPalette(tenders), [tenders]);
   const { open, awarded, closed } = useMemo(() => bucketTenders(tenders), [tenders]);
 
   /* The report is about live demand — awarded and closed rows have their own sections,
      and counting them into the charts would inflate every number on the page. */
   const scope = section === "awarded" ? awarded : section === "closed" ? closed : open;
-  const list = useMemo(() => {
-    let out = country === "all" ? scope : scope.filter((t) => t.country === country);
-    /* A pie slice can be the folded "Other", which is not any row's own category —
-       match on the SLICE a row belongs to, so clicking Other returns its members. */
-    if (cat) out = out.filter((t) => catOf(t) === cat || sliceLabel(catOf(t)) === cat);
-    return out.slice().sort((a, b) => (a.dl || 0) - (b.dl || 0));
-  }, [scope, country, cat]);
+  /* A pie slice can be the folded "Other", which is not any row's own category --
+     reportRows matches on the SLICE a row belongs to, so clicking Other returns its
+     members. */
+  const list = useMemo(() => reportRows(scope, { country, cat }), [scope, country, cat]);
   const n = list.length;
 
-  /* Over `scope` -- the rows the filter narrows -- not every tender. Built from all
-     136 it advertised "All (22)" over an awarded list carrying 8 countries, and 14 of
-     the options returned an empty table. [{ v, n }]: the label prints the length. */
-  const countries = useMemo(() => countriesOf(scope), [scope]);
+  /* Both filters over `scope` -- the rows this section lists -- each counted with the
+     OTHER filter applied, so an option lists exactly what it advertises. The country
+     select was already built this way; the category select was ranked over all 136
+     tenders whatever the tab and read "Ammunition (48)" over an awarded list of 11. */
+  const facets = useMemo(() => reportFacets(scope, { country, cat }), [scope, country, cat]);
+  const countries = facets.countries;
+  const cats = useMemo(() => facets.cats.map((c) => ({ label: c.v, count: c.n })), [facets]);
   /* What the header's Copy / Export / Print act on: the pipeline split and the rows
      the report is currently listing, under the section and filters in force. */
   const report = useMemo(() => {
@@ -262,12 +276,6 @@ export default function MarketOverview() {
   }, [section, country, cat, open, awarded, closed, list, n]);
   useHeaderReport(report);
 
-  /* Palette first, from the whole corpus — every later colour lookup reads the map this
-     builds, so it must run before demandSplit and before the filter renders its dots. */
-  const cats = useMemo(() => {
-    initCategoryPalette(tenders);
-    return categoryRank(tenders);
-  }, [tenders]);
   const portals = useMemo(() => portalRows(tenders), [tenders]);
   /* The charts describe the OPEN set narrowed by country — never by the category the pie
      itself sets, or picking a slice would redraw the pie as a single full circle. */
@@ -553,8 +561,10 @@ export default function MarketOverview() {
                       <td className="ovt-t">
                         <button
                           onClick={() => {
-                            setCat(s.label);
+                            /* section first: setSection clears the category, so the
+                               pick has to land after it */
                             setSection("active");
+                            setCat(s.label);
                           }}
                           type="button"
                         >
@@ -586,7 +596,9 @@ export default function MarketOverview() {
               <span className="eyebrow">{SECTIONS.find((s) => s.id === section).label}</span>
               <span className="ovc-note">
                 {fmt(n)} row{n === 1 ? "" : "s"} · sorted by deadline · each row links to its source
-                {section === "active" ? " · no tender on record publishes a value" : ""}
+                {/* measured over the rows listed -- this was a hard-coded "no tender on
+                    record publishes a value" on a corpus where 14 do */}
+                {section === "active" && n ? ` · ${valueNote(list)}` : ""}
               </span>
             </div>
             {tenderTable(

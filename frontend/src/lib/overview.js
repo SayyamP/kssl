@@ -259,12 +259,15 @@ export function metricsFor(cfg, pillar, d) {
     const lensSet = new Set();
     cards.forEach((c) => {
       if (c.lens) lensSet.add(c.lens);
-      (c.sec || []).forEach((s) => {
+      /* Tolerate a card whose `sec` is not an array: one malformed card must cost
+         the lens count, never the whole strip. */
+      (Array.isArray(c.sec) ? c.sec : []).forEach((s) => {
         if (s.lens) lensSet.add(s.lens);
       });
     });
     let byLabel = { "All signals": cards.length };
     const subByLabel = {};
+    let actByLabel = {};
     if (pillar === "competitive") {
       byLabel = {
         ...byLabel,
@@ -302,6 +305,15 @@ export function metricsFor(cfg, pillar, d) {
           (unconverted ? ` · ${unconverted} more in a currency not converted here` : "")
         : "no open tender publishes a value";
       subByLabel["Markets tracked"] = `countries · ${cats.size} categor${cats.size === 1 ? "y" : "ies"}`;
+      /* The doors. The served acts were feed predicates that did not match what the
+         tiles count: "Open opportunities" (fav) opened fav+watch -- every demand card
+         plus the unpriced tenders, 310 rows under a tile reading 89 -- "Already
+         concluded" (deadline) opened everything, and "Markets tracked" (all) reset a
+         filter that was already clear. `open` selects exactly the promoted open
+         tenders (tilePredicate); the two tiles counting rows that are NOT in this feed
+         at all -- concluded tenders, markets -- carry acts Layout routes to the Market
+         Report, which is where those rows live. */
+      actByLabel = { "Open opportunities": "open", "Already concluded": "concluded", "Markets tracked": "markets" };
     } else if (pillar === "technology") {
       const innovations = (d && d.innovations) || {};
       const domains = Object.keys(innovations).filter((k) => (innovations[k] || []).length);
@@ -323,6 +335,7 @@ export function metricsFor(cfg, pillar, d) {
     metrics.forEach((m) => {
       if (byLabel[m.l] != null) m.v = String(byLabel[m.l]);
       if (subByLabel[m.l] != null) m.sub = subByLabel[m.l];
+      if (actByLabel[m.l] != null) m.act = actByLabel[m.l];
     });
   } catch (e) {
     /* the strip is cosmetic; a missing field must never blank the feed */
@@ -353,7 +366,9 @@ export function tilePredicate(act) {
   if (act === "atstake") return (c) => c.dir === "threat" || c.dir === "atstake" || has(c, "atstake");
   if (act === "threat") return (c) => c.dir === "threat" || has(c, "threat");
   if (act === "fav" || act === "watch") return (c) => c.dir === "fav" || c.dir === "watch" || has(c, "opening") || has(c, "fav") || has(c, "watch");
-  if (act === "open") return () => true;
+  /* The promoted open tenders: unpriced ones are `fav`, priced ones `threat`; the
+     demand cards on the same feed are all `watch` and are not open tenders. */
+  if (act === "open") return (c) => c.dir === "fav" || c.dir === "threat";
   if (act === "deadline") return () => true;
   if (act === "gap") return (c) => c.dir === "threat" || has(c, "gap") || has(c, "tech");
   if (act === "patents") return () => true;
@@ -531,4 +546,15 @@ export function viewMetaFor(d) {
       filters: false,
     },
   };
+}
+
+/* What an empty feed says. It named only the tile and the direction pill, so a
+   query that matched nothing -- in the feed's own box or the global search -- showed
+   the served-nothing message: a reader who mistyped was told the pipeline had
+   produced nothing. The query is the narrowest cut, so it is named first. */
+export function emptyFeedNote({ tile, dirFilter, query, globalQuery } = {}) {
+  const q = String(query || globalQuery || "").trim();
+  if (q) return `— no signals match “${q}” —`;
+  if (tile || (dirFilter && dirFilter !== "all")) return "— no signals match this filter —";
+  return "— no signals served yet —";
 }

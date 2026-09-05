@@ -7,6 +7,7 @@ import { useAppState, useHeaderReport, PILLAR_LABEL } from "../../state/AppState
 import { useData } from "../../state/DataProvider";
 import {
   buildFeed,
+  emptyFeedNote,
   paginateFeed,
   readFeedPage,
   signalDate,
@@ -140,7 +141,11 @@ export default function Overview({
   // the metric tiles open the first matching signal, as the tiles did before
   useEffect(() => {
     if (!tile) return;
-    const first = (cfg.cards || []).find(visible);
+    /* The first matching card in FEED order -- the one at the top of page 1 under
+       this tile -- not the first in served order. Served order put the detail panel on
+       a card that sat on page 3 while page 1 showed no highlight at all (measured on
+       the Market "Open opportunities" tile). */
+    const first = feed.groups.flatMap((g) => g.cards || []).find(visible) || (cfg.cards || []).find(visible);
     if (first) select(first.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tile]);
@@ -325,11 +330,11 @@ export default function Overview({
           )}
           {shownCount === 0 ? (
             <div className="empty-note">
-              {/* an empty feed with no filter active is a served-nothing state,
-                  not the filter's fault — say which one it is */}
-              {tile || (dirFilter && dirFilter !== "all")
-                ? "— no signals match this filter —"
-                : "— no signals served yet —"}
+              {/* an empty feed with no filter active is a served-nothing state, not the
+                  filter's fault -- say which one it is. The two search boxes count as
+                  filters: a query that matched nothing used to read "no signals served
+                  yet", blaming the pipeline for a typo. */}
+              {emptyFeedNote({ tile, dirFilter, query: feedSearchQuery, globalQuery: searchQuery })}
             </div>
           ) : (
             <div className="pager">

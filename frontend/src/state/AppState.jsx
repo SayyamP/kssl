@@ -1,62 +1,35 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
+import { PILLARS, PILLAR_LABEL, RAIL, isOverview, parseRoute, resolveRoute } from "../lib/route.js";
+
 const AppStateContext = createContext(null);
 
-/* Which rail item each pillar opens on, and the pillar each rail belongs to. */
-export const PILLARS = ["competitive", "market", "technology"];
-export const PILLAR_LABEL = {
-  competitive: "Competitive",
-  market: "Market",
-  technology: "Technology",
-};
-export const RAIL = {
-  /* `gap-competitive` is ARCHIVED, not deleted: it is off the rail but Layout still
-     routes it, so a saved route or a pasted #v=gap-competitive link still resolves.
-     Same for `awarded-tenders` / `closed-tenders`, which the Market overview now
-     carries as tabs. getInitialAppState validates the PILLAR but never the view, so a
-     removed case would boot a returning user into a permanently blank pane. */
-  competitive: [
-    { view: "overview", label: "Overview", ix: "grid", overview: true },
-    { view: "profile", label: "Competitor", ix: "01" },
-    { view: "products", label: "Products", ix: "02" },
-    { view: "positioning", label: "Positioning", ix: "03" },
-    { view: "partnerships", label: "Partnerships", ix: "04" },
-    { view: "geo", label: "Geo Footprint", ix: "05" },
-    { view: "patents-comp", label: "Patents", ix: "06" },
-  ],
-  market: [
-    /* Overview is the SIGNAL FEED again, as the other two pillars' overviews are — the
-       tender report that briefly occupied this slot is its own tab below. An overview
-       that reads differently from every other pillar's overview is not an overview. */
-    { view: "m-overview", label: "Overview", ix: "grid", overview: true },
-    { view: "m-report", label: "Market Report", ix: "01" },
-    { view: "tender", label: "Tender Pipeline", ix: "02" },
-  ],
-  technology: [
-    { view: "t-overview", label: "Overview", ix: "grid", overview: true },
-    { view: "innovation", label: "Innovation Pipeline", ix: "01" },
-  ],
-};
+/* The rail, the pillars and the route resolver live in lib/route.js (pure, tested
+   under node); re-exported here so every existing import keeps working. */
+export { PILLARS, PILLAR_LABEL, RAIL, isOverview };
 
-const OVERVIEW_VIEWS = new Set(["overview", "m-overview", "t-overview"]);
-export const isOverview = (view) => OVERVIEW_VIEWS.has(view);
+const ROUTE_KEY = "kssl_parallax_route";
+
+/* The hash first, then the saved route, then the default -- and every one of them
+   resolved to a page. The hash used to be taken as written once its pillar was
+   known, so a link carrying a view no case in Layout handles (#v=nonsense, or a view
+   renamed in a later build) booted into a permanently blank pane and was then SAVED,
+   so the blank pane came back on every later visit. */
+const readSavedRoute = () => {
+  try {
+    const saved = localStorage.getItem(ROUTE_KEY);
+    return saved ? JSON.parse(saved) : null;
+  } catch (e) {
+    return null;
+  }
+};
 
 const getInitialAppState = () => {
+  let hash = "";
   try {
-    const hash = window.location.hash;
-    if (hash && hash.includes("p=")) {
-      const params = new URLSearchParams(hash.replace(/^#/, ""));
-      const p = params.get("p");
-      const v = params.get("v");
-      if (p && v && PILLARS.includes(p)) return { pillar: p, view: v };
-    }
-    const saved = localStorage.getItem("kssl_parallax_route");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.pillar && parsed.view && PILLARS.includes(parsed.pillar)) return parsed;
-    }
+    hash = window.location.hash;
   } catch (e) {}
-  return { pillar: "competitive", view: "overview" };
+  return resolveRoute(hash, readSavedRoute());
 };
 
 export function AppStateProvider({ children }) {
@@ -67,13 +40,29 @@ export function AppStateProvider({ children }) {
   /* Sync route state to localStorage and window.location.hash */
   useEffect(() => {
     try {
-      localStorage.setItem("kssl_parallax_route", JSON.stringify({ pillar, view }));
+      localStorage.setItem(ROUTE_KEY, JSON.stringify({ pillar, view }));
       const newHash = `#p=${encodeURIComponent(pillar)}&v=${encodeURIComponent(view)}`;
       if (window.location.hash !== newHash) {
         window.history.replaceState(null, "", newHash);
       }
     } catch (e) {}
   }, [pillar, view]);
+
+  /* The hash is a live input, not a boot-time one. It was read once at start-up and
+     never again, so editing it in the address bar -- the one thing a URL invites --
+     changed nothing on screen. replaceState above does not fire this, so the app's
+     own writes do not loop back; only a hand edit, or a link opened in this tab, does. */
+  useEffect(() => {
+    const onHash = () => {
+      const next = parseRoute(window.location.hash);
+      if (!next) return;
+      const r = resolveRoute(window.location.hash, null);
+      setPillarState(r.pillar);
+      setViewState(r.view);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
 
   /* The floating assistant's context line, and the per-panel scoped chat context.
      One place, so every panel updates the same two things when its selection moves —

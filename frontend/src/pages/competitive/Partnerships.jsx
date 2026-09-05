@@ -41,7 +41,6 @@ export default function Partnerships() {
   const [tie, setTie] = useState(savedCid ? savedPart.tie || null : null); // a partner row id, or null for the competitor read
   const [mode, setMode] = useState(savedPart.mode || "syn"); // 'syn' | 'field'
   const [relCardIndex, setRelCardIndex] = useState(null);
-  const [viewMode, setViewMode] = useState("network"); // "network" | "heatmap"
   const [zoomLevel, setZoomLevel] = useState(1);
   const [panCenter, setPanCenter] = useState(null);
 
@@ -372,6 +371,13 @@ export default function Partnerships() {
               </div>
             );
           })}
+          {/* The Competitor and Products sidebars say so when nothing matches; this
+              one rendered an empty column, which reads as a list that failed to load. */}
+          {!list.length ? (
+            <div className="cp-empty">
+              {activeQ ? <>no competitor matches “{activeQ}”</> : "no competitor matches this filter"}
+            </div>
+          ) : null}
         </div>        </div>
       </div>
 
@@ -386,7 +392,9 @@ export default function Partnerships() {
                 {nRow !== nNode
                   ? ` · ${nRow} tracked relationships`
                   : ` · ${nRow} tracked relationship${nRow === 1 ? "" : "s"}`}
-                {sectorText(c) ? ` · ${sectorText(c)}` : ""} · click a node to read a tie
+                {sectorText(c) ? ` · ${sectorText(c)}` : ""}
+                {/* an invitation to click a node is only honest when there is one */}
+                {nNode ? " · click a node to read a tie" : " · no partnership on record for this competitor"}
               </span>
             ) : null}
           </div>
@@ -400,22 +408,12 @@ export default function Partnerships() {
             </div>
           ) : (
             <div className="pg-canvas-toolbar">
-              <div className="pg-view-toggles">
-                <button
-                  type="button"
-                  className={`pg-tb-pill ${viewMode === "network" ? "active" : ""}`}
-                  onClick={() => setViewMode("network")}
-                >
-                  Network
-                </button>
-                <button
-                  type="button"
-                  className={`pg-tb-pill ${viewMode === "heatmap" ? "active" : ""}`}
-                  onClick={() => setViewMode("heatmap")}
-                >
-                  Heatmap
-                </button>
-              </div>
+              {/* A Network / Heatmap toggle stood here. `viewMode` was read by nothing
+                  but the two buttons' own active class: "Heatmap" lit itself up and the
+                  canvas stayed byte-for-byte the same, measured 2026-09-05. No heatmap
+                  exists in this build; a control that promises one and delivers nothing
+                  is worse than no control. If a heatmap is built, the toggle returns
+                  with it. */}
               <div className="pg-zoom-box">
                 <button
                   type="button"

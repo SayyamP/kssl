@@ -4,6 +4,7 @@ import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import ScopeChat from "../../components/scopeChat/ScopeChat";
 import GeoMap, { servedGeoCountries } from "../../components/geoMap/GeoMap";
 import { useAppState, useHeaderReport } from "../../state/AppState";
+import { geoLookupCompetitors } from "../../lib/geo";
 import { useData } from "../../state/DataProvider";
 import { srcChips, attr, escAll } from "../../lib/html";
 import Thumb from "../../components/thumb/Thumb.jsx";
@@ -105,8 +106,26 @@ export default function Geo() {
     return { kind: "competitors", country };
   }, [comp, country]);
 
-  // a fresh resolve drops the product detail, as the original's resetProdDetail did
+  /* A fresh resolve drops the product detail, as the original's resetProdDetail did --
+     with two exceptions this effect used to trample:
+       - its MOUNT run. An effect with these deps fires once after the first render,
+         and that run cleared the pair, the Back door and the open product just
+         restored from localStorage: a drill into "Adani Defence in India" came back
+         from a reload, or from a detour to Patents, as the competitor's country list.
+       - a click that sets a selection AND a pair in one go (a map marker: country +
+         top competitor's products). The pair landed, the effect saw the country
+         change and wiped it. `holdPair` is set by openProducts for exactly that tick. */
+  const mounted = useRef(false);
+  const holdPair = useRef(false);
   useEffect(() => {
+    if (!mounted.current) {
+      mounted.current = true;
+      return;
+    }
+    if (holdPair.current) {
+      holdPair.current = false;
+      return;
+    }
     setBack(null);
     setProdIndex(null);
     if (resolved.kind === "products")
@@ -115,6 +134,7 @@ export default function Geo() {
   }, [resolved.kind, resolved.cid, resolved.country]);
 
   const openProducts = (cid, ct, backMode, backArg) => {
+    holdPair.current = true;
     setPair({ cid, country: ct });
     setProdIndex(null);
     if (backMode) setBack({ mode: backMode, arg: backArg });
@@ -219,15 +239,13 @@ export default function Geo() {
   }, [pair, prodIndex]);
 
   /* ---- dropdown menus ---- */
-  const compMenuItems = useMemo(() => {
-    const q = menuQuery.toLowerCase();
-    let list = data.geoComps.filter((c) => c.name.toLowerCase().includes(q));
-    if (country)
-      list = list.filter(
-        (c) => data.geoData[c.id] && data.geoData[c.id][country],
-      );
-    return list;
-  }, [data, menuQuery, country]);
+  /* Only competitors with a served footprint (lib/geo.js geoLookupCompetitors). This
+     offered the whole roster -- 174 rows on the live dataset, 97 badged "0 mkts",
+     each opening an empty panel -- under a count line that said 77. */
+  const compMenuItems = useMemo(
+    () => geoLookupCompetitors(data, country, menuQuery),
+    [data, menuQuery, country],
+  );
 
   const countryMenuItems = useMemo(() => {
     const q = menuQuery.toLowerCase();
