@@ -329,6 +329,30 @@ CREATE TABLE serving.geo_comp (
     updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- The client's OWN products and specifications: the master workbook the client
+-- supplied on 2026-09-05, row for row. Read by revive_matchups.py to fill the KSSL
+-- side of a spec comparison and the "KSSL advantages" list; not served directly.
+-- file_category is the client's heading verbatim; cat/catKey are the dashboard's
+-- category from an explicit map (extraction/signals/client_portfolio.py), NULL when none
+-- exists. specs/features hold the cell's bullets as written ([{k, v, note, ctx}]);
+-- a row the client left as an em dash has specs = '[]' and stays that way.
+-- origin='reference': the enrich pass must never rebuild the client's own statement.
+-- See db/migrations/2026-09-05_client_product.sql.
+CREATE TABLE serving.client_product (
+    product_id    text PRIMARY KEY,
+    ord           integer NOT NULL,
+    name          text NOT NULL,
+    file_category text NOT NULL,
+    cat           text,
+    "catKey"      text,
+    specs         jsonb NOT NULL DEFAULT '[]'::jsonb,
+    features      jsonb NOT NULL DEFAULT '[]'::jsonb,
+    sources       jsonb NOT NULL DEFAULT '[]'::jsonb,
+    origin        text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX client_product_catkey_idx ON serving.client_product ("catKey");
+
 -- Global: innovations (dict area -> list of items).
 CREATE TABLE serving.innovation (
     area        text NOT NULL,

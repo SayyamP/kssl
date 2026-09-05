@@ -1,3 +1,14 @@
+serving.client_product.cat text
+serving.client_product.catKey text
+serving.client_product.features jsonb NOT NULL DEFAULT '[]'::jsonb
+serving.client_product.file_category text NOT NULL
+serving.client_product.name text NOT NULL
+serving.client_product.ord integer NOT NULL
+serving.client_product.origin text NOT NULL
+serving.client_product.product_id text NOT NULL
+serving.client_product.sources jsonb NOT NULL DEFAULT '[]'::jsonb
+serving.client_product.specs jsonb NOT NULL DEFAULT '[]'::jsonb
+serving.client_product.updated_at timestamp with time zone NOT NULL DEFAULT now()
 serving.company_source.comp_ord integer NOT NULL
 serving.company_source.company text NOT NULL
 serving.company_source.ord integer NOT NULL
