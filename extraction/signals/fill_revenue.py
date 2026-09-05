@@ -67,8 +67,12 @@ SPECULATIVE = re.compile(r"\bpro[- ]forma\b|\bpredict\w*|\bguidance\b|\bforecast
                          r"|\btargeting\b|\bambition\b", re.I)
 # The lettered codes need a left boundary or `Rs` matches inside "Registe(rs)" -- this
 # repo's FORCE / "Air Force" bug. The symbols must not take one: they are not word chars.
-CCY = (r"(?:(?<![A-Za-z])(?:INR|Rs\.?|US\$|USD|EUR|GBP|SEK|NOK|DKK|CHF|AED|JPY|CAD|AUD)"
-       r"|₹|\$|€|£|¥)")
+# A currency this list does not know is worse than no currency at all: "increasing its
+# turnover to TRY 2,4 billion (US$ 353 million)" produced "US$ 2,4 billion", because TRY
+# was unrecognised so the amount looked bare and took the dollar from the parenthetical.
+CCY = (r"(?:(?<![A-Za-z])(?:INR|Rs\.?|US\$|USD|EUR|GBP|SEK|NOK|DKK|CHF|AED|JPY|CAD|AUD"
+       r"|TRY|TL|PLN|CZK|ILS|NIS|KRW|RUB|ZAR|BRL|SGD|TWD|CNY|RMB|HKD|NZD)"
+       r"|₹|\$|€|£|¥|₺|₪|₩|₽)")
 SCALE = r"(?:crore|cr\b|lakh|million|billion|trillion|bn\b|mn\b)"
 MONEY = re.compile(r"(?:" + CCY + r"\s*[\d,]+(?:\.\d+)?\s*" + SCALE + r"?"
                    r"|[\d,]+(?:\.\d+)?\s*" + SCALE + r"\s*"
@@ -80,6 +84,10 @@ NEAR_METRIC = re.compile(
     r"operating (?:profit|income|result)|profit|net income|earnings|dividend|"
     r"market cap\w*|valuation|assets|equity|debt|capex|contract|deal|award|budget|"
     r"funding|cash flow|margin|percent|per cent|%"
+    # Exports are a slice of revenue, and a company states them proudly next to it:
+    # "Otokar exports amounted to US$307 Million, accounting for 75% of our annual
+    # revenues" is not Otokar's revenue, and the revenue word sits right beside it.
+    r"|exports?|export (?:revenues?|sales|turnover)|domestic sales"
     r"|arms revenues?|defen[cs]e revenues?)\b[^.;]{0,40}$", re.I)
 QUALIFIER = re.compile(r"\b(exceed\w*|surpass\w*|more than|over|above|around|about|"
                        r"approximately|approx\.?|nearly|almost|up to|at least|estimated|"
@@ -137,6 +145,13 @@ def figures(obj, quote):
             if not CCY_RX.search(amount):
                 if not line_ccy:
                     continue                   # nothing to denominate it with
+                # ...and the currency must belong to the same family as the SCALE.
+                # "annual turnover of USD 2.5 billion / 12,000 Crore" produced
+                # "USD 12,000 Crore" for the client's own row: crore and lakh are
+                # Indian units and pair with the rupee, never with a dollar or a euro.
+                if re.search(r"crore|lakh", amount, re.I) and \
+                        not re.search(r"INR|Rs|₹", line_ccy.group(0), re.I):
+                    continue
                 amount = "%s %s" % (line_ccy.group(0), amount)
             # each amount takes the period nearest it, not the sentence's first one
             period = (min(years, key=lambda pr: abs(pr[0] - mm.start()))[1]
@@ -167,7 +182,12 @@ def rank(rows):
 
 def collect(cur):
     """{comp_id: [row, ...]} -- every competitor's annual revenue figures, best first."""
-    cur.execute("SELECT comp_id, name FROM serving.competitors WHERE name <> ''")
+    # THE CLIENT IS NOT ITS OWN COMPETITOR. serving.competitors carries the Kalyani
+    # group with dir='client', and filling its revenue here put the client's own
+    # turnover in a column the Competitor profile reads. Everything else in this
+    # pipeline excludes it the same way.
+    cur.execute("SELECT comp_id, name FROM serving.competitors "
+                "WHERE name <> '' AND coalesce(dir, '') <> 'client'")
     comps = cur.fetchall()
     # The subject match must be WORD-BOUNDED. An `ilike '%'||name||'%'` join filed
     # Belaruskali's export revenue under BEL, which is the FORCE / "Air Force" bug at
@@ -208,11 +228,80 @@ def collect(cur):
     return out
 
 
-def run(dsn=DSN, apply=False):
+# ---------------------------------------------------------------- the crawler fallback
+#
+# THE SECOND SOURCE, AND WHY IT IS NOT A STEP. The extraction layer holds 59,726 of the
+# crawler's 1.85M documents, so a competitor can be absent from `extracted.proposition`
+# and still be written about. `public.documents` on the crawler is the fallback -- the
+# same corpus, one stage earlier, and the same rules applied to it.
+#
+# It is an operator mode rather than an enrich step because it costs a full sequential
+# scan: there is no text index on 1.85M rows, so one pass takes about forty minutes and
+# saturates a database this pipeline shares. Measured 2026-09-06: 7,031 documents match
+# the revenue predicate, and across the 25 competitors the extraction cannot cover it
+# yields exactly two -- Kalashnikov and Otokar. That ratio is the argument for running it
+# by hand, occasionally, and not every two hours.
+CRAWLER_SQL = """SELECT url, left(main_text, 40000) FROM public.documents
+                  WHERE main_text ~* '(annual (revenue|turnover)|revenues? of'
+                        '|turnover of|net sales of|posted revenues?'
+                        '|reported revenues?|revenues? (?:stood|totall?ed|reached))'"""
+SENTENCE = re.compile(r"[^.\n]{0,220}(?:revenue|turnover|net sales)[^.\n]{0,220}", re.I)
+
+
+def collect_crawler(cur, names):
+    """{name: [row]} for `names` -- [(comp_id, name)] the extraction could not cover."""
+    src_dsn = os.environ.get("KSSL_CORPUS_SRC_DSN")
+    if not src_dsn:
+        print("crawler: KSSL_CORPUS_SRC_DSN unset -- skipping the fallback", flush=True)
+        return {}
+    import psycopg2
+    pats = [(cid, n, re.compile(r"(?<!\w)" + re.escape(n) + r"(?!\w)", re.I))
+            for cid, n in names if len(n) >= 4]
+    con = psycopg2.connect(src_dsn, connect_timeout=20)
+    sc = con.cursor(name="revscan")            # server-side: never buffer 1.85M rows
+    sc.itersize = 2000
+    sc.execute(CRAWLER_SQL)
+    out, n_docs = {}, 0
+    for url, txt in sc:
+        n_docs += 1
+        t = txt or ""
+        for cid, name, rx in pats:
+            if not rx.search(t):
+                continue
+            for m in SENTENCE.finditer(t):
+                line = re.sub(r"\s+", " ", m.group(0)).strip()
+                if not rx.search(line):
+                    continue
+                for value, period in figures("", line):
+                    out.setdefault(cid, []).append(
+                        {"value": value, "detail": period, "url": url,
+                         "line": line[:400]})
+    print("crawler: scanned %d document(s), %d compan(ies) gained"
+          % (n_docs, len(out)), flush=True)
+    for cid in out:
+        seen, uniq = set(), []
+        for r in rank(out[cid]):
+            key = (r["value"].lower(), r["detail"].lower())
+            if key not in seen:
+                seen.add(key)
+                uniq.append(r)
+        out[cid] = uniq[:6]
+    return out
+
+
+def run(dsn=DSN, apply=False, crawler=False):
     import psycopg2
     with psycopg2.connect(dsn, connect_timeout=15) as con:
         with con.cursor() as cur:
             found = collect(cur)
+            if crawler:
+                cur.execute("SELECT comp_id, name FROM serving.competitors "
+                            "WHERE coalesce(dir,'') <> 'client'")
+                missing = [(cid, n) for cid, n in cur.fetchall() if cid not in found]
+                print("crawler: %d competitor(s) the extraction cannot cover"
+                      % len(missing), flush=True)
+                for cid, rows in collect_crawler(cur, missing).items():
+                    found[cid] = rows
             cur.execute("SELECT count(*) FROM serving.competitors")
             total = cur.fetchone()[0]
             print("revenue: %d of %d competitor(s) have an annual figure in the corpus"
@@ -279,6 +368,25 @@ def _demo():
     # a future year is a target
     assert not figures("", "Kongsberg expects revenues of NOK 150 billion in 2033.")
 
+    # A CURRENCY IS NOT PORTABLE ACROSS SCALE FAMILIES. The client's own row came out
+    # as "USD 12,000 Crore" -- the line's dollar sign glued to an Indian scale.
+    got = figures("", "The group has annual turnover of USD 2.5 billion and 12,000 "
+                      "Crore in revenue in 2024.")
+    assert [g[0] for g in got] == ["USD 2.5 billion"], got
+    assert figures("", "Revenue for FY 2024-25 stood at Rs. 1,250 crore.")[0][0] \
+        == "Rs. 1,250 crore", "the rupee still pairs with crore"
+
+    # AN UNKNOWN CURRENCY IS WORSE THAN NO CURRENCY. Found by scanning the crawler
+    # corpus: TRY was unrecognised, so "TRY 2,4 billion" looked bare and took the US$
+    # from the conversion beside it, giving "US$ 2,4 billion" -- off by a factor of 7.
+    got = figures("", "Otokar achieved record growth of 45% in 2019, increasing its "
+                      "turnover to TRY 2,4 billion (US$ 353 million)")
+    assert got[0][0] == "TRY 2,4 billion", got
+    # Exports are a slice of revenue and are stated right beside it.
+    assert not figures("", "In 2020, Otokar exports amounted to US$307 Million, "
+                           "accounting for 75% of our annual revenues"), \
+        "an export figure is not the company's revenue"
+
     assert year_of("In 2021") == 2021 and year_of("FY 2024-25") == 2025
     assert year_of("") == 0, "an undated figure sorts last"
     r = rank([{"value": "EUR 900 million", "detail": "in 2023"},
@@ -292,8 +400,11 @@ if __name__ == "__main__":
     ap.add_argument("--dsn", default=DSN)
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--demo", action="store_true")
+    ap.add_argument("--crawler", action="store_true",
+                    help="also scan the crawler corpus for competitors the extraction "
+                         "cannot cover (~40 min: a full sequential scan of 1.85M rows)")
     a = ap.parse_args()
     if a.demo:
         _demo()
     else:
-        run(a.dsn, apply=a.apply)
+        run(a.dsn, apply=a.apply, crawler=a.crawler)
