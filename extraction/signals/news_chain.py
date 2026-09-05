@@ -58,9 +58,14 @@ on the CONTINUATION LINK, which claims that this article follows from that one:
 the claim is not supportable from a shared name alone, so the thread still holds
 them and the link does not.
 
-A SYNDICATED REWRITE IS A DUPLICATE, NOT A CONTINUATION. Same thread, near-identical
-headline, different publisher: that is one event reported twice, and calling it a
-continuation would invent a development that never happened.
+A SYNDICATED REWRITE IS A DUPLICATE, NOT A CONTINUATION -- and the test that catches
+one is the DATE, not the wording. On the live feed five outlets covered a single
+Saab-DGA contract on 2026-06-16 under five different headlines, with token overlap
+around a third, nowhere near any similarity cut; four covered Anduril's Thunder
+unveiling on 2026-07-20. Nothing developed between them. Same thread, same day is one
+event. The headline test stays for the reprint that surfaces days later, and it needs
+the publisher to differ, because two of the Caracal reports were one Rheinmetall press
+release in German and in English.
 """
 import argparse
 import collections
@@ -168,30 +173,62 @@ def thread(rows, designator_of):
     where `whatsapp` lives -- does not make the article ABOUT that thing.
     """
     by_key = collections.defaultdict(list)
+    in_title = set()
     for r in rows:
+        head = fold(r.get("title") or "")
         hay = fold("%s %s" % (r.get("title") or "", r.get("description") or ""))
         for d in sorted(r.get("designators") or ()):
             if d not in designator_of:
                 continue
-            if fold(d) and fold(d) in hay:
+            fd = fold(d)
+            if fd and fd in hay:
                 by_key[(r.get("comp_id"), d)].append(r)
+                if fd in head:
+                    in_title.add((r.get("url"), d))
 
-    # One article can name two designators. It belongs to the thread whose key is
-    # the rarest -- the most specific thing it is about -- so an article naming both
-    # "PAC-3" and "PAC-3 MSE" threads with the MSE stories, not against them.
-    best = {}
-    for (comp, d), members in by_key.items():
-        if len(members) < 2:
-            continue                    # a thread of one is not a thread
-        for r in members:
-            cur = best.get(r["url"])
-            if cur is None or len(members) < cur[1] or (
-                    len(members) == cur[1] and d > cur[0]):
-                best[r["url"]] = (d, len(members), comp)
+    # ONE ARTICLE CAN NAME TWO DESIGNATORS, AND ITS HEADLINE SAYS WHICH IT IS ABOUT.
+    #
+    # Neither size rule worked on the live feed. Preferring the SMALLEST thread let
+    # "the missile" (2 articles) rob "brahmos" (5), publishing one story as two.
+    # Preferring the LARGEST then let "gripen" (4) swallow "a3-001" (3) -- and with
+    # those two Saab stories sharing a thread on one day, a Gripen/Taurus firing was
+    # published as a duplicate of an A3-001 drone reveal.
+    #
+    # The article settles it: A3-001 is in that headline and Gripen is only in the
+    # standfirst; BrahMos is in its headline and "the missile" is only in the
+    # standfirst. Size decides only between two designators the headline names
+    # equally -- PAC-3 and PAC-3 MSE, both in the same headline, are one story.
+    # A THREAD OF ONE IS NOT A THREAD, AND CHOOSING KEYS CAN CREATE ONE.
+    #
+    # The size test below runs on the candidate membership, before each article picks
+    # its key -- so a key with two candidates can end up with one member once the
+    # other article picks a different key. Both MQ-28 articles were candidates for
+    # "mq-28"; one also named "MQ-28 Ghost Bat" in its headline and went there, and
+    # the live feed published two threads holding one article each. Dropping a
+    # singleton frees its member to fall back to its next key, which can strand
+    # another, so this repeats until nothing changes.
+    dead = set()
+    for _ in range(len(by_key) + 1):
+        best = {}
+        for (comp, d), members in by_key.items():
+            if (comp, d) in dead or len(members) < 2:
+                continue
+            for r in members:
+                rank = (1 if (r["url"], d) in in_title else 0, len(members), len(d))
+                cur = best.get(r["url"])
+                if cur is None or rank > cur[1]:
+                    best[r["url"]] = (d, rank, comp)
+        held = collections.Counter((v[2], v[0]) for v in best.values())
+        singles = {k for k, n in held.items() if n < 2}
+        if not singles:
+            break
+        dead |= singles
+    best = dict((u, v) for u, v in best.items()
+                if (v[2], v[0]) not in dead)
 
     out = {}
     threads = collections.defaultdict(list)
-    for url, (d, _n, comp) in best.items():
+    for url, (d, _rank, comp) in best.items():
         threads[(comp, d)].append(url)
 
     for (comp, d), urls in threads.items():
@@ -206,9 +243,23 @@ def thread(rows, designator_of):
                 gap = None
                 if prev.get("published_date") and r.get("published_date"):
                     gap = (r["published_date"] - prev["published_date"]).days
-                if sim >= DUP_SIMILARITY and domain(prev.get("url")) != domain(r.get("url")):
-                    # THE SAME PIECE SOMEWHERE ELSE. Calling this a continuation
-                    # would invent a development between two printings of one story.
+                if gap == 0:
+                    # ONE EVENT, REPORTED SEVERAL TIMES. Nothing developed between
+                    # two reports published the same day.
+                    #
+                    # Headline similarity alone did not catch this. Five outlets
+                    # covered one Saab-DGA contract on 2026-06-16 under five
+                    # different headlines, and four covered Anduril's Thunder
+                    # unveiling on 2026-07-20 -- all published as "continues", which
+                    # asserted developments that never happened. The domain test did
+                    # not catch it either: two of the Caracal reports were one
+                    # Rheinmetall press release, in German and in English, on one
+                    # domain.
+                    rec["duplicate_of_url"] = prev["url"]
+                    rec["chain_evidence"]["same_day"] = True
+                elif sim >= DUP_SIMILARITY and domain(prev.get("url")) != domain(r.get("url")):
+                    # THE SAME PIECE SOMEWHERE ELSE, days later. Calling this a
+                    # continuation would invent a development between two printings.
                     rec["duplicate_of_url"] = prev["url"]
                     rec["chain_evidence"]["headline_overlap"] = round(sim, 2)
                 elif gap is not None and gap <= CONTINUES_DAYS:
@@ -252,12 +303,12 @@ join extracted.span s on s.document_id = d.document_id
 where s.type = any(%s) and length(btrim(s.text)) between %s and %s
 """
 
-DDL = """
-alter table serving.competitor_news add column if not exists story_key text;
-alter table serving.competitor_news add column if not exists continues_url text;
-alter table serving.competitor_news add column if not exists duplicate_of_url text;
-alter table serving.competitor_news add column if not exists chain_evidence jsonb;
-"""
+# The four columns are NOT created here. db/migrations/2026-09-06_news_chain.sql owns
+# them, because it also recreates serving_live.competitor_news -- a view that
+# enumerates its columns and cannot see one added to the table beneath it. An ALTER
+# TABLE here produced exactly that: 84 rows written, and a dashboard that read the
+# view and showed none of them.
+COLUMNS = ("story_key", "continues_url", "duplicate_of_url", "chain_evidence")
 
 
 def run(dsn=DSN, apply=False):
@@ -303,7 +354,18 @@ def run(dsn=DSN, apply=False):
         print("\n   WARNING: nothing threaded. A rule that never fires is not running.")
 
     if apply:
-        cur.execute(DDL)
+        cur.execute("select column_name from information_schema.columns"
+                    " where table_schema='serving_live'"
+                    " and table_name='competitor_news'")
+        served = set(r[0] for r in cur.fetchall())
+        missing = [c for c in COLUMNS if c not in served]
+        if missing:
+            raise SystemExit(
+                "serving_live.competitor_news is missing %s.\n"
+                "Run db/migrations/2026-09-06_news_chain.sql first: it adds the "
+                "columns AND recreates the view, and writing without the view means "
+                "writing rows the dashboard cannot read."
+                % ", ".join(missing))
         cur.execute("update serving.competitor_news set story_key=null,"
                     " continues_url=null, duplicate_of_url=null, chain_evidence=null")
         for url, rec in linked.items():
@@ -383,6 +445,27 @@ def demo():
        "https://c.com/7" not in out)
     ck("a lone article about a designator is not a thread of one",
        "https://a.com/5" not in out, out.get("https://a.com/5"))
+
+    # THE SPLIT THAT LEAVES TWO SINGLETONS. Both articles are about the MQ-28; one
+    # headline also names the fuller "MQ-28 Ghost Bat". Sending it there on the
+    # headline rule would leave one article under each key and publish neither as a
+    # story, so the narrower key is dropped and both fall back to the one they share.
+    mq = [
+        {"url": "https://a.com/m1", "comp_id": "rheinmetall",
+         "title": "MQ-28 Ghost Bat completes 150 test flights", "description": "",
+         "published_date": date(2026, 6, 10),
+         "designators": {"mq-28", "mq-28 ghost bat"}},
+        {"url": "https://a.com/m2", "comp_id": "rheinmetall",
+         "title": "Boeing and Rheinmetall pitch MQ-28 for the CCA programme",
+         "description": "", "published_date": date(2026, 8, 12),
+         "designators": {"mq-28"}},
+    ]
+    mqo = thread(mq, {"mq-28", "mq-28 ghost bat"})
+    ck("a narrower key that would strand both articles is dropped",
+       len(mqo) == 2 and set(v["story_key"] for v in mqo.values()) == {"mq-28"},
+       dict((k, v["story_key"]) for k, v in mqo.items()))
+    ck("... and nothing published is a thread of one",
+       all(v["chain_evidence"]["thread_size"] >= 2 for v in mqo.values()))
     ck("the follow-up continues the original",
        out.get("https://a.com/2", {}).get("continues_url") == "https://a.com/1")
     ck("the same headline elsewhere is a DUPLICATE, not a continuation",
@@ -429,7 +512,85 @@ def demo():
        f.get("https://a.com/31", {}).get("continues_url") is None
        and f.get("https://a.com/31", {}).get("story_key") == "nlaw")
 
-    ck("a rewrite on the SAME domain is a continuation, not a duplicate",
+    # THE SAME EVENT, THREE OUTLETS, ONE DAY. Every one of these was published as a
+    # continuation before the date test existed.
+    same_day = [
+        {"url": "https://a.com/x", "comp_id": "saab",
+         "title": "Saab receives French order for NLAW anti-tank weapon",
+         "description": "", "published_date": date(2026, 6, 16), "designators": {"nlaw"}},
+        {"url": "https://b.com/y", "comp_id": "saab",
+         "title": "Saab wins NLAW contract from French DGA",
+         "description": "", "published_date": date(2026, 6, 16), "designators": {"nlaw"}},
+        {"url": "https://saab.com/de/z", "comp_id": "saab",
+         "title": "Saab signs NLAW deal with the French defence ministry",
+         "description": "", "published_date": date(2026, 6, 16), "designators": {"nlaw"}},
+    ]
+    sd = thread(same_day, good)
+    ck("one event covered by three outlets on one day is not three developments",
+       all(v["continues_url"] is None for v in sd.values()))
+    ck("... they are duplicates of the first report",
+       sd["https://b.com/y"]["duplicate_of_url"] == "https://a.com/x"
+       and sd["https://saab.com/de/z"]["duplicate_of_url"] == "https://a.com/x")
+    ck("... and headline wording would not have caught them",
+       similarity(same_day[0]["title"], same_day[1]["title"]) < DUP_SIMILARITY,
+       round(similarity(same_day[0]["title"], same_day[1]["title"]), 2))
+    # Which of two same-day reports is called the original is arbitrary -- they were
+    # published the same day and nothing in the data ranks them. What matters is that
+    # exactly one of the pair is a duplicate of the other, so the reader sees one
+    # event and not two.
+    lang = thread([dict(same_day[0], url="https://r.com/en"),
+                   dict(same_day[1], url="https://r.com/de")], good)
+    dups = [v["duplicate_of_url"] for v in lang.values() if v["duplicate_of_url"]]
+    ck("one press release in two languages on one domain is still one event",
+       len(dups) == 1 and dups[0] in lang, dups)
+
+    # A WEAK KEY MUST NOT ROB A STRONG ONE.
+    two_keys = [
+        {"url": "https://a.com/b1", "comp_id": "brahmos-aerospace",
+         "title": "BrahMos-NG design changes", "description": "the missile is revised",
+         "published_date": date(2026, 6, 11), "designators": {"brahmos", "the missile"}},
+        {"url": "https://a.com/b2", "comp_id": "brahmos-aerospace",
+         "title": "Thailand evaluates BrahMos", "description": "the missile is offered",
+         "published_date": date(2026, 8, 4), "designators": {"brahmos", "the missile"}},
+        {"url": "https://a.com/b3", "comp_id": "brahmos-aerospace",
+         "title": "BrahMos order book grows", "description": "",
+         "published_date": date(2026, 6, 16), "designators": {"brahmos"}},
+    ]
+    tk = thread(two_keys, {"brahmos", "the missile"})
+    ck("the headline decides: a standfirst-only key does not take the story",
+       all(v["story_key"] == "brahmos" for v in tk.values()),
+       dict((k, v["story_key"]) for k, v in tk.items()))
+
+    # ... AND THE SAME RULE THE OTHER WAY ROUND. Here the specific designator has the
+    # SMALLER thread, and it must still win, because it is what the headlines name.
+    saab = [
+        {"url": "https://a.com/s1", "comp_id": "saab",
+         "title": "Saab displays A3-001 full-scale model",
+         "description": "the Gripen maker's new concept",
+         "published_date": date(2026, 8, 23), "designators": {"a3-001", "gripen"}},
+        {"url": "https://a.com/s2", "comp_id": "saab",
+         "title": "Saab showcases unmanned A3-001 combat aircraft",
+         "description": "alongside Gripen",
+         "published_date": date(2026, 8, 24), "designators": {"a3-001", "gripen"}},
+        {"url": "https://a.com/s3", "comp_id": "saab",
+         "title": "Hungary to modernise its air force with Saab",
+         "description": "Gripen fleet", "published_date": date(2026, 3, 24),
+         "designators": {"gripen"}},
+        {"url": "https://a.com/s4", "comp_id": "saab",
+         "title": "Swedish Gripen C fires KEPD-350 Taurus for the first time",
+         "description": "", "published_date": date(2026, 8, 24),
+         "designators": {"gripen"}},
+    ]
+    sb = thread(saab, {"a3-001", "gripen"})
+    ck("a bigger thread does not swallow the one the headline names",
+       sb["https://a.com/s1"]["story_key"] == "a3-001"
+       and sb["https://a.com/s2"]["story_key"] == "a3-001",
+       dict((k, v["story_key"]) for k, v in sb.items()))
+    ck("... so an unrelated same-day story is not called a duplicate of it",
+       sb["https://a.com/s4"]["duplicate_of_url"] is None,
+       sb["https://a.com/s4"])
+
+    ck("a rewrite on the SAME domain, days later, is a continuation not a duplicate",
        thread([dict(rows[0]), dict(rows[0], url="https://a.com/1b",
                                    published_date=date(2026, 1, 7))], good)
        .get("https://a.com/1b", {}).get("continues_url") == "https://a.com/1")
