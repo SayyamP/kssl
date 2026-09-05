@@ -755,10 +755,21 @@ def main():
     ap.add_argument("--dry", action="store_true")
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--only", default="", help="comma-separated comp_id filter")
+    # A harvest of 82 applicant names takes the better part of an hour at a polite
+    # pause. --load publishes the ledger a completed harvest already wrote, so a
+    # deploy never has to re-query the registry to put the same rows on the screen.
+    ap.add_argument("--load", action="store_true",
+                    help="write the existing ledger to serving.patent, no network")
     ap.add_argument("--pause", type=float, default=3.0)
     a = ap.parse_args()
     if a.demo:
         return demo()
+    if a.load:
+        rows = json.load(io.open(LEDGER, encoding="utf-8"))
+        n = write_db(rows)
+        print("wrote %d rows from the ledger to serving.patent (%d companies)"
+              % (n, len(set(r.get("comp_id") for r in rows))))
+        return 0
 
     want = set(x.strip() for x in a.only.split(",") if x.strip())
     companies = [(alias, cid) for alias, cid, kind, _ in ART
@@ -780,11 +791,21 @@ def main():
               io.open(PROPOSALS, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print("\n%d unresolved applicants -> %s" % (len(unresolved), PROPOSALS.name))
 
+    # WHAT GOES TO THE DASHBOARD IS THE LEDGER, NOT THIS RUN.
+    #
+    # write_db DELETEs the whole pipeline range before inserting, so applying this
+    # run's `kept` would delete every company the run did not query. `--only nammo`
+    # with --apply would have left the tab holding nammo alone. This is the same
+    # fault that once took a harvest from 10,548 rows to 0: a partial run allowed
+    # to speak for the whole corpus.
+    ledger = kept
     if kept:
-        merge_ledger(kept)
-        print("ledger: %s" % LEDGER.name)
+        ledger = merge_ledger(kept)
+        print("ledger: %s (%d rows, %d companies)"
+              % (LEDGER.name, len(ledger),
+                 len(set(r.get("comp_id") for r in ledger))))
     if a.apply:
-        n = write_db(kept)
+        n = write_db(ledger)
         print("wrote %d rows to serving.patent (ord >= %d)" % (n, PATENT_ORD0))
     return 0
 
