@@ -231,25 +231,54 @@ def build(cards, comp_index, date_of):
 # ------------------------------------------------------------------------ db side
 
 def _comp_index(cur):
-    """folded competitor name -> comp_id, via the shared identity layer."""
+    """folded competitor name -> comp_id, via the shared identity layer.
+
+    The roster's own names are kept alongside the index: a division has to be matched
+    against them one at a time, and equality alone cannot do it.
+    """
     from aliases import canonical, fold
     cur.execute("SELECT comp_id, name FROM serving.competitors "
                 "WHERE origin='pipeline' ORDER BY ord")
-    idx = {}
+    idx, roster = {}, []
     for cid, name in cur.fetchall():
+        roster.append((cid, name))
         for key in {fold(name), fold(canonical(name) or name)}:
             if key:
                 idx.setdefault(key, cid)          # first ord wins on a collision
+    idx["__roster__"] = roster
     return idx
 
 
 def _lookup(idx):
-    from aliases import canonical, fold
+    """Find the competitor a card's company field names.
+
+    THE FIELD IS HTML. `Adani Defence &amp; Aerospace` is what the extractor wrote,
+    and `&amp;` never folds onto `&`, so four Adani articles reached no company at
+    all. Unescaping is not cosmetic here: it is the difference between a competitor
+    with news and one the dashboard shows as silent.
+
+    THE FIELD IS ALSO OFTEN A DIVISION. "American Rheinmetall", "KNDS France",
+    "Hanwha Defense USA", "BAE Systems Bofors" -- the roster holds the parent, and
+    equality after folding sends all of them nowhere. aliases.same_org decides that,
+    with the word-boundary guard that stops "Elbit" absorbing Elbit Imaging.
+    """
+    import html
+    from aliases import canonical, fold, is_force, same_org
+    roster = idx.get("__roster__", [])
 
     def f(name):
+        name = html.unescape(name or "")
         for key in (fold(name), fold(canonical(name) or name)):
             if key and key in idx:
                 return idx[key]
+        # An armed service or a ministry is the CUSTOMER in the story, never the
+        # company it is about. Checked before containment, because "Indian Navy"
+        # would otherwise reach nobody anyway and "US Army" costs nothing to skip.
+        if is_force(name):
+            return None
+        for cid, rname in roster:
+            if same_org(name, rname):
+                return cid
         return None
     return f
 

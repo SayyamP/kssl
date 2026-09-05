@@ -146,6 +146,51 @@ def client_led(text):
     return any(m in head for m in _CLIENT_MARKS)
 
 
+# A DIVISION IS NOT A DIFFERENT COMPANY.
+#
+# The corpus files stories under "American Rheinmetall", "KNDS France", "BAE Systems
+# Bofors" and "Hanwha Defense USA"; the roster holds the parent. Strict equality after
+# folding sends all of that nowhere, which is most of why 15 of 44 competitors showed
+# no news while their divisions' articles sat in the feed.
+#
+# Containment without a guard is the opposite fault: "Elbit" would absorb Elbit
+# Imaging, a real and unrelated company. So the shorter name must appear as a WHOLE
+# WORD SEQUENCE in the longer one, and both must be long enough to be distinctive --
+# a three-letter fold matches only exactly.
+_MIN_CONTAIN = 4
+
+
+def _via_alias(name):
+    """Canonical form, reached through an alias key the name CONTAINS.
+
+    "Hanwha Defense USA" is not a key in ALIASES; "hanwha defense" is, and it is the
+    identity-bearing part of the name. A division name is an alias plus a qualifier,
+    so the longest alias key sitting whole inside the name decides -- longest first,
+    or "rafael" would answer for "rafael advanced defense systems".
+    """
+    f = fold(name)
+    if not f or f in ALIASES:
+        return canonical(name)
+    for key in sorted(ALIASES, key=len, reverse=True):
+        if len(key) >= _MIN_CONTAIN and re.search(
+                r"(?:^| )%s(?:$| )" % re.escape(key), f):
+            return ALIASES[key]
+    return canonical(name)
+
+
+def same_org(a, b):
+    """Are these two spellings the same company, its divisions included?"""
+    fa, fb = fold(_via_alias(a) or a), fold(_via_alias(b) or b)
+    if not fa or not fb:
+        return False
+    if fa == fb:
+        return True
+    short, long_ = (fa, fb) if len(fa) <= len(fb) else (fb, fa)
+    if len(short) < _MIN_CONTAIN:
+        return False
+    return re.search(r"(?:^| )%s(?:$| )" % re.escape(short), long_) is not None
+
+
 def canonical(name):
     """One display name per identity. Unknown names keep their own spelling,
     minus the legal suffix (original casing preserved token-wise)."""

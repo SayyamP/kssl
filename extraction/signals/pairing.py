@@ -137,17 +137,12 @@ def same_product(candidate, published):
     return False
 
 
-def same_org(candidate, tracked):
-    """Is `candidate` the tracked company `tracked`? Through the one identity layer."""
-    a, b = aliases.canonical(candidate), aliases.canonical(tracked)
-    fa, fb = aliases.fold(a), aliases.fold(b)
-    if not fa or not fb:
-        return False
-    if fa == fb:
-        return True
-    # Containment, but never for a short brand: it is what lets Elbit absorb Elbit
-    # Imaging, so both sides have to be long enough to be distinctive.
-    return (len(fa) > 3 and len(fb) > 3) and (fa in fb or fb in fa)
+# ONE ORGANISATION RULE, NOT TWO. This was a private copy here for a day, and the
+# news writer needed the same decision -- a division reaching its parent, with the
+# guard that stops "Elbit" absorbing Elbit Imaging. A display label used as a join key
+# has already cost this project a whole layer, so the rule lives in aliases.py and
+# both callers ask it.
+same_org = aliases.same_org
 
 
 def shared_measurables(specs):
