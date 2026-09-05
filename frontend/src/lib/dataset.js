@@ -9,6 +9,7 @@ import { computeSpecEdge } from "./edge.js";
 import { wireTendersWithRealDays } from "./tenderCalc.js";
 import { titleCaseHeadline, formatProductName, tidySeparators } from "./profile.js";
 import { formatDate } from "../utils/formatDate.js";
+import { cutGroupsByDirection } from "./overview.js";
 import { logger } from "../utils/logger.js";
 
 /* THE PIPELINE ESCAPES, AND SO DOES THE RENDERER, SO EVERY AMPERSAND IS ESCAPED TWICE.
@@ -136,10 +137,23 @@ export function wireDataset(raw) {
 
   // overviewConfig needs the card arrays by reference (the exporter emits them apart)
   try {
+    /* The competitive and technology priority groups are cut by DIRECTION, as the
+       market ones are further down: the served defs carry only a heading and a size,
+       and on the live-shape dump every technology card is dir=watch, so "Priority --
+       Capability Gaps" was the caption over five watch cards. See
+       cutGroupsByDirection in lib/overview.js and test_feed_groups.mjs case 8. */
     d.overviewConfig = {
-      competitive: { ...d.overviewConfig.competitive, cards: d.competitiveCards },
+      competitive: {
+        ...d.overviewConfig.competitive,
+        cards: d.competitiveCards,
+        groups: cutGroupsByDirection(d.overviewConfig.competitive.groups),
+      },
       market: { ...d.overviewConfig.market, cards: d.marketCards },
-      technology: { ...d.overviewConfig.technology, cards: d.techCards },
+      technology: {
+        ...d.overviewConfig.technology,
+        cards: d.techCards,
+        groups: cutGroupsByDirection(d.overviewConfig.technology.groups),
+      },
     };
   } catch (e) {
     logger.warn("wiring:overviewConfig", e);

@@ -1,62 +1,32 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { DEFAULT_ROUTE, PILLARS, PILLAR_LABEL, RAIL, OVERVIEW_VIEW, parseRoute, routeHash } from "../lib/route";
 
 const AppStateContext = createContext(null);
 
-/* Which rail item each pillar opens on, and the pillar each rail belongs to. */
-export const PILLARS = ["competitive", "market", "technology"];
-export const PILLAR_LABEL = {
-  competitive: "Competitive",
-  market: "Market",
-  technology: "Technology",
-};
-export const RAIL = {
-  /* `gap-competitive` is ARCHIVED, not deleted: it is off the rail but Layout still
-     routes it, so a saved route or a pasted #v=gap-competitive link still resolves.
-     Same for `awarded-tenders` / `closed-tenders`, which the Market overview now
-     carries as tabs. getInitialAppState validates the PILLAR but never the view, so a
-     removed case would boot a returning user into a permanently blank pane. */
-  competitive: [
-    { view: "overview", label: "Overview", ix: "grid", overview: true },
-    { view: "profile", label: "Competitor", ix: "01" },
-    { view: "products", label: "Products", ix: "02" },
-    { view: "positioning", label: "Positioning", ix: "03" },
-    { view: "partnerships", label: "Partnerships", ix: "04" },
-    { view: "geo", label: "Geo Footprint", ix: "05" },
-    { view: "patents-comp", label: "Patents", ix: "06" },
-  ],
-  market: [
-    /* Overview is the SIGNAL FEED again, as the other two pillars' overviews are — the
-       tender report that briefly occupied this slot is its own tab below. An overview
-       that reads differently from every other pillar's overview is not an overview. */
-    { view: "m-overview", label: "Overview", ix: "grid", overview: true },
-    { view: "m-report", label: "Market Report", ix: "01" },
-    { view: "tender", label: "Tender Pipeline", ix: "02" },
-  ],
-  technology: [
-    { view: "t-overview", label: "Overview", ix: "grid", overview: true },
-    { view: "innovation", label: "Innovation Pipeline", ix: "01" },
-  ],
-};
+/* The route tables live in lib/route.js (pure, tested under node); re-exported here so
+   the rail, the top bar and the pages keep importing them from the state module. */
+export { PILLARS, PILLAR_LABEL, RAIL };
 
-const OVERVIEW_VIEWS = new Set(["overview", "m-overview", "t-overview"]);
+const OVERVIEW_VIEWS = new Set(Object.values(OVERVIEW_VIEW));
 export const isOverview = (view) => OVERVIEW_VIEWS.has(view);
 
+const ROUTE_STORE_KEY = "kssl_parallax_route";
+
+/* The hash wins, then the saved route, then the default. Both go through parseRoute,
+   so an unknown view -- from a stale link OR from a saved route written by an older
+   build -- lands on its pillar's overview instead of a blank pane. */
 const getInitialAppState = () => {
   try {
-    const hash = window.location.hash;
-    if (hash && hash.includes("p=")) {
-      const params = new URLSearchParams(hash.replace(/^#/, ""));
-      const p = params.get("p");
-      const v = params.get("v");
-      if (p && v && PILLARS.includes(p)) return { pillar: p, view: v };
-    }
-    const saved = localStorage.getItem("kssl_parallax_route");
+    const fromHash = parseRoute(window.location.hash);
+    if (fromHash) return { pillar: fromHash.pillar, view: fromHash.view };
+    const saved = localStorage.getItem(ROUTE_STORE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed.pillar && parsed.view && PILLARS.includes(parsed.pillar)) return parsed;
+      const r = parsed && parseRoute(routeHash(parsed.pillar, parsed.view));
+      if (r) return { pillar: r.pillar, view: r.view };
     }
   } catch (e) {}
-  return { pillar: "competitive", view: "overview" };
+  return { ...DEFAULT_ROUTE };
 };
 
 export function AppStateProvider({ children }) {
@@ -64,16 +34,51 @@ export function AppStateProvider({ children }) {
   const [pillar, setPillarState] = useState(initial.pillar);
   const [view, setViewState] = useState(initial.view);
 
-  /* Sync route state to localStorage and window.location.hash */
+  /* HISTORY. Every navigation the reader makes is a history entry, and Back / Forward
+     (and a hash edited in the address bar) drive the state through popstate.
+
+     Before this the router wrote every change with replaceState and listened to
+     nothing: the session held ONE entry, so Back after Competitive -> Technology ->
+     Innovation left the site, and a pasted hash in an open tab did nothing on screen.
+
+     `fromHistory` marks a state change that CAME from popstate, so the sync effect
+     below does not push a second entry for it. The first render replaces rather than
+     pushes: the entry the reader arrived on is normalised (a repaired view, or a hash
+     added to a bare URL), not duplicated. */
+  const fromHistory = useRef(true);
+  // the route in force, readable from the popstate listener without a stale closure
+  const routeRef = useRef({ pillar, view });
+
   useEffect(() => {
+    routeRef.current = { pillar, view };
     try {
-      localStorage.setItem("kssl_parallax_route", JSON.stringify({ pillar, view }));
-      const newHash = `#p=${encodeURIComponent(pillar)}&v=${encodeURIComponent(view)}`;
+      localStorage.setItem(ROUTE_STORE_KEY, JSON.stringify({ pillar, view }));
+      const newHash = routeHash(pillar, view);
       if (window.location.hash !== newHash) {
-        window.history.replaceState(null, "", newHash);
+        if (fromHistory.current) window.history.replaceState(null, "", newHash);
+        else window.history.pushState(null, "", newHash);
       }
     } catch (e) {}
+    fromHistory.current = false;
   }, [pillar, view]);
+
+  useEffect(() => {
+    const onPop = () => {
+      const r = parseRoute(window.location.hash);
+      /* a hash carrying no route (erased by hand, foreign) is left alone: the state
+         in view is still the state in view */
+      if (!r) return;
+      /* the same route again (a hash edited to what it already was) changes no state,
+         so the sync effect would not run to clear the flag -- and the reader's next
+         click would replace an entry instead of pushing one */
+      if (r.pillar === routeRef.current.pillar && r.view === routeRef.current.view) return;
+      fromHistory.current = true;
+      setPillarState(r.pillar);
+      setViewState(r.view);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   /* The floating assistant's context line, and the per-panel scoped chat context.
      One place, so every panel updates the same two things when its selection moves —
