@@ -63,7 +63,7 @@ export default function Positioning() {
 
   /* What the header's Copy / Export / Print act on: the open matchup -- its verdict,
      every spec row as served, both advantage lists -- or, with nothing selected, the
-     list of class-matched pairs. */
+     list of pairs that survived the comparability gate. */
   const clientShort = (data.client && data.client.short) || "KSSL";
   const report = useMemo(() => {
     if (m) {
@@ -99,7 +99,7 @@ export default function Positioning() {
     const all = Object.entries(data.matchups || {});
     return {
       title: "Positioning",
-      subtitle: `${all.length} class-matched pairs · none selected`,
+      subtitle: `${all.length} comparable pairs · none selected`,
       sections: [{ h: "Class-matched pairs", rows: all.map(([, x]) => [x.comp, `${x.bf} · ${x.cat}`]) }],
       payload: {
         pairs: all.map(([id, x]) => ({
@@ -128,7 +128,7 @@ export default function Positioning() {
       ) : (
         <div className="mu-dossier">
           <div className="mu-d-h">
-            <span className="eyebrow">Category · class-matched pair</span>
+            <span className="eyebrow">Category · comparable pair</span>
             <div className="matchup">
               <div className="side comp">
                 <div className="pn">Select a rival model</div>
@@ -143,7 +143,7 @@ export default function Positioning() {
                 PAIRING LOGIC
               </span>
               <div className="mu-match-reason" style={{ borderTop: "none", paddingTop: 0, marginTop: 0 }}>
-                Matched on spec class.
+                Paired because both sides publish the same measurables.
               </div>
             </div>
           </div>

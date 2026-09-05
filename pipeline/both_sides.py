@@ -111,7 +111,13 @@ def run(apply_it, to_vps):
                                          "upgraded": 0, "fields_kept": 0, "fields_dropped": 0}
         for mid, cat_name, bf, comp, specs, edge in rows:
             verdict, _, _ = gate(bf, comp)
-            if verdict == "refuse":
+            # UNRESOLVED IS NOT PERMISSION. positioning_gate returns "unresolved"
+            # when it cannot establish a kind for either name -- which is every UAV
+            # pairing in the archive, because it reads the kind off the product NAME
+            # and "Bayonet", "SkyStriker" and "Shahed-136" say nothing about kind.
+            # Publishing on an unresolved verdict is how the gate came to protect
+            # nothing while appearing to run.
+            if verdict in ("refuse", "unresolved"):
                 drop_ids.append(mid)
                 stats["refused"] += 1
                 continue

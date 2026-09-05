@@ -45,6 +45,7 @@ sys.path.insert(0, str(HERE))
 # `publishable` -- so this script could not be imported in the deployed image at all
 # (found 2026-09-05; the served matchups dated from before that file existed).
 import client_portfolio  # noqa: E402
+import pairing  # noqa: E402
 
 publishable, st_domain = client_portfolio.publishable, client_portfolio.st_domain
 
@@ -978,6 +979,17 @@ def main(apply=False, limit=None, portfolio_json=None):
     print("corpus: %d document(s)" % len(docs))
     # The client's own portfolio: the table once client_portfolio.py --apply has written it,
     # or the committed JSON for a dry run before the migration exists (client_portfolio.py).
+    # WHO WE TRACK IS A DECISION, NOT SOMETHING THE ARCHIVE GETS TO MAKE.
+    #
+    # Neither copy of this file contained the word "roster" before now, so every
+    # rival the 2026 archive named was republished on the strength of its numbers
+    # alone. That is how HESA -- maker of the Shahed-136, and not one of the 44
+    # tracked competitors -- became a rival to a KSSL product. The archive is the
+    # only place HESA appears; it is in no workbook and on no roster.
+    cur.execute("select name from serving.competitors where origin = 'pipeline'")
+    roster_names = [r[0] for r in cur.fetchall() if r and r[0]]
+    print("  roster: %d tracked competitors" % len(roster_names))
+
     prows = client_portfolio.load_db(cur)
     if not prows and portfolio_json:
         prows = client_portfolio.load(portfolio_json)
@@ -1008,11 +1020,29 @@ def main(apply=False, limit=None, portfolio_json=None):
     print("  name tokens: %d, of which %d distinctive enough to anchor alone\n"
           % (len(toks), rare))
 
-    built, reports = [], []
+    # The KSSL side has to be a product the client actually publishes. "Bayonet"
+    # and "Cleaver" are not in the workbook -- the string "bayonet" occurs there
+    # once, as a lug on the Protective Carbine -- so the archive's UAV pairings
+    # compared a rival against a name with no product behind it.
+    client_names = [pr.get("name") for pr in (prows or []) if pr.get("name")]
+
+    built, reports, ungated = [], [], collections.Counter()
     for r in rows:
         new, rep = rebuild(r, docs, prows)
         reports.append(rep)
         if new:
+            # COMPARABILITY IS A PRECONDITION, NOT A VERDICT.
+            #
+            # Every check below was previously performed AFTER the row existed, and
+            # its answer was printed on the row: "2 value(s) sourced, none comparable
+            # on both sides". A row whose whole content is the news that it has no
+            # content still counts in the nav badge and in "N rivals", so absence of
+            # evidence was rendered as presence of competitors.
+            why, det = pairing.refuse(new, roster_names, client_names)
+            if why:
+                ungated[why] += 1
+                rep["drop"] = "not comparable: " + why
+                continue
             built.append(new)
         if len(reports) % 50 == 0:
             print("  %d/%d examined, %d revivable" % (len(reports), len(rows), len(built)),
@@ -1030,6 +1060,13 @@ def main(apply=False, limit=None, portfolio_json=None):
              sum(r["adv_in"] for r in reports), sum(r.get("adv_portfolio", 0) for r in reports)))
     for why, n in drops.most_common():
         print("  dropped: %-42s %d" % (why, n))
+    if ungated:
+        print("\n  refused by the comparability gate:")
+        for why, n in ungated.most_common():
+            print("    %-52s %d" % (why, n))
+    else:
+        print("\n  WARNING: the comparability gate refused nothing. A gate that never"
+              " refuses is not running.")
 
     if prows:
         # The portfolio's own ledger. "gained" counts the SERVED rows whose KSSL side

@@ -270,7 +270,8 @@ def run(apply_it, to_vps):
                 no_rival += 1
                 continue
             verdict, _, _ = gate(bf, comp)
-            if verdict == "refuse":
+            # unresolved is not permission -- see both_sides.py
+            if verdict in ("refuse", "unresolved"):
                 continue
             _, entry = match_product(product_of(bf), cat)
             if not entry:
