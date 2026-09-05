@@ -353,6 +353,30 @@ CREATE TABLE serving.client_product (
 );
 CREATE INDEX client_product_catkey_idx ON serving.client_product ("catKey");
 
+-- competitor_product: the same thing for the OTHER side of a comparison, from the
+-- audited 50-company workbook. origin='pipeline' (not 'reference' like the client's):
+-- the crawl does reach these companies' sites, so this is a floor the corpus should
+-- grow past. Gated by engine/source_tiers.publishable with product_maker set, so a
+-- maker's page is official about its own product and a mention about a rival's.
+-- See db/migrations/2026-09-06_competitor_product.sql.
+CREATE TABLE serving.competitor_product (
+    product_id    text PRIMARY KEY,
+    ord           integer NOT NULL,
+    company       text NOT NULL,
+    name          text NOT NULL,
+    file_category text NOT NULL,
+    cat           text,
+    "catKey"      text,
+    specs         jsonb NOT NULL DEFAULT '[]'::jsonb,
+    features      jsonb NOT NULL DEFAULT '[]'::jsonb,
+    sources       jsonb NOT NULL DEFAULT '[]'::jsonb,
+    evidence      jsonb NOT NULL DEFAULT '{}'::jsonb,
+    origin        text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
+    updated_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX competitor_product_catkey_idx ON serving.competitor_product ("catKey");
+CREATE INDEX competitor_product_company_idx ON serving.competitor_product (company);
+
 -- Global: innovations (dict area -> list of items).
 CREATE TABLE serving.innovation (
     area        text NOT NULL,

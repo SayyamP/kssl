@@ -56,6 +56,50 @@ MAKER_DOMAINS = {
     "diehl.com": "Diehl", "safran-group.com": "Safran", "norinco.com": "Norinco",
     "excaliburarmy.cz": "Excalibur Army", "milremrobotics.com": "Milrem",
     "aselsan.com.tr": "Aselsan", "roketsan.com.tr": "Roketsan",
+
+    # 2026-09-06, from the audited 50-company competitor workbook. Until now every
+    # one of these ranked as a news mention, so a manufacturer's own datasheet
+    # needed a second outlet to corroborate what it published about its own
+    # weapon -- the same fault as kssl.in above, on the other side of every
+    # comparison.
+    #
+    # A domain is listed only where it was confirmed to belong to the company
+    # named beside it: by the domain carrying the company's name, or, for the
+    # last group, by opening a page on it. "The maker publishing its own product"
+    # is a claim about a PAIR, so the name on the right is the load-bearing half.
+    "nammo.com": "Nammo", "poongsan.co.kr": "Poongsan",
+    "poongsanhc.co.kr": "Poongsan", "mbda-systems.com": "MBDA",
+    "iai.co.il": "Israel Aerospace Industries", "rafael.co.il": "Rafael",
+    "kongsberg.com": "Kongsberg", "sigsauer.com": "SIG Sauer",
+    "sssdefence.com": "SSS Defence", "aweil.in": "AWEIL",
+    "munitionsindia.in": "Munitions India", "bdl-india.in": "Bharat Dynamics",
+    "hii.com": "Huntington Ingalls Industries",
+    "nassco.com": "Huntington Ingalls Industries",
+    "l3harris.com": "L3Harris", "lockheedmartin.com": "Lockheed Martin",
+    "rtx.com": "RTX", "northropgrumman.com": "Northrop Grumman",
+    "naval-group.com": "Naval Group", "tkmsgroup.com": "Thyssenkrupp Marine Systems",
+    "thyssenkrupp.com": "Thyssenkrupp Marine Systems",
+    "babcockinternational.com": "Babcock", "avinc.com": "AeroVironment",
+    "anduril.com": "Anduril", "roshel.com": "Roshel", "supacat.com": "Supacat",
+    "idvgroup.com": "IDV", "ivecogroup.com": "IDV",
+    "hsw.pl": "Huta Stalowa Wola", "kalashnikovgroup.ru": "Kalashnikov Concern",
+    "uvisionuav.com": "UVision Air", "uvisionusa.com": "UVision Air",
+    "iwi.net": "PLR Systems", "plrsystem.in": "PLR Systems",
+    "gdots.com": "General Dynamics", "gd-ots.com": "General Dynamics",
+    "gdels.com": "General Dynamics", "gdeb.com": "General Dynamics",
+    "gdmissionsystems.com": "General Dynamics",
+    "hanwhaaerospace.com": "Hanwha", "hanwhaocean.com": "Hanwha",
+    "adanienterprises.com": "Adani Defence & Aerospace",
+    "adani.com": "Adani Defence & Aerospace",
+    "tata.com": "Tata Advanced Systems", "tatamotors.com": "Tata Advanced Systems",
+    "mahindra.com": "Mahindra Defence", "atlas-elektronik.com": "Atlas Elektronik",
+    # the domain does not carry the owner's name -- each opened before listing
+    "pelgel.com": "Premier Explosives",       # PEL's investor-relations site
+    "krasindia.com": "Rafael",                # Kalyani-Rafael JV
+    "irrpl.co.in": "Kalashnikov Concern",     # Indo-Russian Rifles JV
+    "lntpes.com": "Larsen & Toubro",          # L&T Precision Engineering & Systems
+    "lntshipbuilding.com": "Larsen & Toubro",
+    "oshkoshcorp.com": "Oshkosh Defense",
 }
 
 # Government, armed forces and official programme publishers.
