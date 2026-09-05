@@ -81,6 +81,14 @@ ALIASES = {
     # a gap the other covers. This is the map's job.
     "hii": "Huntington Ingalls Industries",
     "huntington ingalls industries": "Huntington Ingalls Industries",
+    # The Indian ordnance-factory successors file under their legal names and are
+    # rostered under their initials. Nothing folded "Advanced Weapons and Equipment
+    # India Limited" onto "AWEIL", so 19 published matchups looked as though their
+    # maker was off the roster.
+    "advanced weapons and equipment india": "AWEIL",
+    "aweil": "AWEIL",
+    "munitions india": "Munitions India",
+    "mil": "Munitions India",
 }
 
 

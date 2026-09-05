@@ -30,18 +30,45 @@ answer.
 
 So: a pairing is proposed only when the maker is tracked, the KSSL side is a
 product the client actually publishes, and the two sides already share at least
-two measurables. Fail closed. A pairing with nothing comparable has nothing to
-say, and a row that says nothing still counts in the badge and in "N rivals" --
-which turns absence of evidence into presence of competitors.
+one directional measurable. Fail closed. A pairing with nothing comparable has
+nothing to say, and a row that says nothing still counts in the badge and in
+"N rivals" -- which turns absence of evidence into presence of competitors.
+
+TWO WAYS TO BE WRONG, NOT ONE. The first draft of this gate refused all 117
+published rows. Refusing a real pairing costs exactly as much as publishing a
+fake one, and identity was where it went wrong both times:
+
+  * "Advanced Weapons and Equipment India Limited" IS on the roster -- as AWEIL.
+    Nineteen rows read as off-roster because nothing folded the legal name onto
+    the initials. The fix belongs in aliases.py, the one identity layer, not in a
+    second table here.
+  * "MPV", "LTV", "LBPV", "ATC", "ULSV" and "M4" ARE client products -- the
+    workbook spells them "Mine Protected Vehicle", "Light Tactical Vehicle" and
+    "Kalyani M4". An initialism is generated from the product's own words rather
+    than hand-listed, so a product added to the workbook tomorrow needs no entry
+    here.
+
+WHAT COUNTS AS COMPARABLE IS NOT A WORD LIST. A spec row already carries `hi`:
+True when higher is better, False when lower is, None when the field has no
+better and worse at all. Calibre is None -- 155 mm is not better than 105 mm --
+so direction, which the engine computes from the field's own semantics and stores
+on the row, does the work a `calibre|bore|type|class` regex was doing. That regex
+survives only for rows that carry no direction at all, because a closed keyword
+list is a language detector and this repo has paid for that lesson three times.
 """
 import re
 import unicodedata
 
-MIN_SHARED_FIELDS = 2
+import aliases
 
-# A pairing axis is not a comparison. Calibre, bore and configuration decide WHETHER
-# two things are alike; they are not a dimension on which one beats the other, and
-# counting them as shared evidence is how a 155 mm gun "compares" with a 105 mm one.
+# One directional field is thin, but it is a comparison; the engine already shrinks
+# a one-field verdict towards parity by n/(n+1) so it cannot print maximum severity
+# on the thinnest evidence. Zero is not thin, it is empty.
+MIN_SHARED_FIELDS = 1
+
+# Fallback only -- see the module docstring. Applied when a spec row carries no `hi`
+# at all, which is the shape hand-built archive rows have before the engine parses
+# them.
 AXIS_FIELDS = re.compile(
     r"\b(calibre|caliber|bore|configuration|type|class|variant|family|role)\b", re.I)
 
@@ -77,20 +104,74 @@ def maker_of(label):
     return parts[0].strip() if len(parts) > 1 else ""
 
 
-def shared_measurables(specs):
-    """How many fields carry a real number on BOTH sides.
+def initialism(name):
+    """'Mine Protected Vehicle' -> 'mpv'. The client's own abbreviations.
 
-    This is the test the UI already performs to write its verdict -- "N value(s)
+    Generated, not listed: the workbook writes the long name and the matchup writes
+    the short one, and there are six of them. A hand-list would need an entry for
+    every product added after today.
+    """
+    toks = [t for t in norm(name).split() if t]
+    if len(toks) < 2:
+        return ""
+    return "".join(t[0] for t in toks)
+
+
+def same_product(candidate, published):
+    """Is `candidate` the client product `published`, however it is written?"""
+    a, b = norm(candidate), norm(published)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if len(a) > 3 and a in b:
+        return True
+    if len(b) > 3 and b in a:
+        return True
+    if a == initialism(published):
+        return True
+    # A single token that IS one of the product's words: 'M4' in 'Kalyani M4'.
+    # Only a single token, so a two-word name cannot half-match its way in.
+    if " " not in a and a in b.split():
+        return True
+    return False
+
+
+def same_org(candidate, tracked):
+    """Is `candidate` the tracked company `tracked`? Through the one identity layer."""
+    a, b = aliases.canonical(candidate), aliases.canonical(tracked)
+    fa, fb = aliases.fold(a), aliases.fold(b)
+    if not fa or not fb:
+        return False
+    if fa == fb:
+        return True
+    # Containment, but never for a short brand: it is what lets Elbit absorb Elbit
+    # Imaging, so both sides have to be long enough to be distinctive.
+    return (len(fa) > 3 and len(fb) > 3) and (fa in fb or fb in fa)
+
+
+def shared_measurables(specs):
+    """How many fields can actually decide a lead, on BOTH sides.
+
+    This is the test the engine already performs to write its verdict -- "N value(s)
     sourced, none comparable on both sides". Performing it AFTER the row exists
-    produces a row that exists to announce it has nothing to say. It belongs here,
-    before the row.
+    produces a row whose whole content is the news that it has nothing to say. It
+    belongs here, before the row.
     """
     n, fields = 0, []
     for s in specs or []:
         label = s.get("l") or s.get("label") or ""
+        if "hi" in s:
+            # The engine's own definition: a number on each side, and a field that
+            # has a better and a worse.
+            if (s.get("cn") is not None and s.get("kn") is not None
+                    and s.get("hi") is not None):
+                n += 1
+                fields.append(label)
+            continue
         if AXIS_FIELDS.search(label):
             continue
-        if _num(s.get("kv")) is not None and _num(s.get("cv")) is not None:
+        if _num(s.get("cv")) is not None and _num(s.get("kv")) is not None:
             n += 1
             fields.append(label)
     return n, fields
@@ -105,24 +186,17 @@ def refuse(row, roster_names=(), client_products=()):
     """
     comp_by = row.get("compBy") or maker_of(row.get("comp"))
     if roster_names:
-        rn = {norm(x) for x in roster_names if x}
-        c = norm(comp_by)
-        if c and not any(c == r or (len(r) > 3 and r in c) or (len(c) > 3 and c in r)
-                         for r in rn):
+        if comp_by and not any(same_org(comp_by, r) for r in roster_names if r):
             return ("maker is not a tracked competitor", comp_by)
 
     if client_products:
-        cp = {norm(x) for x in client_products if x}
-        bf = norm(product_of(row.get("bf")))
-        if bf and not any(bf == p or (len(bf) > 3 and bf in p) or
-                          (len(p) > 3 and p in bf) for p in cp):
-            return ("the KSSL side is not a product the client publishes",
-                    product_of(row.get("bf")))
+        bf = product_of(row.get("bf"))
+        if bf and not any(same_product(bf, p) for p in client_products if p):
+            return ("the KSSL side is not a product the client publishes", bf)
 
     n, fields = shared_measurables(row.get("specs"))
     if n < MIN_SHARED_FIELDS:
-        return ("fewer than %d measurables on both sides" % MIN_SHARED_FIELDS,
-                "%d shared" % n)
+        return ("nothing comparable on both sides", "%d shared" % n)
     return (None, ", ".join(fields[:4]))
 
 
@@ -136,8 +210,10 @@ def demo():
             fails.append(name)
 
     roster = ["Adani Defence", "Elbit Systems", "KNDS", "Tata Advanced Systems",
-              "UVision Air", "BAE Systems", "Bharat Dynamics"]
-    client = ["Bharat 150 UAV", "ATAGS", "MArG 155", "Protective Carbine — 5.56 × 30 mm"]
+              "UVision Air", "BAE Systems", "Bharat Dynamics", "AWEIL"]
+    client = ["Bharat 150 UAV", "ATAGS", "MaRG 155-BR", "Kalyani M4",
+              "Mine Protected Vehicle", "Light Tactical Vehicle",
+              "Protective Carbine — 5.56 × 30 mm"]
 
     skystriker = {
         "comp": "Adani Defence & Aerospace · SkyStriker", "compBy": "Adani Defence",
@@ -156,20 +232,28 @@ def demo():
     ck("an off-roster maker is refused even with two shared measurables",
        why == "maker is not a tracked competitor", why)
 
-    thin = {"comp": "KNDS · CAESAR 6x6", "compBy": "KNDS", "bf": "KSSL · MArG 155",
-            "specs": [{"l": "Calibre", "cv": "155 mm", "kv": "155 mm"},
-                      {"l": "Range", "cv": "40 km", "kv": None}]}
-    why, _ = refuse(thin, roster, client)
-    ck("a pairing with one shared measurable is refused",
-       why and why.startswith("fewer than"), why)
+    empty = {"comp": "KNDS · CAESAR 6x6", "compBy": "KNDS", "bf": "KSSL · MaRG 155-BR",
+             "specs": [{"l": "Calibre", "cv": "155 mm", "kv": "155 mm"},
+                       {"l": "Range", "cv": "40 km", "kv": None}]}
+    why, _ = refuse(empty, roster, client)
+    ck("a pairing with no shared measurable is refused",
+       why == "nothing comparable on both sides", why)
 
     ck("calibre alone is never a comparison",
        shared_measurables([{"l": "Calibre", "cv": "155 mm", "kv": "155 mm"}])[0] == 0)
 
-    good = {"comp": "KNDS · CAESAR 6x6", "compBy": "KNDS", "bf": "KSSL · MArG 155",
-            "specs": [{"l": "Calibre", "cv": "155 mm", "kv": "155 mm"},
-                      {"l": "Maximum range", "cv": "40 km", "kv": "45 km"},
-                      {"l": "Rate of fire", "cv": "6 rds/min", "kv": "5 rds/min"}]}
+    # The engine's own direction flag, which is what production rows carry.
+    ck("a non-directional field is not comparable even with both numbers",
+       shared_measurables([{"l": "Calibre", "cn": 0.155, "kn": 0.155, "hi": None}])[0] == 0)
+    ck("a directional field with both numbers is comparable",
+       shared_measurables([{"l": "Max range", "cn": 40, "kn": 30, "hi": True}])[0] == 1)
+    ck("a directional field missing one side is not",
+       shared_measurables([{"l": "Max range", "cn": 40, "kn": None, "hi": True}])[0] == 0)
+
+    good = {"comp": "KNDS · CAESAR 6x6", "compBy": "KNDS", "bf": "KSSL · MaRG 155-BR",
+            "specs": [{"l": "Calibre", "cn": 0.155, "kn": 0.155, "hi": None},
+                      {"l": "Maximum range", "cn": 40, "kn": 45, "hi": True},
+                      {"l": "Rate of fire", "cn": 6, "kn": 5, "hi": True}]}
     why, det = refuse(good, roster, client)
     ck("a real like-for-like artillery pairing survives", why is None, why or det)
 
@@ -177,9 +261,29 @@ def demo():
        product_of("KNDS · CAESAR 6x6") == "CAESAR 6x6" and
        maker_of("KNDS · CAESAR 6x6") == "KNDS")
 
+    # THE FALSE REFUSALS. Each of these was published, real, and thrown away by the
+    # first draft of this gate.
+    ck("a legal name resolves to the roster's initials",
+       same_org("Advanced Weapons and Equipment India Limited", "AWEIL"))
+    ck("an initialism resolves to the client's own long name",
+       same_product("MPV", "Mine Protected Vehicle") and
+       same_product("LTV", "Light Tactical Vehicle"))
+    ck("a short model token resolves inside the client's product name",
+       same_product("M4", "Kalyani M4"))
+    ck("a variant suffix does not hide the client product",
+       same_product("MArG 155", "MaRG 155-BR"))
+    ck("but an unrelated product still does not match",
+       not same_product("Cleaver", "Kalyani M4") and
+       not same_product("Bayonet", "Bharat 150 UAV"))
+    ck("a real, unrelated company sharing a brand word is not absorbed",
+       not same_org("Elbit Imaging", "Elbit Systems"))
+    ck("a company that merely shares a word is not the tracked one",
+       not same_org("Ashok Leyland", "AWEIL"))
+
     # A gate that never refuses is not running, and a gate that refuses everything is
-    # not a gate either -- both are checked, because both have happened in this repo.
-    seen = [refuse(r, roster, client)[0] for r in (skystriker, shahed, thin, good)]
+    # not a gate either -- both are checked, because both have happened in this repo:
+    # the first draft of this very file refused all 117 published rows.
+    seen = [refuse(r, roster, client)[0] for r in (skystriker, shahed, empty, good)]
     ck("the gate both refuses and admits", any(seen) and not all(seen))
 
     print("\n%s" % ("all checks passed" if not fails else "%d FAILED" % len(fails)))
