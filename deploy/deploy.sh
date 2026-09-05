@@ -132,16 +132,28 @@ _apply_pending_migrations() {
     return 0
   }
 
-  # An empty ledger on a database that already has tables means this box predates the
-  # ledger. Record what is on disk WITHOUT replaying it -- the same bootstrap the
-  # extraction migrate role does, and for the same reason: the base files already carry
-  # every migration whose effect was folded back into them, so a second ADD CONSTRAINT
-  # would be an error rather than a no-op.
+  # AN EMPTY LEDGER MUST NOT MARK A PENDING MIGRATION AS ALREADY APPLIED.
+  #
+  # The extraction migrate role bootstraps by recording the base files AND every
+  # migration on disk without replaying them, and there that is right: an empty ledger
+  # means the database was just built from those same base files, so each migration's
+  # effect is already folded into them and replaying one would be an error, not a
+  # no-op.
+  #
+  # On a replica being deployed it is wrong. The database was built from an OLDER base;
+  # this checkout's base files carry the new column and the running database does not.
+  # Recording the new migration as applied without running it means it never runs, and
+  # the deploy reports success having not done the single thing this block exists for.
+  #
+  # So only the BASE files are recorded. Every migration is attempted; one whose effect
+  # is already present fails inside its own transaction, changes nothing, and is
+  # reported. That is the honest direction to be wrong in -- a migration that runs
+  # twice says so, a migration that never runs says nothing at all.
   HAVE_LEDGER="$("${PSQL[@]}" -qtAc "SELECT NOT EXISTS (SELECT 1 FROM schema_version)" 2>/dev/null | tr -d '[:space:]')"
   HAVE_TABLES="$("${PSQL[@]}" -qtAc "SELECT to_regclass('serving.competitors') IS NOT NULL" 2>/dev/null | tr -d '[:space:]')"
   if [ "$HAVE_LEDGER" = "t" ] && [ "$HAVE_TABLES" = "t" ]; then
-    echo ">> migrations: recording the schema on disk as this database's starting point"
-    for f in db/[0-9][0-9]_*.sql db/migrations/*.sql; do
+    echo ">> migrations: recording the base schema as this database's starting point"
+    for f in db/[0-9][0-9]_*.sql; do
       [ -e "$f" ] || continue
       "${PSQL[@]}" -q -c "INSERT INTO schema_version(filename) VALUES ('$(basename "$f")')
                           ON CONFLICT DO NOTHING" >/dev/null 2>&1
