@@ -92,6 +92,9 @@ YEAR = re.compile(r"\b(?:FY\s?-?\s?20\d\d(?:\s?[-/]\s?\d{2,4})?"
                   r"|(?:in|for|during|of|ended)\s+(?:the\s+year\s+)?20\d\d"
                   r"|20\d\d)\b", re.I)
 Y4 = re.compile(r"(20\d\d)")
+SAYS_ANNUAL = re.compile(r"\bannual(?:ised|ized)?\s+(?:revenues?|sales|turnover|income)"
+                         r"|\b(?:revenues?|sales|turnover)\s+per\s+year"
+                         r"|\byearly\s+(?:revenues?|sales|turnover)", re.I)
 
 
 def year_of(period):
@@ -138,8 +141,17 @@ def figures(obj, quote):
             # each amount takes the period nearest it, not the sentence's first one
             period = (min(years, key=lambda pr: abs(pr[0] - mm.start()))[1]
                       if years else "")
-            if not period or year_of(period) > THIS_YEAR:
-                continue                       # undated, or a year not yet reported
+            if period and year_of(period) > THIS_YEAR:
+                continue                       # a year not yet reported is a target
+            if not period and not SAYS_ANNUAL.search(text):
+                continue
+            # An undated figure is kept ONLY when the sentence calls it annual itself --
+            # "Rafael ... with annual revenues of $2.9 billion" is a real figure that no
+            # year appears beside, and requiring a year threw it away. The word `annual`
+            # does the job the year was doing: it says this is not a quarter. It is
+            # stored with an empty period, so the panel shows the amount without a year
+            # rather than asserting one, and year_of("") == 0 puts it behind every dated
+            # figure -- an undated figure is used only when nothing dated exists.
             out.append((amount, period))
         if out:
             break
@@ -254,6 +266,15 @@ def _demo():
     assert not figures("", "Saab invests 17 percent of revenue in research and development.")
     # undated, and unit-less, cannot be "the latest annual revenue"
     assert not figures("", "Elbit Systems reported revenues of $2.3 billion.")
+    # ...unless the sentence calls it annual ITSELF. Rafael's only figure in the whole
+    # corpus is "annual revenues of $2.9 billion" with no year beside it; `annual` does
+    # the job the year was doing, which is to say this is not a quarter.
+    got = figures("", "Rafael Advanced Defense Systems is one of Israel's largest "
+                      "defense companies with annual revenues of $2.9 billion.")
+    assert got == [("$2.9 billion", "")], got
+    assert year_of("") == 0, "and it ranks behind every dated figure"
+    assert not figures("", "Annual revenues aside, it posted $1bn in the three-month "
+                           "period."), "an annual WORD does not rescue a quarter"
     assert not figures("", "Lockheed Martin reported revenue of $400 in 2023.")
     # a future year is a target
     assert not figures("", "Kongsberg expects revenues of NOK 150 billion in 2033.")
