@@ -274,3 +274,21 @@ export function patTechBody(d, area, res) {
   h += patApiNote(d);
   return h;
 }
+
+/* The fields the "By technology field" lens lists. The filings are indexed in
+   PATENTS.byTechnology under the areas the harvest assigned; PATENTS.techAreas is the
+   ui_config vocabulary, which on the reference dataset shares no name with them --
+   the lens listed nine configured fields all reading 0 while 21 filings sat under the
+   other lens. Indexed fields first, most-filed first; the configured areas only when
+   nothing is indexed (each then carries its own empty state); the tracked technology
+   categories only when nothing is configured either. */
+export function patentAreas(P, techCats) {
+  const byTech = (P && P.byTechnology) || {};
+  const indexed = Object.keys(byTech)
+    .filter((k) => ((byTech[k] && byTech[k].records) || []).length > 0)
+    .sort((a, b) => byTech[b].records.length - byTech[a].records.length || a.localeCompare(b));
+  if (indexed.length) return indexed;
+  const configured = (P && Array.isArray(P.techAreas) ? P.techAreas : []).filter(Boolean);
+  if (configured.length) return configured;
+  return (Array.isArray(techCats) ? techCats : []).map((c) => c && c.name).filter(Boolean);
+}

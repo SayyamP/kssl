@@ -322,7 +322,13 @@ export function wireDataset(raw) {
           company: t.issuer || "",
           lens: "Market",
           sowhat,
-          sec: t.cat || "",
+          /* An ARRAY, like every other card's: `sec` is the card's lens sections
+             everywhere else, and the depth sort and the metric strip both read its
+             length. This carried the category string, so the strip's lens loop threw on
+             the first promoted tender and the catch left the served sample numbers on
+             screen -- "Open opportunities 7" over 89 open tenders. The category already
+             travels on `meta` and `tags`. */
+          sec: [],
           url: t.url,
           ago: closes,
           tags: t.cat || "",

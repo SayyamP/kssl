@@ -84,6 +84,8 @@ function Sec({ title, note, children }) {
   );
 }
 
+const PROFILE_KEY = "kssl_profile_cid";
+
 export default function Profile() {
   const { data } = useData();
   const { setScope, takePending, searchQuery } = useAppState();
@@ -97,7 +99,24 @@ export default function Profile() {
     () => facetOptionsByName(roster, (r) => r.countries || []),
     [roster],
   );
-  const [cid, setCid] = useState(() => (roster[0] ? roster[0].cid : ""));
+  /* The selected competitor is remembered, as Positioning, Partnerships, Geo, Patents
+     and the Tender Pipeline remember theirs: this page reset to roster[0] on every
+     reload and every detour to another rail row, alone among the sidebars. A saved id
+     that the served roster no longer carries falls back to the first row. */
+  const [cid, setCidState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(PROFILE_KEY);
+      if (saved && roster.some((r) => r.cid === saved)) return saved;
+    } catch (e) {}
+    return roster[0] ? roster[0].cid : "";
+  });
+  const setCid = (next) => {
+    setCidState(next);
+    try {
+      if (next) localStorage.setItem(PROFILE_KEY, next);
+      else localStorage.removeItem(PROFILE_KEY);
+    } catch (e) {}
+  };
 
   /* Opened from global search targeting one company. Without this the page took the
      jump but never read the payload, so picking "RENK" in the search box landed on
@@ -542,7 +561,18 @@ export default function Profile() {
             </Sec>
 
             {/* 4. COMPANY NEWS (MATCHING sc/image.png UI DESIGN WITH VIEW ALL NEWS ACTION) */}
-            <Sec title="Company News" note={`Real-time news feed & live market intelligence on ${displayName}`}>
+            {/* "Real-time news feed & live market intelligence" promised something nothing
+                delivers: these are corpus articles, dated when they were published
+                (Products already says so). And with none on file the section rendered
+                its heading over nothing at all -- on the live dataset that is every
+                competitor, since competitorNews is served empty -- which reads as a feed
+                that failed to load rather than a corpus that holds no article. */}
+            <Sec title="Company News" note={`Sourced articles naming ${displayName}`}>
+              {!topStory ? (
+                <div className="cp-thin" style={{ fontSize: "12px", padding: "8px 0" }}>
+                  No sourced article in the corpus names {displayName}.
+                </div>
+              ) : null}
               {topStory && (
                 <div className="ln-dashboard" style={{ marginTop: "10px" }}>
                   {/* Header Bar */}

@@ -120,7 +120,9 @@ export default function MatchupList({ data, selected, onSelect }) {
         .filter((a) => a.ids.length);
       const shown = anchors.reduce((n, a) => n + a.ids.length, 0);
       if (!shown) return null;
-      return { key, label, total: items.length, anchors };
+      /* The badge counts the rows under the heading -- the SHOWN ones. It carried
+         items.length, so under a search it read 78 over a group listing 14. */
+      return { key, label, total: shown, anchors };
     }).filter(Boolean);
     /* searchQuery belongs here because line 88 reads it. Without it the context change
        re-rendered the component, this memo did NOT recompute, and the Positioning list

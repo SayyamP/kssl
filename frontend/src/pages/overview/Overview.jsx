@@ -8,7 +8,7 @@ import { useData } from "../../state/DataProvider";
 import { OVERVIEW_VIEW } from "../../lib/route";
 import {
   buildFeed,
-  emptyNote,
+  emptyFeedNote,
   paginateFeed,
   readFeedPage,
   signalDate,
@@ -156,7 +156,11 @@ export default function Overview({
   // the metric tiles open the first matching signal, as the tiles did before
   useEffect(() => {
     if (!tile) return;
-    const first = (cfg.cards || []).find(visible);
+    /* The first matching card in FEED order -- the one at the top of page 1 under
+       this tile -- not the first in served order. Served order put the detail panel on
+       a card that sat on page 3 while page 1 showed no highlight at all (measured on
+       the Market "Open opportunities" tile). */
+    const first = feed.groups.flatMap((g) => g.cards || []).find(visible) || (cfg.cards || []).find(visible);
     if (first) select(first.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tile]);
@@ -344,7 +348,7 @@ export default function Overview({
               {/* an empty feed with no filter and no query is a served-nothing state;
                   a search miss and a filter miss each say so -- the search miss used
                   to read "no signals served yet" under a box holding the query */}
-              {emptyNote({ tile, dirFilter, query: feedSearchQuery || searchQuery })}
+              {emptyFeedNote({ tile, dirFilter, query: feedSearchQuery, globalQuery: searchQuery })}
             </div>
           ) : (
             <div className="pager">

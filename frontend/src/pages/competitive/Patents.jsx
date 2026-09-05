@@ -7,6 +7,7 @@ import {
   patCompBody,
   patTechBody,
   patLoadingHtml,
+  patentAreas,
 } from "../../lib/patents";
 
 /* Both patent lenses live in the Competitive pillar. The field lens used to sit
@@ -38,12 +39,12 @@ export default function Patents() {
     }
   }, [takePending]);
 
-  const areas = useMemo(() => {
-    // fall back to the tracked technology areas when no patent area has filings yet,
-    // so the view lists real fields (each with its own empty state) instead of nothing
-    const a = (data.PATENTS && data.PATENTS.techAreas) || [];
-    return a.length ? a : data.techCats.map((c) => c.name);
-  }, [data]);
+  /* The fields the filings are INDEXED under, most-filed first (lib/patents.js). This
+     listed PATENTS.techAreas -- the ui_config vocabulary -- which on the reference
+     dataset shares no name with the harvest's areas, so the lens showed nine fields
+     all reading 0 while 21 filings sat under the rival lens. The configured areas,
+     then the tracked categories, remain the fallbacks when nothing is indexed. */
+  const areas = useMemo(() => patentAreas(data.PATENTS, data.techCats), [data]);
   const [area, setArea] = useState(savedPat.area || areas[0] || null);
   const [techRes, setTechRes] = useState(null);
 

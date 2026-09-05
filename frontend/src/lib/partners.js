@@ -9,7 +9,7 @@
    Built as a factory over the dataset so the shared index memo lives in a closure
    rather than on `window`.
    =================================================================== */
-import { esc, escAll, joinParts, srcChips } from "./html.js";
+import { esc, escAll, escRich, joinParts, srcChips } from "./html.js";
 
 /* KSSL's side of the relationship decides which exposure applies. */
 export const OV_KIND = {
@@ -1199,7 +1199,9 @@ const PG_IMG_ONERROR =
         h += `  <div style="margin-top: 8px; padding: 16px 20px; background: #f7f6f3; border: 1px solid #e2e0d8; border-radius: 6px;">`;
         h += `    <span style="font-family: var(--mono); font-size: 11px; color: #6b6a63; display: block; margin-bottom: 4px; letter-spacing: .08em; text-transform: uppercase; font-weight: 700;">PARTNERSHIP STRATEGIC IMPACT</span>`;
         h += `    <div style="font-size: 13px; color: #161614; line-height: 1.55; font-weight: 500;">`;
-        h += `      ${esc(card.impact)}`;
+        /* `mean` is served WITH its <b> labels (the synthesis read above parses them);
+           escaping the whole string printed the tags: "<b>Threat:</b> Drishti-10...". */
+        h += `      ${escRich(card.impact)}`;
         h += `    </div>`;
         h += `  </div>`;
       }

@@ -231,6 +231,20 @@ export default function Layout() {
               jumpTo("technology", "innovation");
               return;
             }
+            /* The two Market tiles counting rows that are NOT in the signal feed.
+               Concluded tenders are never promoted into it, and "markets" is a count
+               of countries; both live on the Market Report. "Already concluded" used
+               to open every card (its served act was a predicate that keeps
+               everything) and "Markets tracked" reset a filter that was already
+               clear -- two doors that opened onto nothing they named. */
+            if (act === "concluded") {
+              jumpTo("market", "m-report", { section: "awarded" });
+              return;
+            }
+            if (act === "markets") {
+              jumpTo("market", "m-report", { section: "active" });
+              return;
+            }
             if (act === "all") {
               setTile(null);
               setDirFilter("all");

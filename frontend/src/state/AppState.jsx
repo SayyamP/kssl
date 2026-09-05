@@ -16,6 +16,7 @@ const ROUTE_STORE_KEY = "kssl_parallax_route";
    so an unknown view -- from a stale link OR from a saved route written by an older
    build -- lands on its pillar's overview instead of a blank pane. */
 const getInitialAppState = () => {
+  let hash = "";
   try {
     const fromHash = parseRoute(window.location.hash);
     if (fromHash) return { pillar: fromHash.pillar, view: fromHash.view };
