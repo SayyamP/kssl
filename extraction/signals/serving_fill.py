@@ -1913,7 +1913,7 @@ def _demo():
     print("ok")
 
 
-def regate(dsn=DSN, apply=False):
+def regate(dsn=DSN, apply=False, recard=False):
     """Re-run the subject gate over the cards ALREADY SERVED.
 
     fill() is append-only: signal_seen claims a document once and the card written for
@@ -1922,9 +1922,11 @@ def regate(dsn=DSN, apply=False):
     served a day later, "Leonardo wins 15 helicopter order" among them. Every future
     tightening has the same shape, so this pass exists: judge each served card by its
     title (subject) and its detail's `what` (body), report per lane and per badge, and
-    with --apply delete card + detail. signal_seen is left alone, so the document is not
-    re-read and the card does not come back. Report-only by default: a corpus-wide
-    delete is something an operator reads first.
+    with --apply delete card + detail. --recard additionally releases the signal_seen
+    claim, so the next fill() re-reads the article and judges it with the gate as it
+    stands then -- without that, a card-only delete is permanent, including for the
+    ~2 percent of refusals the gate gets wrong in the other direction. Report-only by
+    default: a corpus-wide delete is something an operator reads first.
     """
     import psycopg2
     con = psycopg2.connect(dsn)
@@ -1956,10 +1958,37 @@ def regate(dsn=DSN, apply=False):
     if apply and gone:
         cur.execute("DELETE FROM serving.signal_detail WHERE id = ANY(%s)", (gone,))
         cur.execute("DELETE FROM serving.signal_card WHERE id = ANY(%s)", (gone,))
+        freed = 0
+        if recard:
+            # UNCLAIM THE DOCUMENT SO THE FIXED GATE GETS A SECOND LOOK.
+            #
+            # Deleting the card alone is permanent: signal_seen still holds the
+            # document, fill() skips anything already claimed, and no later pass ever
+            # reconsiders it. That is right when a row is junk. It is wrong here,
+            # because the reason these rows are being removed is that the GATE was
+            # wrong when they were written -- and a gate that was wrong in one
+            # direction was measured wrong in the other too, at roughly 2% of its
+            # refusals. Those are documents that belong on the dashboard and would be
+            # deleted forever by a card-only delete.
+            #
+            # Card ids are 'pl_' + document_id (verified against signal_seen), so the
+            # claim is released by stripping the prefix. The next fill() re-reads the
+            # article and re-judges it with the gate as it stands then: genuinely
+            # off-portfolio documents are refused again and cost one gate call;
+            # wrongly-refused ones come back correctly classified.
+            docs = [c[3:] for c in gone if c.startswith("pl_")]
+            if docs:
+                cur.execute("DELETE FROM serving.signal_seen WHERE document_id = ANY(%s)",
+                            (docs,))
+                freed = cur.rowcount
         con.commit()
-        print("regate: deleted %d card(s) and their details" % len(gone), flush=True)
+        print("regate: deleted %d card(s) and their details%s" %
+              (len(gone),
+               ("; released %d document(s) for re-carding" % freed) if recard
+               else " (documents stay claimed; this is permanent)"), flush=True)
     elif gone:
-        print("regate: report only -- re-run with --apply to delete them", flush=True)
+        print("regate: report only -- re-run with --apply to delete them "
+              "(add --recard to let the pipeline judge them again)", flush=True)
     con.close()
     return gone
 
@@ -1977,12 +2006,15 @@ if __name__ == "__main__":
                     help="re-run the subject gate over the SERVED cards and report; "
                          "add --apply to delete the rows that fail it")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--recard", action="store_true",
+                    help="with --regate --apply: also release the signal_seen claim "
+                         "on the deleted documents so the pipeline judges them again")
     a = ap.parse_args()
     if a.demo:
         _demo()
     elif a.glance:
         reglance(a.dsn, limit=a.limit, only=a.only)
     elif a.regate:
-        regate(a.dsn, apply=a.apply)
+        regate(a.dsn, apply=a.apply, recard=a.recard)
     else:
         fill(a.dsn, limit=a.limit, only=a.only)
