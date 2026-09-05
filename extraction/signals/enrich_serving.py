@@ -2721,9 +2721,38 @@ def step_news(cur, con, docs, props_by_doc, limit=None):
     return fill_competitor_news.run(apply=True)
 
 
+def step_revenue(cur, con, docs, props_by_doc, limit=None):
+    """Fill serving.competitors.sales -- the Profile panel's "Annual revenue / sales".
+
+    Runs INSIDE the pass, on the caller's cursor, and that is the whole point. The
+    column is rebuilt with the rest of the row, and any writer that opens its own
+    connection has to queue behind this pass's own lock: step_companies deletes every
+    origin='pipeline' competitor and then sits idle-in-transaction for the length of its
+    profile calls, so an outside --apply blocks for the better part of an hour. Here the
+    rows have just been re-inserted by step_companies and the lock is already ours.
+
+    The source is `extracted.proposition` only -- never a company's own website. See
+    signals/fill_revenue.py for what counts as an annual revenue and what does not.
+    """
+    import fill_revenue
+    found = fill_revenue.collect(cur)
+    n = 0
+    for cid, rows in found.items():
+        cur.execute("""UPDATE serving.competitors SET sales = %s::jsonb
+                        WHERE comp_id = %s""",
+                    (json.dumps(rows, ensure_ascii=False), cid))
+        n += cur.rowcount
+    con.commit()
+    cur.execute("SELECT count(*) FROM serving.competitors")
+    total = cur.fetchone()[0]
+    print("revenue: %d of %d competitor(s) have an annual figure in the corpus"
+          % (n, total), flush=True)
+    return {"written": n, "companies": len(found), "total": total}
+
+
 # ----------------------------------------------------------------------------- driver
 
-STEPS = [("companies", step_companies), ("news", step_news),
+STEPS = [("companies", step_companies), ("news", step_news), ("revenue", step_revenue),
          ("partnerships", step_partnerships),
          ("structure", step_structure), ("metrics", step_metrics),
          ("geo", step_geo), ("tenders", step_tenders),
