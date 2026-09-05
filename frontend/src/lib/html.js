@@ -15,6 +15,19 @@ export function esc(s) {
   return String(s == null ? "" : s).replace(/</g, "&lt;");
 }
 
+/* For a value going into a DOUBLE-QUOTED ATTRIBUTE. esc() escapes only `<`, which is
+   right for text between tags and wrong inside title="..." -- a partner label carrying
+   a quote closes the attribute early and the rest of it becomes markup. The labels here
+   are model output (Rheinmetall's "Skyranger" is the shape that does it), so the quote
+   has to go. */
+export function escAttr(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 /* Full escape for interpolated prose (the `_gesc`/`esc` of the gap + geo blocks). */
 export function escAll(s) {
   return String(s == null ? "" : s)

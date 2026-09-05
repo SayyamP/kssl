@@ -220,6 +220,22 @@ case "${1:-worker}" in
       # news panel is bad, an enrich loop that stops rebuilding everything else is worse.
       log "news: refill serving.competitor_news (cascaded away by the rebuild above)"
       python3 fill_competitor_news.py --apply || log "news fill failed (continuing)"
+      # AND RE-STAMP THE OVERLAP, FOR THE SAME REASON THE NEWS NEEDS REFILLING.
+      # The rebuild above rewrites every origin='pipeline' partners array from the
+      # corpus, and the corpus does not know which of a rival's partners are also
+      # KSSL's -- that join lives only here. It was wired to nothing at all, so on
+      # staging 2026-09-06 not one of 42 ties carried `cid`: the red line was dead
+      # across the whole tab, and eight real overlaps (Rafael, Elbit, DRDO, Saab)
+      # drew as unshared. No model call, reads serving.partner, costs seconds.
+      log "overlap: re-stamp shared partners (the red line) after the rebuild"
+      python3 mark_shared.py --apply || log "overlap marking failed (continuing)"
+      # And read back the status the older ties state in their own words. The rows
+      # written before step_partnerships existed carry no `status`, so the graph drew
+      # "Historical Joint Venture (Ended 2013)" as a live edge. Idempotent -- it never
+      # touches a tie that already has one -- so it only ever reaches rows nothing
+      # else has typed, including any added by hand after this.
+      log "status: type the ties no model wrote"
+      python3 backfill_tie_status.py --apply || log "status backfill failed (continuing)"
       sleep "${ENRICH_EVERY_S:-7200}"
     done
     ;;

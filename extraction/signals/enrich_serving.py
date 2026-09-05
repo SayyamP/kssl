@@ -1439,6 +1439,24 @@ PART_BASIS_RX = {
     "distribution": re.compile(r"distribut|resell|dealer|channel", re.I),
 }
 
+def _as_of_str(ymd):
+    """article_date returns (y, m|None, d|None). Stored as a STRING -- "2010",
+    "2010-03", "2010-03-15" -- because a three-element array in jsonb is something the
+    reader has to reassemble, and the only consumer is a line of text on a card."""
+    if not ymd:
+        return None
+    y = ymd[0] if isinstance(ymd, (list, tuple)) else ymd
+    if not y:
+        return None
+    parts = [str(int(y))]
+    for i in (1, 2):
+        v = ymd[i] if isinstance(ymd, (list, tuple)) and len(ymd) > i else None
+        if not v:
+            break
+        parts.append("%02d" % int(v))
+    return "-".join(parts)
+
+
 def _trim_name(name):
     """Punctuation a company name never ends in. Run BOTH before and after canon_name:
     the suffix fold is what leaves the comma behind."""
@@ -1945,7 +1963,7 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
     try:
         _dids = sorted({d for rows in buckets.values() for d, _p in rows})
         for _d in _dids:
-            _as_of[_d] = article_date(cur, _d)
+            _as_of[_d] = _as_of_str(article_date(cur, _d))
     except Exception as e:                                            # noqa: BLE001
         print("partnerships: article dates unavailable (%s) -- ties will carry no "
               "as_of" % e, flush=True)

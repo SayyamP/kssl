@@ -101,6 +101,10 @@
            text-transform:uppercase;vertical-align:1px;white-space:nowrap}
   .tie-tag.ended{background:#3a2020;color:#e08a7c;border:1px solid #5a2f2a}
   .tie-tag.announced{background:#2a2a30;color:#b8b8c0;border:1px solid #3d3d45}
+  /* Not an error and not current: read from an article old enough that "active" is a
+     claim about the past. Warmer than `ended`, quieter than a live tie. */
+  .tie-tag.stale{background:#332815;color:#d9b45e;border:1px solid #4a3a1e}
+  .tie-tag.asof{background:#23282f;color:#8e9aa6;border:1px solid #333a43}
   .tie-tag.conf-official{background:#16302a;color:#77bf9a;border:1px solid #24483d}
   .tie-tag.conf-corroborated{background:#1b2b3a;color:#7fb0d8;border:1px solid #2a4256}
   .tie-tag.conf-single_source{background:#332815;color:#d9b45e;border:1px solid #4a3a1e}
