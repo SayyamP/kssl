@@ -454,12 +454,35 @@ export function pgRadialLayout(items, view, centerLabel) {
    as a live alliance and a tie from one blog looked like one from the manufacturer.
    Rendered as tags rather than folded into the type label, because "Historical Joint
    Venture (Ended 2013)" written INTO the type is the thing this replaces. */
-const statusTag = (p) =>
-  p && p.status === "ended"
-    ? `<span class="tie-tag ended">ended${p.ended ? ` ${esc(p.ended)}` : ""}</span>`
-    : p && p.status === "announced"
-      ? `<span class="tie-tag announced">announced</span>`
-      : "";
+/* "ACTIVE" IS ONLY EVER "ACTIVE AS OF THE ARTICLE". A tie read out of a 2010 story
+   said `active` and drew identically to one read last week -- Oshkosh and General
+   Dynamics Land Systems-Canada "have teamed up" for a Canadian programme Textron won
+   in 2012, published as a current alliance. The enrichment stamps the document's own
+   date on every tie; nothing read it.
+
+   So the date is shown whenever the claim is a standing one, and past a threshold the
+   tag says LAST SEEN rather than active -- the honest reading of an old article is
+   "this was true then", not "this is true now". An ended tie needs no such hedge: the
+   source says it is over, which does not go stale. */
+const STALE_YEARS = 2;
+const asOfYear = (p) => {
+  const m = /^(\d{4})/.exec(String((p && p.as_of) || ""));
+  return m ? Number(m[1]) : null;
+};
+const statusTag = (p) => {
+  if (!p) return "";
+  if (p.status === "ended")
+    return `<span class="tie-tag ended">ended${p.ended ? ` ${esc(p.ended)}` : ""}</span>`;
+  const y = asOfYear(p);
+  const stale = y !== null && new Date().getFullYear() - y >= STALE_YEARS;
+  const when = y !== null ? ` ${y}` : "";
+  if (stale)
+    return `<span class="tie-tag stale" title="Read from an article published in ${y}. `
+         + `Nothing since says it is still in force.">last seen${when}</span>`;
+  if (p.status === "announced")
+    return `<span class="tie-tag announced">announced${when}</span>`;
+  return y !== null ? `<span class="tie-tag asof">as of ${y}</span>` : "";
+};
 
 const CONF_TAG = {
   official: ["official", "the maker or a government publisher states it"],
@@ -1116,6 +1139,10 @@ const PG_IMG_ONERROR =
     if (real(p.deal)) lines.push(`Deal: ${p.deal}`);
     if (real(p.date)) lines.push(`Recorded: ${p.date}`);
     if (real(p.srcnote)) lines.push(`Source note: ${p.srcnote}`);
+    if (real(p.confidence)) lines.push(`Confidence: ${p.confidence}`);
+    if (real(p.basis)) lines.push(`Basis for the type: "${p.basis}"`);
+    // the article's own date -- what "active" is actually as of
+    if (real(p.as_of)) lines.push(`Stated as of: ${p.as_of}`);
 
     const cards = [
       {

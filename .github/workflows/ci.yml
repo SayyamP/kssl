@@ -176,6 +176,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # Reads one function out of the source and checks its arithmetic -- no build, no
+      # browser, no dataset -- so it runs before the expensive half and fails fast.
+      # "active" on a tie read from a 2010 article is a claim about 2010, and the graph
+      # drew it identically to one read last week until this was gated.
+      - name: A tie is only active as of the article it was read from
+        working-directory: frontend
+        run: node test_status_asof.mjs
+
       - name: Build the bundle and serve it
         working-directory: frontend
         run: |
