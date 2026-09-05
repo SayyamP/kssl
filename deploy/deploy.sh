@@ -84,6 +84,68 @@ for kv in "KSSL_ENV=$KSSL_ENV_NAME" "KSSL_PREFIX=$KSSL_PREFIX" "KSSL_DB_PORT=$KS
 done
 echo "$SHA" > .DEPLOYED_SHA
 
+# --- pending migrations, on a REPLICA only ---------------------------------------
+# A BACKEND MUST NEVER ARRIVE AHEAD OF ITS SCHEMA.
+#
+# This script used to apply no migrations at all, on any environment, and
+# sync_from_prod.sh was the only thing that did -- but that runs on a schedule, not on
+# a deploy. So a commit that added a column to a backend field list AND shipped its
+# migration put a backend selecting that column in front of a database without it, on
+# the very next deploy. On 2026-09-06 that was `country`: the competitors SELECT is the
+# first field-list query the API makes, so UndefinedColumn was not a missing field, it
+# was 500 for GET /api/dataset and a blank dashboard behind every panel.
+#
+# PROD IS DELIBERATELY EXCLUDED. Production owns the data; a schema change there is a
+# decision with a person behind it, and the extraction `migrate` role stays the way to
+# make it. A replica is the environment that is ALLOWED to be destructive --
+# sync_from_prod.sh overwrites it one way and refuses to run the other -- so a replica
+# that heals its own schema costs nothing and removes a whole class of outage from the
+# only environments that deploy on every push.
+#
+# The ledger is the same table and the same rule the migrate role uses: each file
+# applied once and recorded, with -1 putting the file and its ledger row in ONE
+# transaction, so a migration that fails half way leaves neither the change nor a row
+# claiming it was made. Files arrive over stdin, so nothing has to be mounted or copied.
+if [ "$KSSL_ENV_NAME" != "prod" ] && [ -d db/migrations ]; then
+  PSQL=("${COMPOSE[@]}" exec -T db psql -U "${KSSL_DB_USER:-postgres}" -d "${KSSL_DB_NAME:-kssl}")
+  if "${PSQL[@]}" -qtAc "SELECT 1" >/dev/null 2>&1; then
+    "${PSQL[@]}" -q -v ON_ERROR_STOP=1 -c "CREATE TABLE IF NOT EXISTS schema_version (
+        filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
+    # An empty ledger on a database that already has tables means this box predates the
+    # ledger. Record what is on disk WITHOUT replaying it -- the same bootstrap the
+    # migrate role does, and for the same reason: the base files already carry every
+    # migration whose effect was folded back into them, and a second ADD CONSTRAINT is
+    # an error rather than a no-op.
+    HAVE_LEDGER="$("${PSQL[@]}" -qtAc "SELECT NOT EXISTS (SELECT 1 FROM schema_version)" | tr -d '[:space:]')"
+    HAVE_TABLES="$("${PSQL[@]}" -qtAc "SELECT to_regclass('serving.competitors') IS NOT NULL" | tr -d '[:space:]')"
+    if [ "$HAVE_LEDGER" = "t" ] && [ "$HAVE_TABLES" = "t" ]; then
+      echo ">> migrations: recording the schema on disk as this database's starting point"
+      for f in db/[0-9][0-9]_*.sql db/migrations/*.sql; do
+        [ -e "$f" ] || continue
+        "${PSQL[@]}" -q -c "INSERT INTO schema_version(filename) VALUES ('$(basename "$f")')
+                            ON CONFLICT DO NOTHING"
+      done
+    fi
+    for f in db/migrations/*.sql; do
+      [ -e "$f" ] || continue
+      n="$(basename "$f")"
+      DONE="$("${PSQL[@]}" -qtAc "SELECT 1 FROM schema_version WHERE filename = '$n'" | tr -d '[:space:]')"
+      [ "$DONE" = "1" ] && continue
+      echo ">> migrations: apply $n"
+      if ! "${PSQL[@]}" -q -v ON_ERROR_STOP=1 -1 -f - -c "INSERT INTO schema_version(filename) VALUES ('$n')" < "$f"; then
+        # Not fatal. The backend omits an optional column it cannot see rather than
+        # failing the request, so a replica whose migration did not take is a field
+        # short, not down -- and stopping here would leave the images unswapped as well,
+        # which is a worse state than the one being fixed.
+        echo "!! migrations: $n FAILED. Nothing from it was applied (it ran in one"
+        echo "   transaction). The deploy continues; fix it before relying on that column."
+      fi
+    done
+  else
+    echo ">> migrations: skipped -- no reachable db service in this compose project."
+  fi
+fi
+
 echo ">> pulling images @ $SHA"
 "${COMPOSE[@]}" pull frontend backend
 
