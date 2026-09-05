@@ -18,6 +18,18 @@ export const OV_KIND = {
   mou: "tech",
   acq: "tech",
   supply: "supplier",
+  /* The ten types enrich_serving writes (PART_TYPES). Without these the fallback
+     `OV_KIND[relKey] || "tech"` filed a shared DISTRIBUTOR and a shared contract
+     MANUFACTURER under the technology-leakage narrative, which is the wrong exposure
+     and the wrong advice. Mapped to what the overlap actually costs KSSL. */
+  manufacturing: "supplier",
+  distribution: "channel",
+  integration: "channel",
+  technology: "tech",
+  licensing: "tech",
+  rnd: "tech",
+  strategic: "tech",
+  other: "tech",
   "Channel partner": "channel",
   "Component supplier": "supplier",
   "Casting supplier": "supplier",
@@ -437,6 +449,28 @@ export function pgRadialLayout(items, view, centerLabel) {
   return best;
 }
 
+/* A relationship the source says is OVER, and how much its source is worth. Both
+   were stored by the enrichment and read by nothing, so an ended joint venture drew
+   as a live alliance and a tie from one blog looked like one from the manufacturer.
+   Rendered as tags rather than folded into the type label, because "Historical Joint
+   Venture (Ended 2013)" written INTO the type is the thing this replaces. */
+const statusTag = (p) =>
+  p && p.status === "ended"
+    ? `<span class="tie-tag ended">ended${p.ended ? ` ${esc(p.ended)}` : ""}</span>`
+    : p && p.status === "announced"
+      ? `<span class="tie-tag announced">announced</span>`
+      : "";
+
+const CONF_TAG = {
+  official: ["official", "the maker or a government publisher states it"],
+  corroborated: ["corroborated", "two or more independent sources"],
+  single_source: ["single source", "one source, uncorroborated"],
+};
+const confTag = (p) => {
+  const c = p && CONF_TAG[p.confidence];
+  return c ? `<span class="tie-tag conf-${p.confidence}" title="${esc(c[1])}">${c[0]}</span>` : "";
+};
+
 export function createPartners(d) {
   const { competitors, KSSL_PARTNERS, REL_LABEL, FIELDSYN, COMPSYN, TRACEIDS, sourceRegistry } = d;
   const CLIENT_CID = (d.client && d.client.id) || "KSSL";
@@ -800,8 +834,8 @@ const PG_IMG_ONERROR =
 
       // the label stays inside the node's own group: hover, dim and select key on it
       nodeHtml +=
-        `<g class="pg-node ptr ${p.isOverlap ? "overlap" : "direct"}" data-id="${p.id}" data-cluster="${nd.cluster}">` +
-        `<title>${labelText} — ${p.isOverlap ? "Overlapping Partner" : kindText}</title>` +
+        `<g class="pg-node ptr ${p.isOverlap ? "overlap" : "direct"} rel-${escAll(p.rel || "other")}${p.status === "ended" ? " st-ended" : ""}" data-id="${p.id}" data-cluster="${nd.cluster}">` +
+        `<title>${labelText} — ${p.isOverlap ? "Overlapping Partner" : kindText}${p.status === "ended" ? " (ended)" : ""}</title>` +
         `<circle class="halo" cx="${nx}" cy="${ny}" r="${f1(nd.halo)}" fill="none" stroke="${strokeColor}" stroke-width="1.3" opacity="0.35" />` +
         `<circle class="net-circle" cx="${nx}" cy="${ny}" r="${f1(nd.r)}" fill="${fillColor}" stroke="#cfd3da" stroke-width="1.2" stroke-opacity="0.42" />` +
         `<text class="lbl-ptr-title" x="${lx}" y="${f1(ly)}" text-anchor="${textAnchor}">${labelText}</text>` +
@@ -966,7 +1000,7 @@ const PG_IMG_ONERROR =
         const isCore = (p.insight || "").indexOf("[CORE]") >= 0;
         b +=
           `<div class="pg-rel${isCore ? " core" : ""}" data-pid="${escAll(p.id)}"><span class="rmark rel-${p.rel}"></span>` +
-          `<span class="rtxt"><b>${esc(p.label)}</b> <span class="pg-ctag sm">${esc(p.country || "—")}</span> <span class="rtype">${esc(REL_LABEL[p.rel] || p.ptype)}</span><br>` +
+          `<span class="rtxt"><b>${esc(p.label)}</b> <span class="pg-ctag sm">${esc(p.country || "—")}</span> <span class="rtype">${esc(p.ptype || REL_LABEL[p.rel])}</span>${statusTag(p)}<br>` +
           `<span class="rnote">${joinParts([p.note, p.deal !== "n/d" ? p.deal : null, p.date].map(esc))}</span></span></div>`;
       });
       b += "</div></div>";
@@ -1073,7 +1107,7 @@ const PG_IMG_ONERROR =
       return t && t !== "n/d" && t !== "null" ? t : null;
     };
     const sourceUrl = real(p.src) && p.src.startsWith("http") ? p.src : undefined;
-    const relLabel = (REL_LABEL[p.rel] || real(p.ptype) || "Partnership").toUpperCase();
+    const relLabel = (real(p.ptype) || REL_LABEL[p.rel] || "Partnership").toUpperCase();
     const cat = real(p.country) ? `${relLabel} · ${p.country.toUpperCase()}` : relLabel;
 
     const lines = [];
@@ -1120,7 +1154,7 @@ const PG_IMG_ONERROR =
     sib.forEach((x) => {
       const note = pgThinNote(x, c.name);
       if (!real(note) && !real(x.deal) && !real(x.ptype)) return;
-      const xl = (REL_LABEL[x.rel] || real(x.ptype) || "Partnership").toUpperCase();
+      const xl = (real(x.ptype) || REL_LABEL[x.rel] || "Partnership").toUpperCase();
       cards.push({
         id: cards.length,
         category: real(x.country) ? `${xl} · ${x.country.toUpperCase()}` : xl,
@@ -1216,7 +1250,7 @@ const PG_IMG_ONERROR =
     let h = "";
     h +=
       `<div class="tie-hero"><div class="th-name" style="color: #161614;">${esc(c.name)} ↔ ${esc(p.label)}</div>` +
-      `<div class="th-meta"><span class="tie-rel-pill"><span class="rmark rel-${p.rel}"></span>${esc(REL_LABEL[p.rel] || p.ptype)}</span><span>${esc(p.country || "—")}</span></div></div>`;
+      `<div class="th-meta"><span class="tie-rel-pill"><span class="rmark rel-${p.rel}"></span>${esc(p.ptype || REL_LABEL[p.rel])}</span>${statusTag(p)}${confTag(p)}<span>${esc(p.country || "—")}</span></div></div>`;
 
     h += `<div style="font-size: 12px; color: #6b6a63; margin: 12px 0 16px 0;">Select a card below to read detailed intelligence on this relationship:</div>`;
 

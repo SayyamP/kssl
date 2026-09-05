@@ -202,6 +202,12 @@ services:
       # which is the same failure shape as the 400s above and just as hard to see.
       C_MODEL: "${KSSL_SERVING_MODEL:-DESKTOP-J9F0LTF}"
       KSSL_MODEL: "${KSSL_SERVING_MODEL:-DESKTOP-J9F0LTF}"
+      # HOW WIDE THIS STEP TAKES THE SERVING NODE, and the ONLY place the number is
+      # set. The pinned 14b offers six parallel slots; step_partnerships used exactly
+      # one of them and a pass crawled through the node single file at 7.6 tok/s while
+      # the dashboard showed 2/6 running. Six here, six in the model, one constant --
+      # nothing in the code picks its own width, it reads KSSL_ENRICH_WORKERS.
+      KSSL_ENRICH_WORKERS: "${KSSL_ENRICH_WORKERS:-6}"
       ENRICH_EVERY_S: "7200"
 
   # Layer B: canonical entities from the extracted spans, on a slow timer. Same-script merges;

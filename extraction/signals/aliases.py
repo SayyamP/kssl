@@ -32,6 +32,11 @@ CLIENT_CANON = "Kalyani Strategic Systems"
 # Any of these appearing in a name marks the CLIENT GROUP (substring on folded text --
 # 'Kalyani group', 'Bharat Forge Ltd', 'KSSL (Kalyani Strategic Systems)' all hit).
 _CLIENT_MARKS = ("kalyani", "kssl", "bharat forge")
+# Public alias. `is_client` answers "is this NAME the client", which is the right
+# question about one field and the wrong one about a sentence -- enrich_serving needs
+# to ask whether a STATEMENT mentions the client at all, and was one copy-paste away
+# from growing a fourth private list of the same three strings.
+CLIENT_MARKS = _CLIENT_MARKS
 
 # Trailing legal/corporate suffix tokens stripped by fold(); repeated so
 # 'Ltd.' after 'Pvt' also goes. Identity-bearing words (Industries, Group,
@@ -154,7 +159,12 @@ def canonical(name):
 _FORCE_RX = re.compile(
     r"(?<!\w)("
     r"navy|army|air ?force|armed forces|coast ?guard|marine corps|"
-    r"defence forces|defense forces|national guard|national police|gendarmerie|pentagon|"
+    # SINGULAR TOO. "Australian Defence Force" is the ADF -- a buyer -- and only the
+    # plural was listed, so it passed every gate and was stored as a supply PARTNER of
+    # Rheinmetall MAN. Found by probing the live model against the real corpus, not by
+    # any unit test.
+    r"defence forces?|defense forces?|self.?defen[cs]e force|"
+    r"national guard|national police|gendarmerie|pentagon|"
     r"ministry|ministries|ministere|ministero|ministerio|ministerstvo|"
     r"minist[eè]re|departments? of|department for|"
     r"government|governments|gouvernement|regierung|regering|regeringen|regeringens|"

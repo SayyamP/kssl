@@ -570,6 +570,11 @@ def write(cur, con, keep, newco, rkeep):
     # roster.CARRIED_COLUMNS -- the SAME list enrich uses. This file kept its own copy
     # of three column names; two lists is how the next column gets forgotten by exactly
     # one of the two writers, which is what happened to `sales`.
+    # `partners` joined that list, and carry_restore is a COALESCE -- it fills a column
+    # the rebuild left NULL and never overwrites one it filled. So the INSERT below
+    # writes NULL for partners where it used to write '[]': an empty array is not NULL,
+    # and it would have beaten the carried value and dropped the ties on this writer's
+    # own rows. Sharing the list is only half the fix if one writer cannot use it.
     _carry = roster.carry_snapshot(cur, "origin='pipeline' AND ord >= %s", (REV_ORD0,))
     cur.execute("DELETE FROM serving.competitors WHERE origin='pipeline' AND ord >= %s",
                 (REV_ORD0,))
@@ -577,7 +582,7 @@ def write(cur, con, keep, newco, rkeep):
         cur.execute("""INSERT INTO serving.competitors
                          (comp_id, ord, name, dir, sector, hq, threat, assess, updates,
                           center, partners, site, srcs, products, "threatNote", origin)
-                       VALUES (%s,%s,%s,%s,%s,%s,NULL,'',NULL,NULL,'[]'::jsonb,NULL,
+                       VALUES (%s,%s,%s,%s,%s,%s,NULL,'',NULL,NULL,NULL,NULL,
                                %s,'[]'::jsonb,NULL,'pipeline')
                        ON CONFLICT (comp_id) DO NOTHING""",
                     (cid, REV_ORD0 + i, m["name"], m["dir"], m["sector"], m["hq"],

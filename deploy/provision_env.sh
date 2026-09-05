@@ -149,7 +149,18 @@ OLLAMA_API_KEY=
 # \`:?\` rejects EMPTY as well as unset, so it needs a value, not a blank.
 PUNE_API_KEY=unset-on-replica-no-pune-workers-here
 C_OPENAI=1
+# EXTRACTION runs on the pooled alias; every node behind it is a qwen2.5:7b, which is
+# the right model for span extraction and the wrong one for the serving tables.
 C_MODEL=text-model
+# THE SERVING TABLES GET THE SERVING NODE. docker-compose.yml overrides C_MODEL/KSSL_MODEL
+# for the `signals` and `enrich` services with \${KSSL_SERVING_MODEL}, and compose reads
+# that from THIS file -- so the value lives here, once, rather than only as an inline
+# default nobody can see.
+KSSL_SERVING_MODEL=DESKTOP-J9F0LTF
+# ...and how wide those two services drive it. The serving node offers six parallel
+# slots; a step calling the model one at a time leaves five idle. ONE number, read from
+# here by compose and by the code -- nothing picks its own width.
+KSSL_ENRICH_WORKERS=6
 C_GUIDED=0
 C_GLINER_URL=http://127.0.0.1:$LLMAPI_PORT/v1/gliner
 KSSL_HEALTH_URL=http://127.0.0.1:$LLMAPI_PORT/v1/nodes
