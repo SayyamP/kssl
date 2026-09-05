@@ -39,7 +39,14 @@ import psycopg2
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 
-from source_tiers import domain as st_domain, publishable  # noqa: E402
+# The client's own portfolio (serving.client_product), and the engine's publishability
+# rule loaded by path. `from source_tiers import publishable` used to be written here
+# and found signals/source_tiers.py -- the trust-tier table, which has no
+# `publishable` -- so this script could not be imported in the deployed image at all
+# (found 2026-09-05; the served matchups dated from before that file existed).
+import client_portfolio  # noqa: E402
+
+publishable, st_domain = client_portfolio.publishable, client_portfolio.st_domain
 
 DSN = os.environ.get("KSSL_DSN", "postgresql://postgres:kssl@127.0.0.1:5460/kssl")
 PROXIMITY = 400        # chars between the product mention and its number
@@ -708,20 +715,33 @@ def _wins(s):
     return 1 if k_better else -1
 
 
-def rebuild(row, docs):
-    """-> (new_row_fields, report) for one archived matchup."""
+def rebuild(row, docs, prows=()):
+    """-> (new_row_fields, report) for one archived matchup.
+
+    `prows` are the client's own products (serving.client_product). Where the
+    workbook states the SAME measurement for the SAME product, its figure is the
+    KSSL side and the corpus is not consulted for it; everywhere else the corpus
+    path below is unchanged."""
     (mid, cat, comp, compby, bf, bfby, specs, adv_c, adv_b,
      country, direction, catkey, anchor) = row
     cds, kds = designators(product_of(comp)), designators(product_of(bf))
     rep = {"id": mid, "comp": comp, "bf": bf,
            "specs_in": len(specs or []), "specs_kept": 0,
-           "adv_in": len(adv_c or []) + len(adv_b or []), "adv_kept": 0, "srcs": []}
+           "adv_in": len(adv_c or []) + len(adv_b or []), "adv_kept": 0, "srcs": [],
+           "portfolio": None, "portfolio_specs": 0, "portfolio_disagree": []}
     # A name that is only a category noun ("Sniper") has no designator of its own,
     # but its MAKER beside the noun still identifies it -- so the row is only
     # abandoned when neither the name nor the maker can carry it.
     if (not cds and not compby) or (not kds and not bfby):
         rep["drop"] = "no designator on one side"
         return None, rep
+
+    fit = client_portfolio.match(bf, catkey, specs, prows) if prows else None
+    if isinstance(fit, client_portfolio.Refusal):
+        rep["portfolio"] = "refused: " + fit.why
+        fit = None
+    elif fit is not None:
+        rep["portfolio"] = ", ".join(r["name"] for r in fit.rows)
 
     used = {}
     kept_specs = []
@@ -730,14 +750,24 @@ def rebuild(row, docs):
         u, lab = s.get("u") or "", s.get("l") or ""
         hc = ground_value(docs, cds, s.get("cv"), u, lab, name=product_of(comp),
                           maker=compby)
-        hk = ground_value(docs, kds, s.get("kv"), u, lab, name=product_of(bf),
-                          maker=bfby)
+        # The client's own statement first. It is refused -- and the refusal counted
+        # -- unless the workbook holds this product, in this class, with a bullet that
+        # means this label; see client_portfolio.RECIPES for what "means" is.
+        pk = client_portfolio.kssl_side(fit, lab, u, s.get("kv")) if fit else None
+        if not isinstance(pk, dict):
+            pk = None
+        if pk:
+            hk = []
+            ok_k, why_k, tier_k = True, pk["why"], pk["tier"]
+        else:
+            hk = ground_value(docs, kds, s.get("kv"), u, lab, name=product_of(bf),
+                              maker=bfby)
+            ok_k, why_k, tier_k, n_k = publishable([h[1] for h in hk], bfby)
         # A side is SHOWN only if its sources clear the credibility bar: the
         # product's own maker or a government publisher, or two independent
         # domains. A single news mention is not enough to put a number about a
         # real weapon on screen.
         ok_c, why_c, tier_c, n_c = publishable([h[1] for h in hc], compby)
-        ok_k, why_k, tier_k, n_k = publishable([h[1] for h in hk], bfby)
         if not ok_c and not ok_k:
             if hc or hk:
                 rep["specs_weak"] += 1        # found, but not well enough sourced
@@ -749,6 +779,36 @@ def rebuild(row, docs):
             e["cv"], e["cn"] = None, None
         if not ok_k:
             e["kv"], e["kn"] = None, None
+        if pk:
+            # The archive's unsourced text is replaced by the workbook's, and a
+            # disagreement between the two figures is recorded for the report.
+            # Compared in the base unit, against EVERY figure the archive wrote: "16,000
+            # kg" agrees with "16 tonnes", and "24.7 km BT / 30 km BB" agrees with 30.
+            # An archive figure whose unit cannot be read ("155/52" under a bare
+            # label) is compared raw against the workbook's raw figure instead.
+            want_base, want_raw = pk["base"][0], pk["n"]
+            kv_n = norm(s.get("kv") or "")
+            olds = []
+            for n_ in numbers(s.get("kv")):
+                try:
+                    v_, _q = to_base(n_, unit_at(kv_n, kv_n.find(n_) + len(n_)) or u)
+                    olds.append((v_, float(n_)))
+                except ValueError:
+                    continue
+
+            def _agree(o, w):
+                return o is not None and w is not None and o and abs(o - w) / o <= PARITY_DEADBAND
+
+            agree = any(_agree(ob, want_base) or _agree(oraw, want_raw) for ob, oraw in olds)
+            # "8-14 personnel" agrees with 12: a range the workbook's figure falls inside
+            raws = [oraw for _ob, oraw in olds]
+            if (not agree and len(raws) == 2 and "-" in kv_n and want_raw is not None
+                    and min(raws) <= want_raw <= max(raws)):
+                agree = True
+            if want_raw is not None and olds and not agree:
+                rep["portfolio_disagree"].append((lab, s.get("kv"), pk["kv"]))
+            e["kv"], e["kp"] = pk["kv"], "s"
+            rep["portfolio_specs"] += 1
         # One URL per DOMAIN. The claim on screen is "N independent sources", so the
         # list under it must be the independent ones -- showing two pages of a single
         # outlet next to that sentence makes a true statement read as a false one.
@@ -758,29 +818,48 @@ def rebuild(row, docs):
         # subtracts them as bare numbers, so five of the eleven Artillery
         # comparisons on screen were decided by the unit, not by the gun.
         cbase, cq = _side_base(hc, s.get("cn")) if ok_c else (None, None)
-        kbase, kq = _side_base(hk, s.get("kn")) if ok_k else (None, None)
+        if pk:
+            kbase, kq = pk["base"]          # the workbook's figure, or (None, None)
+        else:
+            kbase, kq = _side_base(hk, s.get("kn")) if ok_k else (None, None)
         if cbase is not None and kbase is not None and cq == kq:
             e["cn"], e["kn"] = cbase, kbase
+        elif pk:
+            # The workbook gave text, a range, or a figure in another quantity than the
+            # rival's: shown as a chip, never drawn as a bar against the rival's number.
+            e["kn"] = None
         elif ok_c and ok_k and (cq or kq) and cq != kq:
             e["cn"] = e["kn"] = None      # one side's unit is unknown: not comparable
         e["srcC"] = one_per_domain(hc) if ok_c else []
-        e["srcK"] = one_per_domain(hk) if ok_k else []
+        e["srcK"] = pk["urls"] if pk else (one_per_domain(hk) if ok_k else [])
         e["whyC"], e["whyK"] = (why_c if ok_c else None), (why_k if ok_k else None)
         e["tierC"], e["tierK"] = (tier_c if ok_c else None), (tier_k if ok_k else None)
         for h in (hc if ok_c else []) + (hk if ok_k else []):
             used[h[1]] = h[0]
+        for u_ in (pk["urls"] if pk else []):
+            used.setdefault(u_, None)
         kept_specs.append(e)
     rep["specs_kept"] = len(kept_specs)
 
     kc, kb = [], []
     for lst, ds, out, nm, mk in ((adv_c or [], cds, kc, product_of(comp), compby),
                                  (adv_b or [], kds, kb, product_of(bf), bfby)):
+        if fit and out is kb:
+            # MD 10. For a product the workbook holds, the KSSL advantages are ITS
+            # Features / Capabilities bullets, each attributed to the row's own source
+            # -- and nothing else. The archive's unsourced marketing lines are not
+            # brought back beside them.
+            kb.extend(fit.advantages())
+            for u_ in fit.sources:
+                used.setdefault(u_, None)
+            continue
         for a in lst:
             g = ground_phrase(docs, ds, a, nm, mk)
             if g:
                 out.append(a)
                 used[g[1]] = g[0]
     rep["adv_kept"] = len(kc) + len(kb)
+    rep["adv_portfolio"] = len(kb) if fit else 0
 
     # ARCHIVE THE INCOMPLETE. Positioning exists to compare specifications; a row
     # with no adequately-sourced specification is not a weaker comparison, it is
@@ -790,6 +869,15 @@ def rebuild(row, docs):
         weak = rep.get("specs_weak", 0)
         rep["drop"] = ("%d value(s) found but too weakly sourced to show" % weak
                        if weak else "no specification could be sourced at all")
+        return None, rep
+    # And the RIVAL must have at least one sourced value. The client's portfolio can
+    # fill KSSL's side of a pairing; it cannot create one. Without this rule the
+    # workbook alone carried 151 of the first 200 archive rows onto the dashboard as
+    # panels reading "KSSL 18 tonnes / rival not sourced" -- KSSL's catalogue
+    # restated hundreds of times, positioned against nothing.
+    rep["rival_values"] = sum(1 for s in kept_specs if s.get("cv") not in (None, ""))
+    if not rep["rival_values"]:
+        rep["drop"] = "no rival value could be sourced: nothing to position against"
         return None, rep
 
     # edge and verdict are recomputed from what survived. Two different counts
@@ -866,6 +954,15 @@ def rebuild(row, docs):
            ["Sources", "%d document(s)" % len(srcs)],
            ["Source rule", "manufacturer or government publisher, or two independent "
                            "sources; anything less is archived, not shown"]]
+    if fit:
+        det.append(["KSSL side", "%d value(s) from KSSL's own portfolio (client-supplied "
+                                 "workbook, %s), each citing the row's own sources; KSSL "
+                                 "advantages are that row's stated capabilities"
+                                 % (rep["portfolio_specs"], rep["portfolio"])])
+        reason += (" KSSL's figures come from the client's own product portfolio where it "
+                   "states the same measurement; a workbook figure that measures something "
+                   "else (a link range, a burst rate, a variant set) is shown as text and "
+                   "never scored.")
     return {"cat": cat, "anchor": anchor, "comp": comp, "compBy": compby, "bf": bf,
             "bfBy": bfby, "country": country, "dir": direction, "catKey": catkey,
             "specs": kept_specs, "advComp": kc, "advBf": kb, "edge": edge,
@@ -874,11 +971,23 @@ def rebuild(row, docs):
             "ks_thin": len(kept_specs) == 0}, rep
 
 
-def main(apply=False, limit=None):
+def main(apply=False, limit=None, portfolio_json=None):
     con = psycopg2.connect(DSN)
     cur = con.cursor()
     docs = load_docs(cur)
-    print("corpus: %d document(s)\n" % len(docs))
+    print("corpus: %d document(s)" % len(docs))
+    # The client's own portfolio: the table once client_portfolio.py --apply has written it,
+    # or the committed JSON for a dry run before the migration exists (client_portfolio.py).
+    prows = client_portfolio.load_db(cur)
+    if not prows and portfolio_json:
+        prows = client_portfolio.load(portfolio_json)
+        print("portfolio: %d product(s) from %s (serving.client_product is empty)"
+              % (len(prows), portfolio_json))
+    elif prows:
+        print("portfolio: %d product(s) from serving.client_product" % len(prows))
+    else:
+        print("portfolio: NONE -- the KSSL side comes from the corpus only")
+    print()
 
     cur.execute("""select matchup_id, cat, comp, "compBy", bf, "bfBy", specs,
                           "advComp", "advBf", country, dir, "catKey", anchor
@@ -901,7 +1010,7 @@ def main(apply=False, limit=None):
 
     built, reports = [], []
     for r in rows:
-        new, rep = rebuild(r, docs)
+        new, rep = rebuild(r, docs, prows)
         reports.append(rep)
         if new:
             built.append(new)
@@ -916,10 +1025,40 @@ def main(apply=False, limit=None):
     print("  revivable with evidence : %d" % len(built))
     print("  spec entries %d -> %d grounded (%.1f%%)"
           % (spec_in, spec_out, 100.0 * spec_out / max(spec_in, 1)))
-    print("  advantage bullets kept  : %d of %d"
-          % (sum(r["adv_kept"] for r in reports), sum(r["adv_in"] for r in reports)))
+    print("  advantage bullets kept  : %d of %d archived, plus %d from the workbook"
+          % (sum(r["adv_kept"] - r.get("adv_portfolio", 0) for r in reports),
+             sum(r["adv_in"] for r in reports), sum(r.get("adv_portfolio", 0) for r in reports)))
     for why, n in drops.most_common():
         print("  dropped: %-42s %d" % (why, n))
+
+    if prows:
+        # The portfolio's own ledger. "gained" counts the SERVED rows whose KSSL side
+        # now carries a workbook value; "refused" is every candidate the checks turned
+        # away, by reason -- if that list is ever empty, the checks are not running.
+        fitted = [r for r in reports if r.get("portfolio") and not str(r["portfolio"]).startswith("refused")]
+        gained = [r for r in reports if r.get("portfolio_specs") and not r.get("drop")]
+        kv_any = sum(1 for b in built
+                     if any(s.get("kv") for s in b["specs"]))
+        print("\nportfolio (client-supplied workbook):")
+        print("  archive rows matched to a workbook product : %d of %d" % (len(fitted), len(rows)))
+        print("  served rows with a workbook KSSL value      : %d" % len(gained))
+        print("  served rows with ANY KSSL value             : %d of %d" % (kv_any, len(built)))
+        print("  spec values taken from the workbook         : %d"
+              % sum(r.get("portfolio_specs", 0) for r in reports))
+        print("  advantage bullets from the workbook         : %d"
+              % sum(r.get("adv_portfolio", 0) for r in reports))
+        unmatched = collections.Counter(r["portfolio"] for r in reports
+                                        if str(r.get("portfolio") or "").startswith("refused"))
+        for why, n in unmatched.most_common():
+            print("  not matched: %-56s %d" % (why[9:], n))
+        dis = [(r["bf"], d) for r in reports for d in r.get("portfolio_disagree", [])]
+        if dis:
+            print("  archive figure disagrees with the workbook (workbook wins): %d" % len(dis))
+            for bf, (lab, old, new) in sorted(set((b, tuple(d)) for b, d in dis))[:20]:
+                print("    %-24s %-14s archive %-28r workbook %r" % (bf, lab, old, new))
+        print("  candidate values REFUSED, by reason (%d):" % sum(client_portfolio.REFUSALS.values()))
+        for why, n in client_portfolio.REFUSALS.most_common():
+            print("    %4d  %s" % (n, why))
 
     top = sorted([r for r in reports if r["specs_kept"]],
                  key=lambda r: -r["specs_kept"])[:10]
@@ -930,7 +1069,8 @@ def main(apply=False, limit=None):
                   % (str(r["comp"])[:34], str(r["bf"])[:28], r["specs_kept"], len(r["srcs"])))
 
     io.open(HERE / "revive_matchups_report.json", "w", encoding="utf-8").write(
-        json.dumps(reports, ensure_ascii=False, indent=1))
+        json.dumps({"rows": reports, "refused": dict(client_portfolio.REFUSALS)},
+                   ensure_ascii=False, indent=1))
 
     if apply and built:
         cur.execute("delete from serving.matchup where origin='pipeline' and matchup_id >= %s",
@@ -1180,6 +1320,39 @@ def _demo():
     assert ok2 and t2 == "official"
     # ...but a lone news mention is not
     assert not publishable(["https://idrw.org/x"], "KNDS")[0]
+
+    # The client's own portfolio fills the KSSL side where it states the measurement,
+    # cites the row's own source, and is refused where it does not (counted).
+    prows = client_portfolio.load()
+    n0 = sum(client_portfolio.REFUSALS.values())
+    row = (1, "Artillery", "KNDS · CAESAR 6x6", "KNDS", "KSSL · ATAGS", "Kalyani Strategic Systems",
+           [{"l": "Calibre", "cv": "155/52", "cn": 155, "kv": "155/52", "kn": 155, "u": "mm", "hi": None, "p": "s"},
+            {"l": "Weight", "cv": "17.7", "cn": 17.7, "kv": "18 t", "kn": 18000, "u": "kg", "hi": False, "p": "s"},
+            {"l": "Rate of fire", "cv": "6 rds/min", "cn": 6, "kv": "6 rds/30s burst", "kn": None, "u": "", "hi": None, "p": "s"}],
+           ["KNDS - established maker"], ["Indigenous IP + forged barrel; lower unit cost"],
+           "France", "hold", "art", "ATAGS")
+    rival = [("d1", "https://www.knds.com/caesar", norm("The CAESAR 6x6 has a calibre of 155 mm."))]
+    new, rep = rebuild(row, rival, prows)
+    assert new and rep["portfolio"] == "ATAGS" and rep["portfolio_specs"] == 3, rep
+    cal = next(s for s in new["specs"] if s["l"] == "Calibre")
+    assert cal["cn"] == cal["kn"] == 0.155 and cal["kv"] == "155 mm / 52 calibre", cal  # same quantity: bars
+    w = next(s for s in new["specs"] if s["l"] == "Weight")
+    assert w["kv"] == "18 tonnes (system weight)" and w["kn"] is None and w["cv"] is None, w  # rival ungrounded
+    assert any("kssl.in" in u for u in w["srcK"]) and w["tierK"] == "official", w
+    # ...and the workbook alone cannot CREATE a matchup: with no rival value sourced
+    # the row stays archived, however much KSSL states about its own gun.
+    none, rep0 = rebuild(row, [], prows)
+    assert none is None and rep0["drop"].startswith("no rival value"), rep0
+    rof = next(s for s in new["specs"] if s["l"] == "Rate of fire")
+    assert rof["kn"] is None and "burst" in rof["kv"], rof
+    # the archive's marketing line is NOT brought back beside the workbook's bullets
+    assert new["advBf"] and all("kssl.in" in a for a in new["advBf"]), new["advBf"]
+    assert not any("lower unit cost" in a for a in new["advBf"])
+    assert sum(client_portfolio.REFUSALS.values()) > n0, "refusals must be counted"
+    # a product the workbook does not hold stays on the corpus path, untouched
+    row2 = row[:4] + ("KSSL · Bayonet", row[5], [row[6][0]], [], ["x"], "France", "hold", "uav", "Bayonet")
+    new2, rep2 = rebuild(row2, [], prows)
+    assert new2 is None and rep2["portfolio"].startswith("refused"), rep2
     print("ok")
 
 
@@ -1188,5 +1361,7 @@ if __name__ == "__main__":
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--demo", action="store_true")
+    ap.add_argument("--portfolio", default=None,
+                    help="portfolio JSON to use when serving.client_product is empty (dry runs)")
     a = ap.parse_args()
-    _demo() if a.demo else main(a.apply, a.limit)
+    _demo() if a.demo else main(a.apply, a.limit, a.portfolio)

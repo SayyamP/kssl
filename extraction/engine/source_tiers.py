@@ -30,7 +30,13 @@ NEWS = "news"
 # primary source for that specification; it is also, of course, the party with an
 # interest in it, which is why the UI names the source rather than hiding it.
 MAKER_DOMAINS = {
-    "bharatforge.com": "Bharat Forge", "kalyanistrategic.com": "Kalyani Strategic Systems",
+    # The client's OWN sites. kssl.in is the domain the client's portfolio workbook
+    # cites on almost every row, and until 2026-09-05 it was not listed here -- so the
+    # manufacturer's own specification page ranked as a news mention and needed a
+    # second outlet to corroborate what it published about its own gun.
+    "bharatforge.com": "Bharat Forge", "bharatforge.eu": "Bharat Forge",
+    "kalyanistrategic.com": "Kalyani Strategic Systems",
+    "kssl.in": "Kalyani Strategic Systems", "kssl.co.in": "Kalyani Strategic Systems",
     "baesystems.com": "BAE Systems", "knds.com": "KNDS", "knds.de": "KNDS",
     "knds.fr": "KNDS", "nexter-group.fr": "Nexter", "elbitsystems.com": "Elbit Systems",
     "hanwha.com": "Hanwha", "hanwhadefense.com": "Hanwha Defense",

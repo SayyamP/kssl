@@ -162,6 +162,9 @@
   .adv-col.comp .adv-item .mk{color:var(--threat)}
   .adv-col.bf .adv-item .mk{color:var(--fav)}
   .adv-item b{color:var(--l-txt);font-weight:600}
+  /* the source a KSSL capability bullet cites (the client's own portfolio page) */
+  .adv-item .adv-src{font-family:var(--mono);font-size:10px;color:var(--l-txt-3);margin-left:6px;text-decoration:none;border-bottom:1px dotted var(--l-txt-3)}
+  .adv-item .adv-src:hover{color:var(--l-txt)}
   /* a heading with nothing under it read as a broken panel; say there is nothing */
   .adv-empty{font-size:11px;color:var(--l-txt-4);font-style:italic;line-height:1.5;padding:4px 0}
 
