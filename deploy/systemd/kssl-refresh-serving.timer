@@ -1,0 +1,16 @@
+# Hourly, on the hour, with a small jitter.
+[Unit]
+Description=Hourly serving refresh for %i
+
+[Timer]
+OnCalendar=hourly
+# Production is being read by 198 workers; landing the dump exactly on the hour every
+# hour alongside whatever else fires then is avoidable noise.
+RandomizedDelaySec=300
+# A missed run (host rebooted, timer disabled) refreshes once on the next start rather
+# than trying to catch up on every hour it missed.
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,14 @@
+# Hourly serving refresh for a replica. Installed by deploy/install_refresh_timer.sh.
+[Unit]
+Description=Refresh %i serving tables from production
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/kssl/app
+ExecStart=/opt/kssl/app/deploy/refresh_serving.sh %i
+# A refresh that cannot finish must not overlap the next one: the restore takes an
+# ACCESS EXCLUSIVE lock, and two of them queued behind each other would hold the
+# dashboard down for the length of both.
+TimeoutStartSec=1800
