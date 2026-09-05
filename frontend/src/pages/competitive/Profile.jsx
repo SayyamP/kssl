@@ -918,6 +918,21 @@ export default function Profile() {
                       </span>
                       <span style={{ fontSize: "13px", color: "var(--d-txt-1)" }}>
                         {item.title}
+                        {/* THE FULL LIST KEEPS EVERYTHING, AND SAYS WHAT IT IS.
+                            The feed collapses a running story to its newest article;
+                            this list is the whole record, so five outlets covering
+                            one contract on one day appear five times. Marking the
+                            reprints costs nothing and stops the list reading as five
+                            separate events. */}
+                        {item.duplicateOfUrl ? (
+                          <span style={{ color: "var(--d-txt-3)", fontSize: "11px" }}>
+                            {"  · same story, another outlet"}
+                          </span>
+                        ) : item.storyKey ? (
+                          <span style={{ color: "var(--d-txt-3)", fontSize: "11px" }}>
+                            {"  · "}{item.storyKey}
+                          </span>
+                        ) : null}
                       </span>
                       <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)", textAlign: "right" }}>
                         {item.category} · {item.source}
