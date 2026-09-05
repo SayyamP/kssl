@@ -38,6 +38,19 @@ serving.competitor_news.source text
 serving.competitor_news.title text NOT NULL
 serving.competitor_news.updated_at timestamp with time zone NOT NULL DEFAULT now()
 serving.competitor_news.url text
+serving.competitor_product.cat text
+serving.competitor_product.catKey text
+serving.competitor_product.company text NOT NULL
+serving.competitor_product.evidence jsonb NOT NULL DEFAULT '{}'::jsonb
+serving.competitor_product.features jsonb NOT NULL DEFAULT '[]'::jsonb
+serving.competitor_product.file_category text NOT NULL
+serving.competitor_product.name text NOT NULL
+serving.competitor_product.ord integer NOT NULL
+serving.competitor_product.origin text NOT NULL
+serving.competitor_product.product_id text NOT NULL
+serving.competitor_product.sources jsonb NOT NULL DEFAULT '[]'::jsonb
+serving.competitor_product.specs jsonb NOT NULL DEFAULT '[]'::jsonb
+serving.competitor_product.updated_at timestamp with time zone NOT NULL DEFAULT now()
 serving.competitor_structure.comp_id text NOT NULL
 serving.competitor_structure.description text
 serving.competitor_structure.entity_id text
