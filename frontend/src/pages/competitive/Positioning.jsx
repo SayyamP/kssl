@@ -3,6 +3,7 @@ import MatchupList from "../../components/matchupList/MatchupList";
 import MatchupDossier from "../../components/matchupDossier/MatchupDossier";
 import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
+import { advantageText } from "../../lib/specs";
 
 /* Positioning: every rating-matched KSSL-vs-rival pair, and the dossier for the one
    selected. Gap Analysis jumps in here with a matchup id, which arrives as `pending`. */
@@ -77,8 +78,13 @@ export default function Positioning() {
             h: `Specifications (${m.compBy || "rival"} vs ${clientShort})`,
             rows: (m.specs || []).map((s) => [s.l, `${val(s.cv)} vs ${val(s.kv)}${s.u ? ` ${s.u}` : ""}`]),
           },
-          { h: `${clientShort} advantages`, rows: m.advBf || [] },
-          { h: "Competitor strengths", rows: m.advComp || [] },
+          /* Copy Summary is DISPLAY, so it follows the panel: the pipeline appends an
+             inline <a class="adv-src"> to every advantage line and the Positioning tab
+             no longer shows it. `payload` below is deliberately left raw -- that is the
+             JSON export, and stripping provenance out of exported DATA would be a
+             different decision from taking it off the screen. */
+          { h: `${clientShort} advantages`, rows: (m.advBf || []).map(advantageText) },
+          { h: "Competitor strengths", rows: (m.advComp || []).map(advantageText) },
           { h: "Pairing logic", rows: m.reason ? [m.reason] : [] },
         ],
         payload: {

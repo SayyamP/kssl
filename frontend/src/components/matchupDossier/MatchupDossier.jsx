@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import HtmlBlock from "../htmlBlock/HtmlBlock";
 import ScopeChat from "../scopeChat/ScopeChat";
-import { specPanelHtml, matchupGapHtml } from "../../lib/specs";
+import { specPanelHtml, matchupGapHtml, advantageText, SHOW_POSITIONING_SOURCES } from "../../lib/specs";
 import { positioningReportHtml } from "../../lib/reports";
 import { srcKvRow } from "../../lib/html";
 
@@ -169,7 +169,7 @@ export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTen
                   {(m.advComp || []).map((a, i) => (
                     <div className="adv-item" key={i}>
                       <span className="mk">▲</span>
-                      <span dangerouslySetInnerHTML={{ __html: a }} />
+                      <span dangerouslySetInnerHTML={{ __html: advantageText(a) }} />
                     </div>
                   ))}
                 </div>
@@ -186,7 +186,7 @@ export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTen
                   {(m.advBf || []).map((a, i) => (
                     <div className="adv-item" key={i}>
                       <span className="mk">▲</span>
-                      <span dangerouslySetInnerHTML={{ __html: a }} />
+                      <span dangerouslySetInnerHTML={{ __html: advantageText(a) }} />
                     </div>
                   ))}
                 </div>
@@ -213,7 +213,7 @@ export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTen
               html={
                 (Array.isArray(m.det) ? m.det : [])
                   .map((dd) => `<div class="kv"><span class="k">${dd[0]}</span><span class="v">${dd[1]}</span></div>`)
-                  .join("") + srcKvRow(m.srcs)
+                  .join("") + (SHOW_POSITIONING_SOURCES ? srcKvRow(m.srcs) : "")
               }
             />
           </div>

@@ -118,7 +118,30 @@ function specRow(s, compName) {
    the VALUES stay sourced (nothing about extraction changes, and srcs are still on the
    record and still shown in Competitor Detail), but the reader can no longer see WHICH
    publisher a given number came from without leaving the comparison. */
-const SHOW_SPEC_SOURCES = false;
+export const SHOW_POSITIONING_SOURCES = false;
+/* Kept as the old name so the four call sites below read unchanged. */
+const SHOW_SPEC_SOURCES = SHOW_POSITIONING_SOURCES;
+
+/* THE SAME REQUEST, THE OTHER TWO PANELS.
+   Sources come off Positioning in three different shapes, and turning one off left the
+   other two on:
+     Spec Comparison   srcLine() under each value                -- off since TASKS #8
+     Competitor Detail a "Sources" row appended by srcKvRow      -- 95 of 117 matchups
+     Advantages        an inline <a class="adv-src"> per line    -- every line
+   All three now read one switch, so they cannot drift apart again, and flipping it to
+   true restores the provenance in all three exactly as it was.
+
+   Stripping is DISPLAY ONLY and deliberately narrow: serving.matchup keeps srcs, and
+   the anchors stay in the stored advantage strings. Only an <a> carrying the pipeline's
+   own adv-src class is removed, so inline emphasis inside an advantage survives -- and
+   a source rendered any other way stays visible rather than being silently swallowed. */
+export function advantageText(html) {
+  if (SHOW_POSITIONING_SOURCES) return html;
+  return String(html == null ? "" : html)
+    .replace(/\s*<a[^>]*class\s*=\s*"[^"]*adv-src[^"]*"[^>]*>[\s\S]*?<\/a>/gi, "")
+    .replace(/[ 	]+$/g, "")
+    .trim();
+}
 
 /* THE PAGE MUST NOT PROMISE A CITATION IT DOES NOT SHOW.
 

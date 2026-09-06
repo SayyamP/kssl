@@ -239,11 +239,11 @@ class _Cur:
         return self._rows
 
 
-def _prod(pid, company, tier=st.OFFICIAL, indep=2, n_specs=2):
+def _prod(pid, company, tier=st.OFFICIAL, indep=2, n_specs=2, srcs=None):
     return {"product_id": pid, "company": company, "name": pid, "comp_id": None,
             "file_category": "Artillery", "catKey": "art",
             "specs": [{"k": "Calibre", "v": "105 mm", "note": "x", "hi": None}] * n_specs,
-            "features": [], "sources": ["https://www.aweil.in/a"],
+            "features": [], "sources": list(srcs or ["https://www.aweil.in/a"]),
             "evidence": {"why": "w", "tier": tier, "independent": indep}}
 
 
@@ -291,9 +291,12 @@ def test_the_served_roster_is_matched_before_the_reference_one():
 
 
 # ── 6. the conflict policy ───────────────────────────────────────────────────
-def _existing(pid, tier=st.OFFICIAL, indep=2, n_specs=2, withheld=None):
+def _existing(pid, tier=st.OFFICIAL, indep=2, n_specs=2, withheld=None, srcs=None):
+    """(product_id, evidence, SOURCES, withheld_reason) -- the four columns plan()
+    reads. `n_specs` is accepted and unused: the policy stopped counting specs when
+    counting them was found to refuse a row for having been cleaned."""
     return (pid, json.dumps({"tier": tier, "independent": indep}),
-            json.dumps([{"k": "x", "v": "1 mm"}] * n_specs), withheld)
+            json.dumps(list(srcs or ["https://www.aweil.in/a"])), withheld)
 
 
 def test_a_better_sourced_existing_row_is_not_overwritten():
@@ -301,7 +304,9 @@ def test_a_better_sourced_existing_row_is_not_overwritten():
     INSERT. A workbook that regresses on one product must not take a well-sourced
     figure off the screen and leave nothing behind to say it happened."""
     cur = _Cur(served=[("AWEIL", "AWEIL")],
-               existing=[_existing("cp_a_x", st.OFFICIAL, 3, 9)])
+               existing=[_existing("cp_a_x", st.OFFICIAL, 3,
+                                   srcs=["https://www.aweil.in/a",
+                                         "https://pib.gov.in/only-the-old-row-has-this"])])
     p = cs.plan(cur, [_prod("cp_a_x", "AWEIL", tier=st.NEWS, indep=2, n_specs=1)])
     assert p["updates"] == []
     assert len(p["kept_better_sourced"]) == 1
@@ -311,7 +316,9 @@ def test_a_longer_spec_list_never_promotes_a_worse_sourced_row():
     """Spec count is the LAST term of the strength tuple on purpose. Forty numbers
     from a news site are still forty numbers from a news site."""
     cur = _Cur(served=[("AWEIL", "AWEIL")],
-               existing=[_existing("cp_a_x", st.OFFICIAL, 1, 1)])
+               existing=[_existing("cp_a_x", st.OFFICIAL, 1,
+                                   srcs=["https://www.aweil.in/a",
+                                         "https://pib.gov.in/only-the-old-row-has-this"])])
     p = cs.plan(cur, [_prod("cp_a_x", "AWEIL", tier=st.NEWS, indep=2, n_specs=40)])
     assert p["kept_better_sourced"] and not p["updates"]
 
@@ -332,10 +339,39 @@ def test_a_row_that_got_cleaner_is_not_refused_for_having_fewer_values():
     correcting, ranked it lower, and kept the dirty one. It refused 5 real rows of
     this workbook. A count is not evidence about sourcing and does not get a vote."""
     cur = _Cur(served=[("AWEIL", "AWEIL")],
-               existing=[_existing("cp_a_x", st.OFFICIAL, 2, n_specs=6)])
-    p = cs.plan(cur, [_prod("cp_a_x", "AWEIL", tier=st.OFFICIAL, indep=2, n_specs=5)])
+               existing=[_existing("cp_a_x", st.OFFICIAL, 2, n_specs=6,
+                                   srcs=["https://www.aweil.in/a",
+                                         "https://pib.gov.in/x"])])
+    p = cs.plan(cur, [_prod("cp_a_x", "AWEIL", tier=st.OFFICIAL, indep=2, n_specs=5,
+                            srcs=["https://www.aweil.in/a", "https://pib.gov.in/x"])])
     assert len(p["updates"]) == 1, p["kept_better_sourced"]
     assert not p["kept_better_sourced"]
+
+
+def test_a_demotion_on_the_same_sources_still_lands():
+    """The NORINCO case, and the second fault the first draft shipped. The row on the
+    table says 'official'; this run reads the same two URLs and demotes it to tier-2
+    because OPEN ISSUES says the company owns neither of them. Comparing the STORED
+    VERDICTS ranked the correction below the claim it corrects and kept the claim.
+    Where the sources are the same, the newer judgement wins."""
+    srcs = ["https://date.army.gov.au/x", "https://www.armyrecognition.com/y"]
+    cur = _Cur(served=[("NORINCO", "NORINCO")],
+               existing=[_existing("cp_n_x", st.OFFICIAL, 2, srcs=srcs)])
+    p = cs.plan(cur, [_prod("cp_n_x", "NORINCO", tier=st.REGISTRY, indep=2, srcs=srcs)])
+    assert len(p["updates"]) == 1, p["kept_better_sourced"]
+
+
+def test_an_extra_source_on_the_existing_row_is_what_protects_it():
+    """The protection is about EVIDENCE, so it must switch off when the evidence is
+    the same. Identical fixture to the test above except for one URL only the
+    existing row carries."""
+    cur = _Cur(served=[("AWEIL", "AWEIL")],
+               existing=[_existing("cp_a_x", st.OFFICIAL, 2,
+                                   srcs=["https://www.aweil.in/a",
+                                         "https://pib.gov.in/extra"])])
+    p = cs.plan(cur, [_prod("cp_a_x", "AWEIL", tier=st.NEWS, indep=1,
+                            srcs=["https://www.aweil.in/a"])])
+    assert p["kept_better_sourced"] and not p["updates"]
 
 
 def test_a_row_that_stops_verifying_is_withheld_and_never_deleted():

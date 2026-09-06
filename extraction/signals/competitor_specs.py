@@ -26,11 +26,27 @@ audits of its own that nothing in this repo was reading:
                     25 'T2 independent x1', 5 'T2 independent x2', 31 'none'.
     OPEN ISSUES     the workbook naming its own doubtful rows, by product.
 
-Measured against what is served today, ignoring those three let 89 rows onto the
-table that should not be there: 7 whose every source is dead, 3 the workbook itself
-says are cited to a page that does not contain the numbers, 16 whose company reaches
-no served competitor at all, and so on. This module is that reconciliation. It is a
-NARROWING: every row it admits, competitor_portfolio.py already admits.
+...and a fourth thing nothing was reading at all: whether the company is on the
+roster. competitor_portfolio.py resolves the 50 workbook names against
+serving.competitors for the PROFILE columns and then imports the PRODUCTS without
+asking.
+
+Measured against the 709 rows served today, that let 89 through that should not be
+there:
+
+    69  not_on_roster -- Leonardo 18, Huntington Ingalls 12, Diehl 11, Naval Group 9,
+        Northrop Grumman 7, HSW 4, Babcock 4, L3Harris 3, Thyssenkrupp Marine 1
+    14  unserved_reference_id -- Solar Industries 8, Larsen & Toubro 6
+     3  cited_page_lacks_the_numbers -- Nexter LECLERC XLR, Mahindra Marksman,
+        SSS Defence 338 Saber
+     3  all_sources_dead -- Lockheed Indago 4 UAS, AeroVironment Puma AE RQ-20B,
+        Adani Vehicle-Mounted Counter-Drone System
+
+(The workbook has 26 all-dead rows and 5 wrongly-cited ones; the rest belong to
+companies rule 2 or 3 already refuses, which is why the two lists differ.)
+
+This module is that reconciliation. It is a NARROWING and never a widening: every row
+it admits, competitor_portfolio.py already admits, and a test asserts the subset.
 
 NOTHING IN THIS FILE IS A SECOND COPY
 -------------------------------------
@@ -131,7 +147,12 @@ The key is product_id, and the write is an UPSERT. It is NOT the DELETE-then-INS
 competitor_portfolio.py does, because that discards a well-sourced row in favour of a
 worse one whenever a workbook regresses, and leaves nothing behind to say it happened.
 
-    strength = (tier rank official>registry>news, independent sources)
+    An existing row is PROTECTED only when it cites a source this run does not have.
+    Where the sources are the same, the two rows are two judgements of one body of
+    evidence and the newer one -- which has read Source Health, the Evidence tier and
+    OPEN ISSUES -- wins. Where the existing row cites something extra:
+
+        strength = (tier rank official>registry>news, independent sources)
 
 SPEC COUNT IS NOT PART OF IT. It was, for one draft, and it inverted the module's
 whole purpose: a row whose absence clause had just been struck out carries one value
@@ -507,13 +528,13 @@ def plan(cur, products):
         else:
             off["not_on_roster: %s" % c] += 1
 
-    cur.execute("SELECT product_id, evidence, specs, withheld_reason "
+    cur.execute("SELECT product_id, evidence, sources, withheld_reason "
                 "FROM serving.competitor_product WHERE origin='pipeline'")
     have = {}
-    for pid, ev, sp, wr in cur.fetchall():
+    for pid, ev, sr, wr in cur.fetchall():
         ev = json.loads(ev) if isinstance(ev, str) else (ev or {})
-        sp = json.loads(sp) if isinstance(sp, str) else (sp or [])
-        have[pid] = (ev, sp, wr)
+        sr = json.loads(sr) if isinstance(sr, str) else (sr or [])
+        have[pid] = (ev, sr, wr)
 
     inserts, updates, kept = [], [], []
     for p in admitted:
@@ -521,7 +542,24 @@ def plan(cur, products):
         if cur_row is None:
             inserts.append(p)
             continue
-        ev, sp, _wr = cur_row
+        ev, sr, _wr = cur_row
+        # WHAT COUNTS AS "BETTER SOURCED" IS THE SOURCES, NOT THE STORED VERDICT.
+        #
+        # An existing row is protected only when it CITES something this run does
+        # not have. If every URL it stands on is also in the incoming row, then both
+        # rows are two judgements of the SAME evidence, and the newer judgement is
+        # the one that has seen the workbook's Source Health, its Evidence tier and
+        # its OPEN ISSUES -- refusing it there would freeze the over-claim in place.
+        #
+        # That is not hypothetical. The two NORINCO rows on the table today are
+        # recorded as tier 'official' from an Australian army training portal; this
+        # run demotes them to tier-2 on the same two URLs, exactly as OPEN ISSUES
+        # asks. Comparing the stored verdicts alone made the demotion rank LOWER
+        # than the claim it corrects, and kept the claim.
+        theirs_only = set(sr) - set(p["sources"])
+        if not theirs_only:
+            updates.append(p)
+            continue
         mine = strength(p["evidence"]["tier"], p["evidence"]["independent"])
         theirs = strength(ev.get("tier"), ev.get("independent"))
         (updates if mine >= theirs else kept).append(p)
@@ -614,10 +652,12 @@ def report():
 
 
 def print_plan(p):
-    print("\nCONFLICT POLICY: upsert on product_id; strength = "
-          "(tier, independent sources, spec count).")
-    print("  incoming >= existing -> update;  incoming < existing -> KEEP the existing "
-          "row;\n  refused but on the table -> withheld_reason, never DELETE.")
+    print("\nCONFLICT POLICY: upsert on product_id. Nothing is ever DELETEd.")
+    print("  same sources as the existing row     -> UPDATE, the newer judgement wins")
+    print("  existing row cites a source we lack  -> KEEP it, unless our source tier")
+    print("                                          and witness count are >= its own")
+    print("  spec COUNT never votes: a row that got cleaner has one value fewer")
+    print("  on the table but refused here        -> withheld_reason set, row kept")
     print("\nroster: %d company names served, %d reference-only, %d unmatched"
           % (len(p["served"]), len(p["reference_only"]), len(p["unmatched"])))
     print("\nwould INSERT            %5d" % len(p["inserts"]))
