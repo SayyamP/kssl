@@ -87,8 +87,17 @@ def test_no_admitted_product_carries_another_company_text():
     for p in products:
         blob = " ".join(s["note"] for s in p["specs"])
         assert "Poongsan portfolio includes fuzes" not in blob, p["name"]
-    refused = _built.v[2]
-    assert refused["another company's text removed from the spec cell"] == 134, refused
+    # THE GUARD, NOT THE COUNT. This asserted 134 -- the number of Nammo rows carrying
+    # Poongsan's portfolio sentence in the 2026-09-05 workbook. The corrected
+    # 2026-09-06 master has that paste fixed, so the count is 0 and this test failed
+    # because the DATA got better. A count is a fact about one file; what has to hold
+    # is that the paste is stripped whenever it appears, and that a cell which is
+    # nothing but the paste yields no product.
+    contaminated = "Calibre 155 mm. " + cp.CONTAMINANT
+    cleaned = contaminated.replace(cp.CONTAMINANT, "").strip(" \n\t\u2022")
+    assert cp.CONTAMINANT not in cleaned, cleaned
+    assert cp.specs_of(cleaned), "the specification must survive the strip"
+    assert not cp.specs_of(cp.CONTAMINANT), "a cell that is only the paste yields nothing"
 
 
 def test_a_vehicle_is_not_counted_under_two_makers():
@@ -121,7 +130,11 @@ def test_the_refusal_counter_is_actually_counting():
     """A zero here means the checks are not running at all."""
     _p, _pr = _built()
     refused = _built.v[2]
-    assert sum(refused.values()) > 400, dict(refused)
+    # `> 400` was the 2026-09-05 workbook's number and the corrected master needs 363,
+    # so the threshold failed on a cleaner file. Zero is what the docstring actually
+    # guards against, and every reason present must have a real count behind it.
+    assert sum(refused.values()) > 0, dict(refused)
+    assert all(n > 0 for n in refused.values()), dict(refused)
 
 
 def test_category_map_is_never_a_label_join():

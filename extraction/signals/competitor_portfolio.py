@@ -264,9 +264,13 @@ def build(directory, products):
 
 
 # ── writing ──────────────────────────────────────────────────────────────────
-def write_json(products, profiles, path=OUT_JSON, write=True):
+def write_json(products, profiles, path=OUT_JSON, write=True, source=None):
     doc = {
-        "built_from": WORKBOOK.name,
+        # THE FILE ACTUALLY PARSED, not the default. Re-parsing the corrected
+        # 2026-09-06 master wrote a JSON claiming it came from the 09-05 workbook,
+        # which is the one field a reader would check to see whether a correction
+        # had landed.
+        "built_from": (source or WORKBOOK).name,
         "gate": "engine/source_tiers.publishable, product_maker aware",
         "products": products,
         "companies": profiles,
@@ -301,11 +305,44 @@ def plan_profiles(cur, profiles):
     """Which competitor rows have a blank this workbook can fill. Reads only."""
     cur.execute("SELECT comp_id, name, hq, starting_year, company_size, sales, country "
                 "FROM serving.competitors WHERE origin='pipeline'")
+    rows = cur.fetchall()
     have = {key_of(n): (cid, n, hq, yr, sz, sl, ctry)
-            for cid, n, hq, yr, sz, sl, ctry in cur.fetchall()}
+            for cid, n, hq, yr, sz, sl, ctry in rows}
+
+    # THE SPELLING IS NOT THE COMPANY, AND THIS FILE IS THE THIRD PLACE TO LEARN IT.
+    #
+    # 36 of 50 workbook rows reach a roster row on the folded key above. Seven roster
+    # rows are missed by wording alone -- "Hanwha (Aerospace/Group)" against "Hanwha
+    # Aerospace", "Kalashnikov Concern" against "Kalashnikov", and "Larsen &amp;
+    # Toubro", whose roster name is HTML-escaped. aliases.same_org already decides
+    # this for the news writer and for the pairing gate; it decides it here too
+    # rather than growing the private ALIAS map a fourth time.
+    #
+    # ONLY WHEN UNAMBIGUOUS. "RTX (Raytheon)" reaches both the RTX and the Raytheon
+    # roster rows, and "KNDS Germany" and "Nexter (KNDS France)" both reach "KNDS".
+    # A fallback that guessed would put one company's headquarters on another's
+    # profile, so a workbook row with two candidates -- or a roster row with two
+    # suitors -- is left for a human instead.
+    import html
+    from aliases import same_org
+    claimed = {key_of(p["company"]) for p in profiles if key_of(p["company"]) in have}
+    free = [(cid, n, hq, yr, sz, sl, ctry) for cid, n, hq, yr, sz, sl, ctry in rows
+            if key_of(n) not in claimed]
+    loose = {}
+    for p in profiles:
+        if key_of(p["company"]) in have:
+            continue
+        hits = [r for r in free if same_org(p["company"], html.unescape(r[1] or ""))]
+        if len(hits) == 1:
+            loose.setdefault(key_of(hits[0][1]), []).append((p["company"], hits[0]))
+    resolved = {}
+    for _k, pairs in loose.items():
+        if len(pairs) == 1:                     # one suitor, or nobody
+            resolved[pairs[0][0]] = pairs[0][1]
+
     updates, unmatched = [], []
     for p in profiles:
-        row = have.get(key_of(p["company"]))
+        row = have.get(key_of(p["company"])) or resolved.get(p["company"])
         if not row:
             unmatched.append(p["company"])
             continue
@@ -326,7 +363,13 @@ def plan_profiles(cur, profiles):
             set_["starting_year"] = p["starting_year"]
         if not (sz or "").strip() and p["company_size"]:
             set_["company_size"] = p["company_size"]
-        if not sl and p["sales"] and p["publishable"]:
+        # A REVENUE FIELD HOLDS A FIGURE OR NOTHING. Paramount Group, Roshel and SIG
+        # Sauer are privately held and the workbook says "Not publicly disclosed --
+        # privately held"; stored, that sentence renders in the row headed ANNUAL
+        # REVENUE / SALES and reads as the company's revenue. The dash is the true
+        # answer. Tested by a digit rather than a phrase list, because whatever a
+        # workbook writes to mean "unknown" will not carry a number.
+        if not sl and p["sales"] and p["publishable"] and re.search(r"\d", p["sales"]):
             set_["sales"] = {"text": p["sales"], "fy": p["financial_year"],
                              "srcs": p["sources"][:3]}
         if p["global_locations"]:
@@ -420,7 +463,20 @@ def demo():
     for p in products:
         blob = " ".join(s["note"] for s in p["specs"])
         assert "Poongsan portfolio includes fuzes" not in blob, p["name"]
-    assert REFUSED["another company's text removed from the spec cell"] == 134, REFUSED
+
+    # THE GUARD, NOT THE COUNT. This asserted `== 134`, the number of Nammo rows
+    # carrying Poongsan's portfolio sentence in the 2026-09-05 workbook. The
+    # corrected 2026-09-06 master has that paste fixed, so the count is 0 and the
+    # assertion failed on a BETTER file. A count is a fact about one workbook; what
+    # has to hold is that the guard still strips the paste when it appears.
+    contaminated = "Calibre 155 mm. " + CONTAMINANT
+    cleaned = contaminated.replace(CONTAMINANT, "").strip(" \n\t••")
+    assert CONTAMINANT not in cleaned, cleaned
+    assert "155 mm" in cleaned, cleaned
+    assert specs_of(cleaned), "the surviving cell must still yield its specification"
+    assert not specs_of(CONTAMINANT), "a cell that is only the paste yields nothing"
+    print("   workbook needed the paste stripped on %d row(s)"
+          % REFUSED["another company's text removed from the spec cell"])
 
     # 4. the Leonardo/IDV vehicles are counted once, under IDV
     leo = {p["name"] for p in products if p["company"] == "Leonardo"}
@@ -491,7 +547,7 @@ def main():
     if a.xlsx:
         directory, raw = parse_workbook(Path(a.xlsx))
         products, profiles = build(directory, raw)
-        write_json(products, profiles)
+        write_json(products, profiles, source=Path(a.xlsx))
         print("wrote %s: %d products from %d rows, %d companies, %d refused"
               % (OUT_JSON.name, len(products), len(raw), len(profiles),
                  sum(REFUSALS.values())))
