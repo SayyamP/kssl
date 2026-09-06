@@ -21,7 +21,6 @@ sys.path.insert(0, str(HERE))
 import translate as T                                                  # noqa: E402
 
 DSN = os.environ.get("KSSL_DSN", "postgresql://postgres:kssl@127.0.0.1:5460/kssl")
-CAPS_RX = re.compile(r"\b[A-Z][A-Za-z]{2,}\b")
 # Han, hiragana, katakana, Hangul: scripts where one character carries a word.
 CJK_RX = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]")
 
@@ -90,8 +89,18 @@ def check(src, out):
     else:
         r = len(out) / max(1, len(src))
         lo, hi = 0.45, 2.6
+    # SHORTER IS NOT SUMMARISED WHEN THE SOURCE SAID IT TWICE. The extraction layer
+    # emits propositions whose subject is the source-language rendering of their own
+    # object: "エンドツーエンドのマッピングと分析 is utilized end-to-end mapping and
+    # analysis" -- the katakana IS "end-to-end mapping and analysis". A correct
+    # translation collapses that to one clause and is legitimately a third the length.
+    # The question `too-short` is really asking is "were facts dropped", so if every
+    # English content word already in the SOURCE survives in the output, nothing was.
     if r < lo:
-        bad.append("too-short:%.2f" % r)
+        src_en = {w.lower() for w in re.findall(r"[A-Za-z][A-Za-z-]{2,}", src)}
+        kept_en = {w.lower() for w in re.findall(r"[A-Za-z][A-Za-z-]{2,}", out)}
+        if not (src_en and src_en <= kept_en):
+            bad.append("too-short:%.2f" % r)
     if r > hi:
         bad.append("too-long:%.2f" % r)
     return bad

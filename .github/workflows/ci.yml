@@ -135,46 +135,11 @@ jobs:
       # and nothing noticed for as long as nobody ran it by hand. A self-check nobody runs is
       # not a test, it is a comment that can rot.
       #
-      # Every command here is hermetic -- no database, no network, no GPU, no model call --
-      # so they belong in CI rather than in a runbook. They gate, in order: the presignal
-      # relevance gate (competitor roster, alias list, code stoplist), the queue router, the
-      # audit regressions, the card writer, and the enrichment step that decides who counts
-      # as a competitor.
+      # The commands, and what each one gates, are in deploy/selfcheck.sh -- shared with
+      # deploy.yml so a check added here cannot gate a PR while missing from the push
+      # that actually reaches a machine.
       - name: Extraction + serving self-checks
-        run: |
-          pip install -r extraction/requirements.txt
-          python extraction/engine/presignal.py --demo
-          C_DS_JSON=extraction/engine/ds.json \
-          C_TIERS_PATH=extraction/engine/source_tiers.py \
-            python extraction/engine/route.py --demo
-          (cd extraction && python test_fixes.py)
-          # The signals modules import each other by bare filename, so they run from their
-          # own directory. The test_*.py loop is deliberate: a new regression test is picked
-          # up by being written, without also having to remember to edit this file.
-          cd extraction/signals
-          python serving_fill.py --demo
-          python enrich_serving.py --demo
-          # The overlap join behind the red line -- "this rival's partner is also
-          # KSSL's". Its two queries filtered on origin='pipeline', which is right for
-          # a rival and wrong for the client: KSSL's own rows are reference data by
-          # design, so the roster came back empty and every partner on the tab rendered
-          # as an unqualified green "Direct Partner". The demo now runs the real
-          # decision over the real staging shape, with no database.
-          python mark_shared.py --demo
-          # Reads the status a tie states in its own words. The trap it guards is a
-          # founding year read as an end year -- "Historical JV (established 2007 as
-          # JML, now JCBL South)" is a going concern, and "ended 2007" would be a
-          # false claim published about a real company.
-          python backfill_tie_status.py --demo
-          # The translation layer: which strings are sent to the model, which answers
-          # are allowed to be stored, and that a failure returns the original rather
-          # than an invention. Its gate is measured, not asserted -- 0 of 600 real
-          # English lead-ins are refused, where is_english() refused 16.3% of them.
-          python translate.py
-          for t in test_*.py; do
-            echo "== $t"
-            python "$t"
-          done
+        run: bash deploy/selfcheck.sh
 
   # The RENDERED page. Every other gate in this repository reads source or data; not one
   # of them renders anything, so a class name that matches no CSS rule was invisible to
@@ -208,10 +173,32 @@ jobs:
         working-directory: frontend
         run: node test_overlap_badge.mjs
 
+      # AND EVERY OTHER ONE. The two steps above named a single file each, which is how
+      # 36 working tests came to run nowhere: `ls frontend/test_*.mjs` finds 39, all of
+      # them pass, and CI ran two. The one that could not run -- test_feed_pagination,
+      # which reads an untracked live export -- threw instead of skipping, and that
+      # single crash is why nobody wired the directory in. It skips now.
+      #
+      # Same loop the signals suite uses, and for the same reason: a new regression test
+      # should be picked up by being written, not by also remembering to edit this file.
+      - name: Frontend regression tests
+        working-directory: frontend
+        run: |
+          # test_tender_row.mjs imports esbuild to compile the .jsx it asserts over, so
+          # the loop needs node_modules. It passed on every developer machine, where
+          # node_modules exists, and this is the first CI run that has ever executed the
+          # loop -- a gate that had never run once.
+          npm ci
+          fail=0
+          for t in test_*.mjs; do
+            echo "== $t"
+            node "$t" || fail=1
+          done
+          exit $fail
+
       - name: Build the bundle and serve it
         working-directory: frontend
         run: |
-          npm ci
           npm run build
           npx vite preview --port 5179 --strictPort &
           npx wait-on http://127.0.0.1:5179 -t 60000

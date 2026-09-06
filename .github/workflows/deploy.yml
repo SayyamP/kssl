@@ -119,20 +119,25 @@ jobs:
         with:
           python-version: "3.11"
       - name: Extraction + serving self-checks
+        run: bash deploy/selfcheck.sh
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # The frontend half of the same gate. It ran in ci.yml and nowhere else, so a direct
+      # push -- the route production takes -- deployed a frontend that no test had touched.
+      # test_tender_row.mjs compiles the .jsx it asserts over with esbuild, so the loop
+      # needs node_modules even though most of these are plain node over src/lib.
+      - name: Frontend regression tests
+        working-directory: frontend
         run: |
-          pip install -r extraction/requirements.txt
-          python extraction/engine/presignal.py --demo
-          C_DS_JSON=extraction/engine/ds.json \
-          C_TIERS_PATH=extraction/engine/source_tiers.py \
-            python extraction/engine/route.py --demo
-          (cd extraction && python test_fixes.py)
-          cd extraction/signals
-          python serving_fill.py --demo
-          python enrich_serving.py --demo
-          for t in test_*.py; do
+          npm ci
+          fail=0
+          for t in test_*.mjs; do
             echo "== $t"
-            python "$t"
+            node "$t" || fail=1
           done
+          exit $fail
 
   build:
     needs: resolve
@@ -223,9 +228,34 @@ jobs:
             echo "::error::Could not reach $USER@$HOST port $PORT over ssh. This is NOT a"
             echo "::error::secrets problem: VPS_HOST is set and was used. Nothing was transferred."
             sed 's/^/::error::ssh: /' "$HOME/ssherr"
-            echo "::error::Check, in this order: the box is up and sshd is listening on"
-            echo "::error::port $PORT; the host firewall admits GitHub Actions runner IPs;"
-            echo "::error::VPS_SSH_PORT matches the port sshd actually uses."
+            # SAY WHICH OF THE THREE IT IS. "Connection timed out" is the same string
+            # for a host that does not resolve, a host that resolves but drops packets,
+            # and a port nothing listens on -- three different fixes. The checklist
+            # below used to leave the operator to work out which, and on 2026-09-06
+            # that cost a morning: the box was up, sshd was on 22, the host firewall
+            # was not merely permissive but absent (ufw inactive, no nftables rule),
+            # and the box was logging inbound ssh from the public internet the whole
+            # time. Nothing on the checklist was wrong; the secret simply did not point
+            # at that box. These probes cannot say what VPS_HOST is -- it is masked in
+            # the log, and printing its resolved address would unmask it -- but they
+            # can say which layer failed, which is what narrows it.
+            if getent hosts "$HOST" >/dev/null 2>&1; then
+              echo "::error::DNS: VPS_HOST resolves."
+              if timeout 10 bash -c "cat < /dev/null > /dev/tcp/$HOST/$PORT" 2>/dev/null; then
+                echo "::error::TCP: port $PORT accepts a connection, so this is ssh-level"
+                echo "::error::(host key, or sshd refusing this user/key), not reachability."
+              else
+                echo "::error::TCP: port $PORT does NOT accept a connection from this runner,"
+                echo "::error::while DNS resolves. So the address is routable but the port is"
+                echo "::error::filtered or closed: a cloud-provider firewall or security group"
+                echo "::error::in front of the box (the box'"'"'s OWN firewall is a separate"
+                echo "::error::thing and may well be inactive), or VPS_SSH_PORT is not the"
+                echo "::error::port sshd uses, or VPS_HOST points at a different machine."
+              fi
+            else
+              echo "::error::DNS: VPS_HOST does NOT resolve. It is a stale hostname or a typo;"
+              echo "::error::no firewall or port change will fix it."
+            fi
             exit 1
           fi
           MARK="$($SSH "$USER@$HOST" 'cat /opt/kssl/app/.KSSL_ENV 2>/dev/null || true' | tr -d '[:space:]')"
