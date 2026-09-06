@@ -42,6 +42,7 @@ from article_date import pick_date as pick_html_date  # noqa: E402
 from article_image import resolve_image  # noqa: E402
 import glance  # noqa: E402  ("At a glance" rows from typed spans, each with its quote)
 import translate  # noqa: E402  (source-language lead-ins -> English; never the quote)
+import provenance  # noqa: E402  (append-only pipeline events; never raises)
 
 DSN = os.environ.get("KSSL_DSN", "host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl")
 # NOT used by this module any more -- every model call here goes through the LLM API.
@@ -1348,6 +1349,14 @@ def find_competitor(text, comp_patterns):
 
 # The card INSERT, as a template so the optional dir_reason column can be spliced in.
 # str.format, not %, because the statement is full of psycopg2's own %s placeholders.
+def _pv_reject(did, reason, action="record_rejected", evidence=None):
+    """Record why a document did NOT become a card (or a card-stage error). The reason
+    was previously only in stdout, so 'why didn't this document appear?' had no answer in
+    data. Never raises -- provenance.emit swallows everything."""
+    provenance.emit("signals", "serving_fill.py", action, document_id=did, reason=reason,
+                    ref_table="serving.signal_card", ref_id="pl_" + did, evidence=evidence)
+
+
 def card_lineage(did, prop_meta):
     """-> (source_doc_ids, source_run_id, source_prop_ids) for a per-document card.
 
@@ -1647,6 +1656,7 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         con.commit()
         if did in banned:
             stats["suppressed"] += 1
+            _pv_reject(did, "suppressed")
             continue
         # run_id and i are read only for LINEAGE (serving.signal_card.source_*); the
         # business logic still sees the same (s, p, o, m, q) tuples it always did.
@@ -1658,6 +1668,7 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         prop_meta = [(r, i) for (r, i, *_rest) in _prows]   # (run_id, i), index-aligned to props
         if not props:
             stats["thin"] += 1
+            _pv_reject(did, "thin")
             continue
         # A listing is caught by its URL shape OR by the publisher naming its own
         # page an index ("... News & Press Releases"). The title check exists
@@ -1666,13 +1677,16 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         # cards, one of them merging two unrelated articles into a single claim.
         if is_listing(url) or is_index_title(title):
             stats["listing"] += 1
+            _pv_reject(did, "listing")
             continue
         ymd = article_date(cur, did)
         if ymd is None:
             stats["undated"] += 1
+            _pv_reject(did, "undated")
             continue
         if not is_recent_ym(ymd[:2], cutoff, cur_year):
             stats["stale"] += 1
+            _pv_reject(did, "stale")
             continue
         # Content-staleness: a fresh publish date on a years-old story (a re-run article) is
         # the fastest way to lose trust -- the Leonardo/BIDEC-2017 card dated 2026. Flag only
@@ -1682,9 +1696,11 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         cy = content_year_max(props)
         if cy is not None and cy <= ymd[0] - 3:
             stats["cstale"] = stats.get("cstale", 0) + 1
+            _pv_reject(did, "content_stale")
             continue
         if not is_relevant(patterns, title, props):
             stats["offtopic"] += 1
+            _pv_reject(did, "offtopic")
             continue
         props = props[:12]
         prop_meta = prop_meta[:12]   # keep lineage aligned with the props actually fed
@@ -1698,10 +1714,12 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
                 print("  %s: %s" % (did, e), flush=True)
             cur.execute("DELETE FROM serving.signal_seen WHERE document_id=%s", (did,))
             con.commit()
+            _pv_reject(did, "llm_error", action="error", evidence={"error": type(e).__name__})
             continue
         card = parse_card(raw, cats, props, comp_patterns, known_rx, gate)
         if card is None:
             stats["none"] += 1
+            _pv_reject(did, "model_returned_none")
             continue
         if card.get("dir_reason"):
             stats["demoted"] = stats.get("demoted", 0) + 1
@@ -1719,13 +1737,16 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
             card["dir"] = "watch"          # the client's own win is not a threat to itself
             if card["pillar"] in ("competitive", "technology"):
                 stats["client_news"] += 1  # rivals only on the rival surfaces
+                _pv_reject(did, "client_news")
                 continue
         if is_dup(seen, card["company"], card["title"]):
             stats["dup"] += 1
+            _pv_reject(did, "duplicate")
             continue
         mkey = money_key(card["company"], "%s %s" % (card["title"], card["sowhat"]), known_rx)
         if mkey and mkey in seen_money:
             stats["dup"] += 1              # same company + same dollar figure = same event
+            _pv_reject(did, "duplicate_money")
             continue
         if mkey:
             seen_money.add(mkey)
@@ -1810,6 +1831,9 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
                     + ((_cd, _cr, _cp) if has_detail_lineage else ()))
         con.commit()
         stats["cards"] += 1
+        provenance.emit("signals", "serving_fill.py", "card_written", document_id=did,
+                        run_id=_cr, ref_table="serving.signal_card", ref_id=cid,
+                        evidence={"lane": lane, "company": card.get("company"), "model": MODEL})
         if verbose and stats["cards"] % 5 == 0:
             print("  %(cards)d card(s), %(none)d none, %(thin)d thin, %(bad)d error" % stats,
                   flush=True)
