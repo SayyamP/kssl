@@ -38,6 +38,28 @@ services:
     # loopback only: the database is reached through the SSH tunnel, never the net
     ports:
       - "127.0.0.1:${KSSL_DB_PORT:-5460}:5432"
+    # POSTGRES PUTS ITS PARALLEL QUERY WORKERS IN /dev/shm, AND DOCKER GIVES A CONTAINER
+    # 64MB OF IT. Every filesystem on this host has 343GB free, so the failure reads as
+    # absurd and gets misfiled as a full disk:
+    #
+    #   psycopg.errors.DiskFull: could not resize shared memory segment
+    #     "/PostgreSQL.3042025728" to 4194304 bytes: No space left on device
+    #
+    # That is 4MB being refused. Measured on prod 2026-09-06 19:07:51 -- three parallel
+    # workers of ONE query failing together, with `docker exec kssl-db df -h /dev/shm`
+    # reporting a 64M filesystem while the host reported 343G free.
+    #
+    # What it took down was `route.py --enqueue`, the step that puts newly synced
+    # documents into the extract queue. The feeder logs that as "enqueue failed
+    # (continuing)" and carries on, so a cycle where NOTHING entered extraction looks
+    # exactly like a cycle with nothing to do. Nothing downstream notices; the queue just
+    # runs emptier than it should, and the fleet does correspondingly less work.
+    #
+    # It gets likelier as the tables grow, because the planner reaches for a parallel scan
+    # sooner -- max_connections above is sized for 198 workers, and every one of them can
+    # provoke a parallel plan. This is RAM-backed, not disk, and 1GB is what the postgres
+    # image's own documentation suggests for a server of this size.
+    shm_size: 1gb
     # max_connections is 300, not the default 60. Each extraction worker holds exactly one
     # connection for its whole life, so this number caps the worker fleet -- and the fleet is
     # the throughput ceiling: at 60 the GPU farms sat at ~0.9 concurrent requests per node
