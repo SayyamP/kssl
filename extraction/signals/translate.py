@@ -69,6 +69,10 @@ RULES
 - KEEP THESE EXACTLY AS WRITTEN, they are product names even where they are also
   ordinary words in their own language: %s
 - Translate only. Do not summarise, explain, correct, expand or add anything.
+- A line that mixes languages is still translated: put ALL of it into English.
+- An abbreviation written in another alphabet becomes its English equivalent, or a
+  transliteration when it has no English form: MЗС України -> Ukraine's MFA,
+  OOH -> UN, MKЧX -> ICRC.
 - If you cannot translate a line, copy it out unchanged.
 
 LINES

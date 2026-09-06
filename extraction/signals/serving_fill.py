@@ -1781,21 +1781,44 @@ def retranslate(dsn=DSN, limit=None, verbose=True, only=None, apply=False):
                                          lang, keep=product_names(cur, did), stats=stats)
         lens = [["STATEMENT", "%s — %s" % (esc(lead[i]), quote_html(q, lang))]
                 for i, (_s, _p, _o, q) in enumerate(props)]
-        cur.execute("SELECT lens FROM serving.signal_detail WHERE id=%s", (cid,))
-        old = cur.fetchone()[0]
-        old = old if isinstance(old, list) else json.loads(old or "[]")
-        if old == lens:
+        # AND THE PROSE, WHICH WAS ALREADY SUPPOSED TO BE ENGLISH. The card prompt says
+        # "Write title, what and sowhat in ENGLISH, whatever language the statements
+        # are in", and mostly the model obeys -- 0 of 949 titles are foreign. Mostly:
+        # 5 served rows are Dutch or German prose ("Defensie en Thales Nederland hebben
+        # een strategische samenwerking gesloten"). These are the model's own words,
+        # under no verbatim rule, so they are translated like the lead-in. Each field
+        # is judged on its own string, so an English one costs nothing.
+        cur.execute("""SELECT d.lens, d.what, d.why, c.sowhat
+                         FROM serving.signal_detail d
+                         LEFT JOIN serving.signal_card c ON c.id = d.id
+                        WHERE d.id=%s""", (cid,))
+        old_lens, old_what, old_why, old_sowhat = cur.fetchone()
+        old_lens = old_lens if isinstance(old_lens, list) else json.loads(old_lens or "[]")
+        prose = translate.translate_lines([old_what or "", old_why or "", old_sowhat or ""],
+                                          lang, stats=stats)
+        what2, why2, sowhat2 = prose
+        if old_lens == lens and (what2, why2, sowhat2) == (old_what or "", old_why or "",
+                                                           old_sowhat or ""):
             continue
         stats["changed"] += 1
         if verbose:
             print("  %s [%s]" % (cid, lang or "?"), flush=True)
-            for a, b in zip(old, lens):
+            for a, b in zip(old_lens, lens):
                 if a != b:
                     print("    - %s" % str(a[1])[:110])
                     print("    + %s" % str(b[1])[:110])
+            for nm, a, b in (("what", old_what, what2), ("why", old_why, why2),
+                             ("sowhat", old_sowhat, sowhat2)):
+                if (a or "") != b:
+                    print("    - %s: %s" % (nm, str(a)[:100]))
+                    print("    + %s: %s" % (nm, str(b)[:100]))
         if apply:
-            cur.execute("""UPDATE serving.signal_detail SET lens=%s, updated_at=now()
-                            WHERE id=%s""", (json.dumps(lens), cid))
+            cur.execute("""UPDATE serving.signal_detail
+                              SET lens=%s, what=%s, why=%s, updated_at=now()
+                            WHERE id=%s""", (json.dumps(lens), what2, why2, cid))
+            if old_sowhat is not None and sowhat2 != old_sowhat:
+                cur.execute("""UPDATE serving.signal_card SET sowhat=%s, updated_at=now()
+                                WHERE id=%s""", (sowhat2, cid))
     if apply:
         con.commit()
     print("retranslate: %d card(s) scanned, %d rewritten; lines %s%s"
