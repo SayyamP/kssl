@@ -8,6 +8,12 @@ services:
   db:
     image: postgres:16
     container_name: kssl-db
+    # Docker gives a container 64MB of /dev/shm, and postgres puts its parallel query
+    # workers there -- so a parallel scan fails with "DiskFull ... No space left on
+    # device" on a host with hundreds of gigabytes free. It cost prod an enqueue cycle
+    # on 2026-09-06; docker-compose.vps.yml carries the full account. Kept here so a dev
+    # database behaves like production rather than hiding the fault until it ships.
+    shm_size: 1gb
     environment:
       POSTGRES_PASSWORD: kssl
       POSTGRES_DB: kssl
