@@ -78,9 +78,37 @@ from aliases import (  # noqa: E402  (the repo's identity layer -- not a second 
 # Reading KSSL_CATS keeps ONE definition of what KSSL does -- the same one
 # serving_fill.kssl_cats() files cards into -- so the two cannot drift, and
 # test_threat_gate fails loudly if a category is renamed upstream.
+# AND IT MUST NOT DIE IF THE FILE IS NOT THERE. This module is copied into TWO images
+# at different depths: the extraction image has it at /app/signals/threat_gate.py, so
+# HERE.parent is /app and the dataset sits beside it; the backend image has it at
+# /app/threat_gate.py, so HERE.parent is / and there is no dataset at all. Reading the
+# file unconditionally at import therefore took the whole serving API down with
+# FileNotFoundError: '/reference_dataset.json' -- a category list is not worth a
+# crash-looping backend, and an import-time read is a dependency on layout that no
+# test in one image can see failing in the other.
+#
+# So: the file wins where it exists, and the labels below are the fallback. They are
+# the same nine, spelled the same way, and test_threat_gate asserts the two agree --
+# which is where a rename gets caught, because CI has the file.
+_KSSL_LINE_LABELS = (
+    "Artillery", "Ammunition", "Small Arms", "Protected & Armoured Vehicles",
+    "Armoured Vehicle MRO", "Marine / Naval", "UAVs & Drones",
+    "Missiles & Air Defence", "Precision Components & Forgings",
+)
+
+
 def _kssl_lines():
-    ref = json.loads((HERE.parent / "reference_dataset.json").read_text(encoding="utf-8"))
-    return frozenset(fold_name(c).strip() for c in ref["KSSL_CATS"] if isinstance(c, str))
+    for path in (HERE.parent / "reference_dataset.json",
+                 HERE / "reference_dataset.json",
+                 Path("/app") / "reference_dataset.json"):
+        try:
+            ref = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        cats = [c for c in (ref.get("KSSL_CATS") or []) if isinstance(c, str) and c.strip()]
+        if cats:
+            return frozenset(fold_name(c).strip() for c in cats)
+    return frozenset(fold_name(c).strip() for c in _KSSL_LINE_LABELS)
 
 
 KSSL_LINES = _kssl_lines()

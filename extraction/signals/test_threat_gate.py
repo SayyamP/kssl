@@ -298,6 +298,17 @@ for _tag in ("Protected & Armoured Vehicles", "UAVs & Drones", "Artillery",
     check("a card tagged %r touches a KSSL line" % _tag,
           tg.card_line({"tags": _tag}) in tg.KSSL_LINES, True)
 
+# THE FALLBACK MUST AGREE WITH THE FILE, and importing must never need the file.
+# threat_gate is copied into two images at different depths: /app/signals/ in the
+# extraction image (dataset beside it) and /app/ in the backend image (no dataset at
+# all). Reading it unconditionally at import crash-looped the serving API with
+# FileNotFoundError: '/reference_dataset.json' and took the dashboard down. CI runs
+# where the file IS present, so this is where a drift between the two is caught.
+check("the hand-listed fallback is exactly the file's vocabulary",
+      frozenset(tg.fold_name(c).strip() for c in tg._KSSL_LINE_LABELS), tg.KSSL_LINES)
+check("the fallback lists every category, not a subset",
+      len(tg._KSSL_LINE_LABELS), len(tg.KSSL_LINES))
+
 if bad:
     print("\n%d failure(s)" % bad)
     sys.exit(1)
