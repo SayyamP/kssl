@@ -100,6 +100,18 @@ feed_once() {
   #    the presignal gate refused, best-scoring first, and does nothing at all while real work
   #    exists. See route.backfill(); class is untouched, so fresh work still claims first.
   backfill_once
+  # 4. GAPS LAST. Which published column is empty on which competitor, and which corpus
+  #    documents would answer it -- queued at P1, because a document fetched BECAUSE a
+  #    column is blank outranks the next crawl batch. It rate-limits itself per field
+  #    (a corpus scan has no text index to lean on), so on the cycles where it declines
+  #    to run it costs one SELECT.
+  #
+  #    This is the step that stops "the Competitor tab is missing X" being a ticket.
+  #    Revenue, founding year and leadership were each noticed by a human, grepped by
+  #    hand, queued by hand and only then filled -- four manual steps, per field, that
+  #    only began when somebody complained. See backfill_gaps.py.
+  log "gaps: empty serving columns -> corpus search -> queue"
+  step gaps python3 "$HERE/backfill_gaps.py" --apply
 }
 
 backfill_once() {

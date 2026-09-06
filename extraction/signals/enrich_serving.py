@@ -3702,10 +3702,37 @@ def step_founded(cur, con, docs, props_by_doc, limit=None):
     return {"written": n, "companies": len(found)}
 
 
+def step_leadership(cur, con, docs, props_by_doc, limit=None):
+    """Fill serving.competitors.leadership -- the Profile panel's "Leadership" grid.
+
+    The column is served by the backend and rendered by the page, and NOTHING has ever
+    written it: 0 of 43 shown competitors had an officer, so the panel has read "No
+    executive officers published on public record." for every company on the dashboard.
+    Same shape as step_revenue and step_founded -- the caller's cursor, inside the pass,
+    after step_companies has re-inserted the rows.
+
+    See signals/fill_leadership.py for what counts as an officer. The short version is
+    that the role must be held NOW (the corpus names outgoing chiefs as often as sitting
+    ones) and held at THIS company -- "president of Naval Power at Raytheon" is a
+    division's office and "BAE Systems, Inc." is a different company from BAE Systems.
+    """
+    import fill_leadership
+    found = fill_leadership.collect(cur)
+    n = 0
+    for cid, rows in found.items():
+        cur.execute("UPDATE serving.competitors SET leadership = %s::jsonb "
+                    "WHERE comp_id = %s",
+                    (json.dumps(rows, ensure_ascii=False), cid))
+        n += cur.rowcount
+    con.commit()
+    print("leadership: %d competitor(s) given named officers" % n, flush=True)
+    return {"written": n, "companies": len(found)}
+
+
 # ----------------------------------------------------------------------------- driver
 
 STEPS = [("companies", step_companies), ("news", step_news), ("revenue", step_revenue),
-         ("founded", step_founded),
+         ("founded", step_founded), ("leadership", step_leadership),
          ("partnerships", step_partnerships),
          ("structure", step_structure), ("metrics", step_metrics),
          ("geo", step_geo), ("tenders", step_tenders),
