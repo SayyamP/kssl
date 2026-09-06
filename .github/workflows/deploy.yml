@@ -242,8 +242,34 @@ jobs:
             if getent hosts "$HOST" >/dev/null 2>&1; then
               echo "::error::DNS: VPS_HOST resolves."
               if timeout 10 bash -c "cat < /dev/null > /dev/tcp/$HOST/$PORT" 2>/dev/null; then
-                echo "::error::TCP: port $PORT accepts a connection, so this is ssh-level"
-                echo "::error::(host key, or sshd refusing this user/key), not reachability."
+                # ACCEPTING A CONNECTION IS NOT THE SAME AS ANSWERING IT, and the
+                # difference is the whole diagnosis. This branch used to conclude
+                # "ssh-level (host key, or sshd refusing this user/key)" from the TCP
+                # connect alone. That inference is impossible: sshd sends its version
+                # banner BEFORE it looks at a host key or a user, so a refusal always
+                # arrives after "SSH-2.0-...". A reset with ZERO bytes cannot be sshd
+                # refusing anything -- it is a listener with no ssh service behind it.
+                # On 2026-09-06 that wrong sentence sent the staging investigation at
+                # sshd config and keys for hours while the box was accepting on 2222
+                # and answering nothing, and serving HTTP on :80 the whole time.
+                #
+                # So read the banner and let it decide. `head -c` returns as soon as
+                # the peer closes, and the timeout covers a peer that just holds on.
+                BANNER="$(timeout 8 bash -c "exec 3<>/dev/tcp/$HOST/$PORT; head -c 20 <&3" 2>/dev/null | tr -dc '\40-\176')"
+                if [ -z "$BANNER" ]; then
+                  echo "::error::TCP: port $PORT accepts, then closes WITHOUT AN SSH BANNER."
+                  echo "::error::That is not sshd rejecting this key -- sshd always greets first."
+                  echo "::error::Something is bound to the port with no working ssh behind it:"
+                  echo "::error::a socket unit whose per-connection service fails, a stale"
+                  echo "::error::docker port-publish for a stopped container, or a non-ssh"
+                  echo "::error::service. Fix it ON THE HOST; no key or workflow change helps."
+                elif [ "${BANNER#SSH-}" != "$BANNER" ]; then
+                  echo "::error::TCP: port $PORT answers with an ssh banner ($BANNER), so this"
+                  echo "::error::IS ssh-level: host key, this user/key, or a rate limit."
+                else
+                  echo "::error::TCP: port $PORT answers, but not with an ssh banner. Something"
+                  echo "::error::other than sshd is listening, or VPS_SSH_PORT is the wrong port."
+                fi
               else
                 echo "::error::TCP: port $PORT does NOT accept a connection from this runner,"
                 echo "::error::while DNS resolves. So the address is routable but the port is"
