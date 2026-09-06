@@ -166,6 +166,11 @@ jobs:
           # JML, now JCBL South)" is a going concern, and "ended 2007" would be a
           # false claim published about a real company.
           python backfill_tie_status.py --demo
+          # The translation layer: which strings are sent to the model, which answers
+          # are allowed to be stored, and that a failure returns the original rather
+          # than an invention. Its gate is measured, not asserted -- 0 of 600 real
+          # English lead-ins are refused, where is_english() refused 16.3% of them.
+          python translate.py
           for t in test_*.py; do
             echo "== $t"
             python "$t"
