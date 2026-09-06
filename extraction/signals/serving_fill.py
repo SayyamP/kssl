@@ -1819,8 +1819,17 @@ def retranslate(dsn=DSN, limit=None, verbose=True, only=None, apply=False):
             if old_sowhat is not None and sowhat2 != old_sowhat:
                 cur.execute("""UPDATE serving.signal_card SET sowhat=%s, updated_at=now()
                                 WHERE id=%s""", (sowhat2, cid))
+            # COMMIT PER CARD. A single commit after the loop meant a pass that died --
+            # or was simply still running -- had written nothing at all: 104 cards and
+            # 25 minutes of model work sat in an open transaction, invisible, and a
+            # timeout would have discarded every one of them. This is the same shape
+            # step_partnerships was fixed for, reproduced here. The entrypoint runs this
+            # with --limit 200 every signals cycle, so the window was ~25 minutes of
+            # work per cycle riding on nothing going wrong. Each card is independent,
+            # so each card is its own unit of progress.
+            con.commit()
     if apply:
-        con.commit()
+        con.commit()                      # anything the last card left open
     print("retranslate: %d card(s) scanned, %d rewritten; lines %s%s"
           % (stats["cards"], stats["changed"],
              {k: v for k, v in sorted(stats.items()) if k not in ("cards", "changed")},
