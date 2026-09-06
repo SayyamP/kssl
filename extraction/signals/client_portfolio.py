@@ -99,11 +99,6 @@ def _engine_tiers():
 TIERS = _engine_tiers()
 publishable, st_domain = TIERS.publishable, TIERS.domain
 
-# The field vocabulary: which two labels are one measurement, and which measurements the
-# bore governs. Imported here (and lazily back, inside spec_join's functions) so there is
-# one table, not a copy per caller.
-import spec_join                                                  # noqa: E402
-
 # ---------------------------------------------------------------------------
 # category map: the workbook's heading -> the dashboard's (label, catKey)
 # ---------------------------------------------------------------------------
@@ -252,15 +247,7 @@ _UNITS = {
     "h": ("time", 1.0), "hr": ("time", 1.0), "hours": ("time", 1.0), "min": ("time", 1 / 60.0), "minutes": ("time", 1 / 60.0),
     "count": ("count", 1.0),
 }
-# The imperial surfaces the client's own pages write ("508 mm (20 in)", "8 lb") were
-# missing, so those values came back with NO unit at all and could not be compared
-# against a metric one. Adding them here is safe in a way adding them to
-# revive_matchups.UNIT_FORMS would not be: this regex is asked only about a workbook
-# CELL, where the token sits beside its number, never about document prose, where
-# "in" is an English word. `_UNITS` deliberately does NOT gain them, so Fit.side
-# behaves exactly as before -- a unit it cannot size is refused, as it always was.
-_UNIT_RX = re.compile(r"(?<![a-z])(mm|km/h|km|kg|tonnes|tonne|t|m/s|mph|m|cm|ft|"
-                      r"inches|inch|in|lbs|lb|hp|kw|hr|hours|h|minutes|min)(?![a-z])")
+_UNIT_RX = re.compile(r"(?<![a-z])(mm|km/h|km|kg|tonnes|tonne|t|m/s|m|hp|kw|hr|hours|h|minutes|min)(?![a-z])")
 
 REFUSALS = collections.Counter()
 
@@ -665,18 +652,8 @@ def match(bf, catkey, archive_specs, rows):
 
 
 def kssl_side(fit, label, unit, archive_kv=None):
-    """The one call revive_matchups makes per spec row. Applies the bore rule.
-
-    THE BORE RULE IS ABOUT A FIELD, NOT ABOUT A ROW. It used to refuse every label
-    except "Calibre" the moment two products differed in bore. That is right for the
-    measurements the cartridge governs -- a 105 mm gun's range is not a figure to set
-    beside a 155 mm gun's -- and it was applied to all of them: measured on matchup
-    20102 (CQB Carbine vs AK-203) it removed four of the five labels the archive held,
-    including a mass in kilograms and a barrel length in millimetres, neither of which
-    changes meaning because the rival fires a different round. spec_join.BORE_SENSITIVE
-    states which fields the bore actually decides, and it is the only list; adding to it
-    costs a comparison, leaving one out publishes a wrong one."""
-    if fit.bore and spec_join.field_of(label) in spec_join.BORE_SENSITIVE:
+    """The one call revive_matchups makes per spec row. Applies the bore rule."""
+    if fit.bore and label != "Calibre":
         return Refusal("bore differs (%g vs %g mm): not a like-for-like pairing" % fit.bore)
     return fit.side(label, unit, archive_kv)
 

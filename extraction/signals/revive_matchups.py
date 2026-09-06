@@ -61,7 +61,6 @@ import client_portfolio  # noqa: E402
 import pairing  # noqa: E402
 import positioning_gate  # noqa: E402
 import spec_direction  # noqa: E402
-import spec_join  # noqa: E402
 
 publishable, st_domain = client_portfolio.publishable, client_portfolio.st_domain
 
@@ -1079,53 +1078,19 @@ def rebuild(row, docs, prows=()):
         rep["drop"] = "no rival value could be sourced: nothing to position against"
         return None, rep
 
-    # KSSL'S OWN PUBLISHED SPECIFICATIONS, keyed by field.
-    #
-    # Until now the ARCHIVE's label list was the ceiling on how many of the client's
-    # figures could ever appear: the loop above walks `specs` and asks the workbook only
-    # about a label the archive already named. The archive names five for a small arm;
-    # the client publishes 28 for the CQB Carbine on the page the operator linked, and
-    # 23 of them had no label to hang on, so they were never looked at -- on this row or
-    # any other. spec_join.join appends them, each carrying its field key, each marked
-    # `noCounterpart` where the rival side states nothing.
-    #
-    # AFTER the two guards above, deliberately. A row with no grounded spec, or with no
-    # rival value at all, is still not a comparison, and the client's own catalogue must
-    # not be what creates one -- that is the rule that stopped the workbook carrying 151
-    # of the first 200 archive rows onto the dashboard positioned against nothing.
-    all_specs = kept_specs
-    if fit and len(fit.rows) == 1:
-        all_specs, jrep = spec_join.join(kept_specs, fit.rows[0],
-                                         bore_differs=bool(fit.bore))
-        rep["client_specs_added"] = jrep["added"]
-        rep["client_specs_filled"] = jrep["filled"]
-    elif fit:
-        # An alias that resolves to a GROUP (Shell forgings is four workbook rows) has
-        # no single product's figure to state. The existing consensus path already
-        # handles the labels the archive named; nothing is invented for the rest.
-        rep["client_specs_added"] = 0
-        client_portfolio.REFUSALS["alias resolves to a group of workbook rows: "
-                                  "no single product's figure to append"] += 1
-
     # edge and verdict are RECOMPUTED from what survived, through the one definition
     # of each (edge_of / verdict_of above). Copying the archive's verdict -- written
     # about ten specs -- onto the two that could be grounded would be the worst
     # outcome of the three.
-    #
-    # Computed over spec_join.scored() -- the COMPARISONS. A KSSL value with no
-    # counterpart is a fact about KSSL, not a comparison, and counting it in "N value(s)
-    # sourced, none comparable on both sides" would make that sentence claim rival
-    # figures the panel does not have.
-    shown = spec_join.scored(all_specs)
-    edge = edge_of(shown)
+    edge = edge_of(kept_specs)
     who_c, who_k = (compby or comp), (bfby or bf)
-    verdict = verdict_of(shown, who_c, who_k)
+    verdict = verdict_of(kept_specs, who_c, who_k)
     srcs = [{"url": u, "label": u.split("//")[-1].split("/")[0]} for u in sorted(used)]
     rep["srcs"] = [s["url"] for s in srcs]
     # The reason states plainly what was and was not carried over, so a reader is
     # never left to assume the missing specs were "not applicable" rather than
     # "we could not source them".
-    n_off = sum(1 for s in shown if "official" in (s.get("tierC"), s.get("tierK")))
+    n_off = sum(1 for s in kept_specs if "official" in (s.get("tierC"), s.get("tierK")))
     reason = ("<b>%s</b> (%s) is compared with KSSL's <b>%s</b> in %s. "
               "%d of the %d specification(s) held for this pairing are shown; each one "
               "is either published by the manufacturer or a government source (%d here), "
@@ -1133,11 +1098,11 @@ def rebuild(row, docs, prows=()):
               "rather than displayed because no source good enough carries them. Every "
               "number below names the page it came from."
               % (product_of(comp), compby or "unknown maker", product_of(bf),
-                 cat or "this category", len(shown), len(specs or []), n_off,
-                 len(specs or []) - len(shown)))
+                 cat or "this category", len(kept_specs), len(specs or []), n_off,
+                 len(specs or []) - len(kept_specs)))
     det = [["Competitor", compby or comp], ["HQ / origin", country or "not stated"],
            ["Category", cat or "-"], ["KSSL counterpart", product_of(bf)],
-           ["Specs shown", "%d of %d held" % (len(shown), len(specs or []))],
+           ["Specs shown", "%d of %d held" % (len(kept_specs), len(specs or []))],
            ["Sources", "%d document(s)" % len(srcs)],
            ["Source rule", "manufacturer or government publisher, or two independent "
                            "sources; anything less is archived, not shown"]]
@@ -1150,21 +1115,12 @@ def rebuild(row, docs, prows=()):
                    "states the same measurement; a workbook figure that measures something "
                    "else (a link range, a burst rate, a variant set) is shown as text and "
                    "never scored.")
-    # STATED, AND NOT SCORED. Say how many of the client's own published figures are on
-    # the panel with nothing to compare them to, so a reader is never left to read an
-    # empty rival column as a KSSL lead.
-    n_own = len(all_specs) - len(shown)
-    if n_own:
-        det.append(["KSSL published, no counterpart",
-                    "%d value(s) KSSL publishes for this product that no source states "
-                    "for the rival; shown as KSSL's own statement, scored for neither "
-                    "side" % n_own])
     return {"cat": cat, "anchor": anchor, "comp": comp, "compBy": compby, "bf": bf,
             "bfBy": bfby, "country": country, "dir": direction, "catKey": catkey,
-            "specs": all_specs, "advComp": kc, "advBf": kb, "edge": edge,
+            "specs": kept_specs, "advComp": kc, "advBf": kb, "edge": edge,
             "verdict": verdict, "srcs": srcs, "reason": reason, "det": det,
             "verdictH": "Positioning verdict — %s" % (cat or ""),
-            "ks_thin": len(shown) == 0}, rep
+            "ks_thin": len(kept_specs) == 0}, rep
 
 
 def main(apply=False, limit=None, portfolio_json=None):
