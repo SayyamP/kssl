@@ -686,6 +686,28 @@ def _stage(stage, status, component, **kw):
     return out
 
 
+def _has_column(cur, schema, table, col):
+    """True if the column exists -- lineage columns are optional until their migration runs."""
+    cur.execute("SELECT 1 AS t FROM information_schema.columns WHERE table_schema=%s "
+                "AND table_name=%s AND column_name=%s", (schema, table, col))
+    return bool(cur.fetchone())
+
+
+def _finish(did, stages):
+    """The 200 body. Extracted so an early recorded-enrichment return builds the same shape."""
+    return 200, {
+        "document_id": did,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+        "stage_order": ["raw_corpus", "gate", "extracted_document", "propositions",
+                        "extraction_run", "signal_card", "signal_detail",
+                        "prop_to_card_link", "api_destination", "ui_destination",
+                        "enrichment"],
+        "stages": stages,
+        "known_gaps": _KNOWN_GAPS,
+    }
+
+
 def build_lineage(cur, document_id):
     """-> (http_status, body). Pure over a DB cursor so it is testable with a fake one.
 
@@ -849,8 +871,21 @@ def build_lineage(cur, document_id):
                    % detail.get("translated"),
             record=detail, downstream_ref="/api/dataset signal_detail[%s]" % card_id))
 
-    # prop -> card link: RECONSTRUCTED ONLY, by quote overlap. Never asserted as recorded.
-    if props and (card or detail):
+    # prop -> card link. RECORDED when serving.signal_card.source_prop_ids is populated
+    # (2026-09-07 lineage columns); otherwise the old quote-overlap RECONSTRUCTION, which
+    # is honest about being a guess and empty for translated cards.
+    stored_props = (card or {}).get("source_prop_ids")
+    if card is not None and stored_props is not None:
+        stages.append(_stage(
+            "prop_to_card_link", "recorded",
+            "serving.signal_card.source_prop_ids (written by serving_fill.py)",
+            identifier=card_id,
+            source_prop_ids=stored_props,
+            source_run_id=(card or {}).get("source_run_id"),
+            source_doc_ids=(card or {}).get("source_doc_ids"),
+            note="Authoritative: these are the proposition indices fed to the card, "
+                 "recorded at write time -- not a quote-match guess."))
+    elif props and (card or detail):
         hay = " ".join(str(v) for v in [
             card.get("title") if card else "", card.get("lens") if card else "",
             card.get("sowhat") if card else "",
@@ -867,7 +902,9 @@ def build_lineage(cur, document_id):
             matched_proposition_indices=matched,
             note=("No overlap found: the card text is translated from source-language "
                   "propositions, so quotes do not match literally. The link is genuinely "
-                  "not recoverable from stored data." if not matched else
+                  "not recoverable from stored data. (Recorded provenance is available "
+                  "once the row is rewritten under the 2026-09-07 lineage columns.)"
+                  if not matched else
                   "Overlap is a heuristic guess, not a recorded fact.")))
 
     # 8. API DESTINATION + 9. UI DESTINATION (deterministic code paths) -------------------
@@ -884,7 +921,23 @@ def build_lineage(cur, document_id):
             identifier=_LANE_TO_UI.get(lane, "(unknown lane -> no mapped page)"),
             method="lane->page mapping lives in frontend code, not in data"))
 
-    # ENRICHMENT: show the systemic gap, and the only available reconstruction (URL match).
+    # ENRICHMENT. RECORDED when serving.partner.source_doc_ids lists this document
+    # (2026-09-07 lineage columns); otherwise fall back to the URL-string reconstruction.
+    partner_lineage = rec_of(one(
+        "SELECT to_jsonb(p) AS rec FROM serving.partner p "
+        "WHERE p.source_doc_ids IS NOT NULL AND %s = ANY(p.source_doc_ids)", (did,))) \
+        if _has_column(cur, "serving", "partner", "source_doc_ids") else None
+    if partner_lineage:
+        stages.append(_stage(
+            "enrichment", "recorded",
+            "serving.partner.source_doc_ids (written by enrich_serving.py)",
+            identifier=did, record=partner_lineage,
+            downstream_ref="/api/dataset partner[]",
+            note="Authoritative: this document is listed in this partner row's "
+                 "source_doc_ids (multi-document ties keep every contributing id)."))
+        return _finish(did, stages)
+
+    # URL-string reconstruction (no recorded link for this document's enrichment).
     enrich_hits = []
     if doc_url:
         for tbl, col in (("serving.competitor_news", "url"), ("serving.partner", "src"),
@@ -911,18 +964,7 @@ def build_lineage(cur, document_id):
                      "document_id": did,
                      "checked": ["public.documents", "extracted.document",
                                  "extracted.proposition", "serving.signal_card"]}
-
-    return 200, {
-        "document_id": did,
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "read_only": True,
-        "stage_order": ["raw_corpus", "gate", "extracted_document", "propositions",
-                        "extraction_run", "signal_card", "signal_detail",
-                        "prop_to_card_link", "api_destination", "ui_destination",
-                        "enrichment"],
-        "stages": stages,
-        "known_gaps": _KNOWN_GAPS,
-    }
+    return _finish(did, stages)
 
 
 @app.get("/api/lineage/doc/{document_id}")

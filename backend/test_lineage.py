@@ -176,10 +176,57 @@ def test_endpoint_is_read_only():
     print("  ok  every statement is a SELECT; endpoint performs no writes")
 
 
+def leonardo_rows_lineage():
+    """Leonardo chain WITH the 2026-09-07 lineage columns populated."""
+    rows = leonardo_rows()
+    rows["FROM serving.signal_card"]["rec"].update({
+        "source_doc_ids": [DID], "source_run_id": "run-20260901-235140",
+        "source_prop_ids": [0, 1]})
+    rows["FROM serving.signal_detail"]["rec"].update({
+        "source_doc_ids": [DID], "source_run_id": "run-20260901-235140",
+        "source_prop_ids": [0, 1]})
+    rows["information_schema.columns"] = {"t": 1}      # _has_column -> True
+    rows["FROM serving.partner p WHERE p.source_doc_ids"] = {"rec": {
+        "id": "plp_01", "label": "Consorzio CIO", "origin": "pipeline",
+        "source_doc_ids": [DID, "doc_other_source"]}}
+    return rows
+
+
+def test_recorded_prop_link_when_column_present():
+    code, body = app.build_lineage(FakeCur(leonardo_rows_lineage()), DID)
+    link = _stage(body, "prop_to_card_link")
+    assert link["status"] == "recorded", link
+    assert link["source_prop_ids"] == [0, 1], link
+    assert link["source_run_id"] == "run-20260901-235140"
+    assert "authoritative" in link["note"].lower()
+    print("  ok  prop->card link RECORDED from source_prop_ids when the column is populated")
+
+
+def test_recorded_enrichment_preserves_multiple_docs():
+    code, body = app.build_lineage(FakeCur(leonardo_rows_lineage()), DID)
+    enr = _stage(body, "enrichment")
+    assert enr["status"] == "recorded", enr
+    # multi-document provenance must be preserved, not collapsed to one source
+    assert enr["record"]["source_doc_ids"] == [DID, "doc_other_source"], enr
+    print("  ok  enrichment RECORDED via source_doc_ids, multiple docs preserved")
+
+
+def test_existing_behavior_unchanged_when_lineage_null():
+    # No lineage columns populated -> the endpoint falls back exactly as before.
+    code, body = app.build_lineage(FakeCur(leonardo_rows()), DID)
+    assert code == 200
+    assert _stage(body, "prop_to_card_link")["status"] == "reconstructed"
+    assert _stage(body, "enrichment")["status"] in ("reconstructed", "provenance_unavailable")
+    print("  ok  lineage NULL -> unchanged reconstructed/unavailable behavior")
+
+
 if __name__ == "__main__":
     test_leonardo_chain()
     test_prop_to_card_is_reconstructed_not_recorded()
     test_nonexistent_returns_404()
     test_missing_lineage_is_explicit_not_invented()
     test_endpoint_is_read_only()
+    test_recorded_prop_link_when_column_present()
+    test_recorded_enrichment_preserves_multiple_docs()
+    test_existing_behavior_unchanged_when_lineage_null()
     print("ok - lineage POC: recorded chain traced, gaps explicit, read-only")
