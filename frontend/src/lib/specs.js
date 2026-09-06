@@ -164,7 +164,17 @@ function specRowQual(s) {
   const cpv = s.cp || s.p;
   const kpv = s.kp || s.p;
   const has = (v) => v != null && v !== "" && v !== "—";
-  const cv = has(s.cv) ? specValueWithUnit(s.cv, s.u) : '<span class="sb-nosrc">not sourced</span>';
+  /* "not sourced" and "nobody published one" are two different facts about an empty
+     rival column, and the panel used to print the first over both. `noCounterpart` is
+     set by extraction/signals/spec_join.py on a value KSSL publishes and the rival
+     simply does not state -- 27 of the 28 specifications on the CQB Carbine's own page.
+     Saying "not sourced" there reads as a failure of ours; it is an absence of theirs,
+     and either way it scores for nobody (cn stays null, so the row never becomes a
+     bar). */
+  const missing = s.noCounterpart
+    ? '<span class="sb-nosrc">no counterpart published</span>'
+    : '<span class="sb-nosrc">not sourced</span>';
+  const cv = has(s.cv) ? specValueWithUnit(s.cv, s.u) : missing;
   const kv = has(s.kv) ? specValueWithUnit(s.kv, s.u) : '<span class="sb-nosrc">not sourced</span>';
   return (
     `<div class="specbar"><div class="sb-label">${s.l}</div>` +
@@ -242,7 +252,9 @@ export function specPanelHtml(m) {
         const cKnown = s.cv != null && s.cv !== "" && s.cv !== "—";
         const cChip = cKnown
           ? `<div class="sb-chip comp">${specValueWithUnit(s.cv, s.u)}</div>`
-          : '<div class="sb-chip comp undisc">not sourced</div>';
+          : s.noCounterpart
+            ? '<div class="sb-chip comp undisc">no counterpart published</div>'
+            : '<div class="sb-chip comp undisc">not sourced</div>';
         const kChip = kvKnown(s)
           ? `<div class="sb-chip bf">${specValueWithUnit(s.kv, s.u)}${dot}</div>`
           : '<div class="sb-chip bf undisc">KSSL — not sourced</div>';

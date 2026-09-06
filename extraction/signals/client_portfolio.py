@@ -99,6 +99,7 @@ def _engine_tiers():
 TIERS = _engine_tiers()
 publishable, st_domain = TIERS.publishable, TIERS.domain
 
+
 # ---------------------------------------------------------------------------
 # category map: the workbook's heading -> the dashboard's (label, catKey)
 # ---------------------------------------------------------------------------
@@ -247,7 +248,15 @@ _UNITS = {
     "h": ("time", 1.0), "hr": ("time", 1.0), "hours": ("time", 1.0), "min": ("time", 1 / 60.0), "minutes": ("time", 1 / 60.0),
     "count": ("count", 1.0),
 }
-_UNIT_RX = re.compile(r"(?<![a-z])(mm|km/h|km|kg|tonnes|tonne|t|m/s|m|hp|kw|hr|hours|h|minutes|min)(?![a-z])")
+# The imperial surfaces the client's own pages write ("508 mm (20 in)", "8 lb") were
+# missing, so those values came back with NO unit at all and could not be compared
+# against a metric one. Adding them here is safe in a way adding them to
+# revive_matchups.UNIT_FORMS would not be: this regex is asked only about a workbook
+# CELL, where the token sits beside its number, never about document prose, where
+# "in" is an English word. `_UNITS` deliberately does NOT gain them, so Fit.side
+# behaves exactly as before -- a unit it cannot size is refused, as it always was.
+_UNIT_RX = re.compile(r"(?<![a-z])(mm|km/h|km|kg|tonnes|tonne|t|m/s|mph|m|cm|ft|"
+                      r"inches|inch|in|lbs|lb|hp|kw|hr|hours|h|minutes|min)(?![a-z])")
 
 REFUSALS = collections.Counter()
 
@@ -652,7 +661,15 @@ def match(bf, catkey, archive_specs, rows):
 
 
 def kssl_side(fit, label, unit, archive_kv=None):
-    """The one call revive_matchups makes per spec row. Applies the bore rule."""
+    """The one call revive_matchups makes per spec row. Applies the bore rule.
+
+    UNCHANGED, ON PURPOSE. Widening this to a per-field rule was tried and reverted:
+    test_client_portfolio's Garuda 105 case is the reason. A 105 mm gun weighs a third
+    of a 155 mm gun, `Weight` is hi=False, and letting the lighter one through here
+    would have SCORED a class difference as a KSSL lead -- the exact fault
+    positioning_gate exists to stop. A figure this rule refuses is not lost: spec_join
+    still puts KSSL's published value on the panel as its own stated value, with no
+    number attached to it, so it can be read and cannot decide anything."""
     if fit.bore and label != "Calibre":
         return Refusal("bore differs (%g vs %g mm): not a like-for-like pairing" % fit.bore)
     return fit.side(label, unit, archive_kv)

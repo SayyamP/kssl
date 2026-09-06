@@ -41,6 +41,7 @@ that cannot read the roster gets an exception it must handle, not a green light.
 """
 import re
 import sys
+import json
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -55,10 +56,34 @@ from aliases import (  # noqa: E402  (the repo's identity layer -- not a second 
 # KSSL's own lines. These are labels from KSSL_CATS (reference_dataset.json), folded.
 # serving_fill imported to hold its own copy as _CORE_CATS; two copies of the list that
 # decides what "touches KSSL" is how one of them goes stale, so this is now the only one.
-KSSL_LINES = frozenset({
-    "artillery", "ammunition", "protected & armoured vehicles",
-    "armoured vehicle mro", "small arms", "uavs & drones",
-})
+#
+# READ FROM THE VOCABULARY AND FOLDED THE SAME WAY ITS INPUTS ARE. Typing the set
+# by hand went wrong twice at once, and both faults were silent:
+#
+#   SPELLING. The labels were typed in their human form while every value compared
+#   against them arrives through fold_name(), which rewrites "&" as "and". So a card
+#   tagged "Protected & Armoured Vehicles" folded to "protected and armoured
+#   vehicles" and missed a set holding "protected & armoured vehicles". The two
+#   categories containing an "&" are the two biggest on the board -- 24 Protected &
+#   Armoured Vehicles cards and 17 UAVs & Drones cards, 41 of the 74 threat cards --
+#   and every one was graded "no KSSL line" and demoted to watch. Artillery,
+#   Ammunition and Small Arms carry no "&", matched, and made the rule look sound.
+#
+#   COVERAGE. Six of the nine categories were listed. The three left out -- Marine /
+#   Naval, Missiles & Air Defence, Precision Components & Forgings -- are all lines
+#   the client's own product workbook carries: naval guns and propulsion shafting,
+#   Spike and MRSAM sub-assemblies and CIWS ammunition, and forgings, which is the
+#   founding business. A card in any of them was graded as touching nothing KSSL sells.
+#
+# Reading KSSL_CATS keeps ONE definition of what KSSL does -- the same one
+# serving_fill.kssl_cats() files cards into -- so the two cannot drift, and
+# test_threat_gate fails loudly if a category is renamed upstream.
+def _kssl_lines():
+    ref = json.loads((HERE.parent / "reference_dataset.json").read_text(encoding="utf-8"))
+    return frozenset(fold_name(c).strip() for c in ref["KSSL_CATS"] if isinstance(c, str))
+
+
+KSSL_LINES = _kssl_lines()
 
 # The only values serving.competitors.threat may hold. It is a LEVEL, and the migration
 # that ships with this module adds the CHECK constraint that says so -- two production

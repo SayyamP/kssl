@@ -306,9 +306,25 @@ def key_of(name):
 # Profile panel as an annual revenue of "Not publicly disclosed -- privately held;
 # historical SIDM directory classified company as <=Rs100 crore turnover in FY2018-19".
 # The honest rendering of an unknown value is the dash the column already falls back to.
-_NO_FIGURE = re.compile(r"\b(not (?:publicly )?(?:disclosed|available|published|reported)"
+#
+# 2026-09-06: THE SAME SENTENCE APPEARS ONE COLUMN TO THE LEFT. A SPECIFICATION cell
+# declines to state a figure in the same words a revenue cell does -- "detailed
+# displacement/power not publicly exposed on current page", "PLR-specific variant
+# datasheet is not publicly complete", "detailed performance figures not publicly
+# disclosed in the cited source" -- and competitor_specs.py has to strike that clause
+# before the bullet around it becomes a served number. Every alternative added below
+# is a real phrase from Defence_Competitor_MASTER_DATASET_CORRECTED_2026-09-06.xlsx;
+# none can occur in a revenue cell that states an amount (checked against all 50, and
+# the demo's positive cases are asserted below).
+_NO_FIGURE = re.compile(r"\b(not (?:publicly |consistently |fully |currently )?"
+                        r"(?:disclosed|available|published|reported|exposed|complete|"
+                        r"stated|specified|established|identified|released|detailed)"
                         r"|undisclosed|not disclosed|no public (?:figure|filing)"
-                        r"|figures? not|n/?a)\b", re.I)
+                        r"|figures? not|not all numerical|n/?a)\b", re.I)
+# Public alias. `_NO_FIGURE` states ONE rule about one kind of sentence, and a private
+# fourth copy of it is what this repo keeps paying for -- withhold_matchups._NOFIG is
+# already the third. competitor_specs.py imports THIS name rather than writing a fifth.
+NO_FIGURE = _NO_FIGURE
 # A SEGMENT OF SOMETHING ELSE IS NOT THE COMPANY. The workbook offered Oshkosh Defense
 # its parent's "Oshkosh Corporation Transport segment sales" -- a different segment of
 # the same group, which is neither the roster entity's revenue nor its parent's.
@@ -333,6 +349,54 @@ def _leads_with_another_segment(text):
     return bool(_SEGMENT.search(head))
 
 
+def match_companies(roster, names):
+    """{workbook company name: roster row} for the names that reach a roster row.
+
+    THE SPELLING IS NOT THE COMPANY, AND THIS FILE IS THE THIRD PLACE TO LEARN IT.
+
+    36 of 50 workbook rows reach a roster row on the folded key `key_of`. Seven roster
+    rows are missed by wording alone -- "Hanwha (Aerospace/Group)" against "Hanwha
+    Aerospace", "Kalashnikov Concern" against "Kalashnikov", and "Larsen &amp; Toubro",
+    whose roster name is HTML-escaped. aliases.same_org already decides this for the
+    news writer and for the pairing gate; it decides it here too rather than growing
+    the private ALIAS map a fourth time.
+
+    ONLY WHEN UNAMBIGUOUS. "RTX (Raytheon)" reaches both the RTX and the Raytheon roster
+    rows, and "KNDS Germany" and "Nexter (KNDS France)" both reach "KNDS". A fallback
+    that guessed would put one company's headquarters on another's profile, so a
+    workbook row with two candidates -- or a roster row with two suitors -- is left for
+    a human instead. A name absent from the result is UNMATCHED, never defaulted.
+
+    `roster` is any sequence of rows whose [0] is the id and [1] the display name, so
+    the caller chooses the columns and the WHERE clause. Extracted from plan_profiles
+    on 2026-09-06 because competitor_specs.py must resolve the very same 50 names
+    against the very same roster -- and has to ask it twice, once against the served
+    rows and once against the reference ones, which is the whole point of running it
+    over a caller-chosen row set.
+    """
+    import html
+    from aliases import same_org
+    have = {key_of(r[1]): r for r in roster}
+    out = {}
+    for n in names:
+        r = have.get(key_of(n))
+        if r is not None:
+            out[n] = r
+    claimed = {key_of(r[1]) for r in out.values()}
+    free = [r for r in roster if key_of(r[1]) not in claimed]
+    loose = {}
+    for n in names:
+        if n in out:
+            continue
+        hits = [r for r in free if same_org(n, html.unescape(r[1] or ""))]
+        if len(hits) == 1:
+            loose.setdefault(key_of(hits[0][1]), []).append((n, hits[0]))
+    for _k, pairs in loose.items():
+        if len(pairs) == 1:                     # one suitor, or nobody
+            out[pairs[0][0]] = pairs[0][1]
+    return out
+
+
 def plan_profiles(cur, profiles):
     """Which competitor rows have a blank this workbook can fill. Reads only."""
     cur.execute("SELECT comp_id, name, hq, starting_year, company_size, sales, country "
@@ -340,41 +404,11 @@ def plan_profiles(cur, profiles):
     rows = cur.fetchall()
     have = {key_of(n): (cid, n, hq, yr, sz, sl, ctry)
             for cid, n, hq, yr, sz, sl, ctry in rows}
-
-    # THE SPELLING IS NOT THE COMPANY, AND THIS FILE IS THE THIRD PLACE TO LEARN IT.
-    #
-    # 36 of 50 workbook rows reach a roster row on the folded key above. Seven roster
-    # rows are missed by wording alone -- "Hanwha (Aerospace/Group)" against "Hanwha
-    # Aerospace", "Kalashnikov Concern" against "Kalashnikov", and "Larsen &amp;
-    # Toubro", whose roster name is HTML-escaped. aliases.same_org already decides
-    # this for the news writer and for the pairing gate; it decides it here too
-    # rather than growing the private ALIAS map a fourth time.
-    #
-    # ONLY WHEN UNAMBIGUOUS. "RTX (Raytheon)" reaches both the RTX and the Raytheon
-    # roster rows, and "KNDS Germany" and "Nexter (KNDS France)" both reach "KNDS".
-    # A fallback that guessed would put one company's headquarters on another's
-    # profile, so a workbook row with two candidates -- or a roster row with two
-    # suitors -- is left for a human instead.
-    import html
-    from aliases import same_org
-    claimed = {key_of(p["company"]) for p in profiles if key_of(p["company"]) in have}
-    free = [(cid, n, hq, yr, sz, sl, ctry) for cid, n, hq, yr, sz, sl, ctry in rows
-            if key_of(n) not in claimed]
-    loose = {}
-    for p in profiles:
-        if key_of(p["company"]) in have:
-            continue
-        hits = [r for r in free if same_org(p["company"], html.unescape(r[1] or ""))]
-        if len(hits) == 1:
-            loose.setdefault(key_of(hits[0][1]), []).append((p["company"], hits[0]))
-    resolved = {}
-    for _k, pairs in loose.items():
-        if len(pairs) == 1:                     # one suitor, or nobody
-            resolved[pairs[0][0]] = pairs[0][1]
+    matched = match_companies(rows, [p["company"] for p in profiles])
 
     updates, unmatched = [], []
     for p in profiles:
-        row = have.get(key_of(p["company"])) or resolved.get(p["company"])
+        row = matched.get(p["company"])
         if not row:
             unmatched.append(p["company"])
             continue

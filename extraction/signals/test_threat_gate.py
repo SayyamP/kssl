@@ -263,6 +263,41 @@ for has_col, n_named, n_holes in ((False, 16, 15), (True, 17, 16)):
     check("dir_reason %s: placeholders match the tuple" % word, q.count("%s"), n_holes)
 check("the absent rendering names no dir_reason at all", "dir_reason" in _sql(False), False)
 
+# EVERY KSSL CATEGORY MUST LAND IN KSSL_LINES, and the vocabulary decides -- not a
+# copy of it typed into the module. KSSL_LINES was written in the human spelling
+# ("protected & armoured vehicles") while every value compared against it arrives
+# through fold_name(), which rewrites "&" as "and". The two categories containing an
+# "&" therefore never matched: 24 Protected & Armoured Vehicles cards and 17 UAVs &
+# Drones cards -- 41 of the 74 threat cards -- each graded "no KSSL line" and demoted
+# to watch. Artillery, Ammunition and Small Arms carry no "&", matched, and made the
+# rule look like it worked. A category renamed upstream now fails here loudly.
+import json as _json
+import os as _os
+_refp = _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                      "reference_dataset.json")
+with open(_refp, encoding="utf-8") as _fh:
+    _ref = _json.load(_fh)
+_raw = _ref.get("KSSL_CATS") or []
+_cats = []
+for _c in _raw:
+    if isinstance(_c, str):
+        _cats.append(_c)
+    elif isinstance(_c, dict):
+        for _k in ("label", "name", "cat", "title"):
+            if isinstance(_c.get(_k), str):
+                _cats.append(_c[_k])
+                break
+check("reference_dataset.json still declares KSSL_CATS", bool(_cats), True)
+for _c in _cats:
+    check("KSSL category %r is a KSSL line" % _c,
+          tg._fold_cat(_c) in tg.KSSL_LINES, True)
+
+# the exact tag strings production stores on a threat card
+for _tag in ("Protected & Armoured Vehicles", "UAVs & Drones", "Artillery",
+             "Ammunition", "Small Arms"):
+    check("a card tagged %r touches a KSSL line" % _tag,
+          tg.card_line({"tags": _tag}) in tg.KSSL_LINES, True)
+
 if bad:
     print("\n%d failure(s)" % bad)
     sys.exit(1)
