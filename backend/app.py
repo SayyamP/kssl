@@ -15,8 +15,10 @@ honestly null in the reference (matchup.edge, patent.granted) stay null.
 Env: KSSL_DSN (default host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl)
 """
 
+import json
 import os
 import sys
+from datetime import datetime, timezone
 
 # The threat grade is SHARED with the pipeline, not reimplemented here -- the same
 # reason pipeline/stage_timer.py is copied into this image rather than rewritten. Two
@@ -639,3 +641,302 @@ def production_doc():
         return _J(status_code=404,
                   content={"error": "PRODUCTION.html has not been generated yet",
                            "how": "python docs/build_production_doc.py"})
+
+
+# ----------------------------------------------------------------------------------------
+# GET /api/lineage/doc/{document_id}  -- read-only provenance trace (POC)
+#
+# Reconstructs ONLY lineage the pipeline actually records, one stage at a time, and labels
+# every stage recorded | reconstructed | provenance_unavailable. It invents nothing: a
+# stage with no stored row says so. The known gaps (prop->card not stored; serving rows
+# carry no document_id; crawler discovery off-box; reference rows have no lineage) are
+# surfaced IN the response, not hidden.
+#
+# All stages live in the one `kssl` database the backend already connects to, so this uses
+# the same DSN and psycopg2 as /api/dataset -- not a parallel system. Every statement is a
+# SELECT and the connection is opened read-only, so the endpoint cannot write.
+# ----------------------------------------------------------------------------------------
+
+# Deterministic code-path facts (no stored row asserts them; they follow from origin + code).
+_LANE_TO_UI = {
+    "competitive": "Overview signal feed + competitive pages (src/pages/competitive/*)",
+    "market":      "Market Overview (src/pages/market/MarketOverview.jsx)",
+    "tech":        "Technology / Innovation (src/pages/technology/Innovation.jsx)",
+}
+
+# The four gaps the investigation confirmed. Returned on every response so a consumer of
+# this endpoint sees the boundaries of what is knowable, not just what is known.
+_KNOWN_GAPS = [
+    "proposition -> signal_card is NOT stored; the link can only be reconstructed by "
+    "matching evidence quotes, and fails when the card text was translated from a "
+    "source-language proposition.",
+    "serving/enrichment rows (competitors, partner, matchup, geo_*, innovation, patent, "
+    "news) carry no document_id or run_id; only a src/url STRING links them to a source, "
+    "and rows are often aggregated from several documents.",
+    "crawler discovery history (how a URL was found, the crawl path before fetch) is "
+    "off-box; public.documents keeps only url/source_id/published_at/fetched_at.",
+    "reference-origin serving rows are a curated archive and have no document lineage.",
+]
+
+
+def _stage(stage, status, component, **kw):
+    """One lineage step. status is recorded | reconstructed | provenance_unavailable."""
+    out = {"stage": stage, "status": status, "component": component}
+    out.update({k: v for k, v in kw.items() if v is not None})
+    return out
+
+
+def build_lineage(cur, document_id):
+    """-> (http_status, body). Pure over a DB cursor so it is testable with a fake one.
+
+    cur must yield dict rows (RealDictCursor in production, a stub in tests). Only SELECTs
+    are issued; nothing here writes.
+    """
+    did = document_id
+
+    def one(sql, params=None):
+        cur.execute(sql, params)
+        return cur.fetchone()
+
+    def many(sql, params=None):
+        cur.execute(sql, params)
+        return list(cur.fetchall())
+
+    def rec_of(row):
+        return row.get("rec") if row else None
+
+    stages = []
+    found_any = False
+
+    # 1. RAW CORPUS -----------------------------------------------------------------------
+    raw = rec_of(one("SELECT to_jsonb(d) AS rec FROM public.documents d "
+                     "WHERE d.document_id = %s", (did,)))
+    doc_url = raw.get("url") if raw else None
+    if raw:
+        found_any = True
+        stages.append(_stage(
+            "raw_corpus", "recorded",
+            "public.documents (crawler sync: select_worklist.py / sync_documents.py)",
+            identifier=did, timestamp=raw.get("fetched_at"),
+            reason="present in the corpus; published_at is the crawler's proven publication date",
+            record=raw, downstream_ref="extract_queue.document_id=%s" % did,
+            note="Crawler discovery history is OFF-BOX; only url/source_id/published_at/"
+                 "fetched_at survive here."))
+    else:
+        stages.append(_stage("raw_corpus", "provenance_unavailable",
+                             "public.documents", identifier=did,
+                             note="No public.documents row for this id on this database."))
+
+    # 2. GATE -----------------------------------------------------------------------------
+    q_tbl = one("SELECT to_regclass('public.extract_queue') AS t")
+    if q_tbl and q_tbl.get("t"):
+        q = rec_of(one("SELECT to_jsonb(q) AS rec FROM public.extract_queue q "
+                       "WHERE q.document_id = %s", (did,)))
+        if q:
+            stages.append(_stage(
+                "gate", "recorded", "extraction/engine/route.py (presignal gate)",
+                identifier=did, timestamp=q.get("crawl_ts"),
+                reason="class=%s state=%s reason=%s attempts=%s" % (
+                    q.get("class"), q.get("state"),
+                    q.get("reason") if q.get("reason") is not None else "(none: passed)",
+                    q.get("attempts")),
+                record=q, downstream_ref="extracted.document.document_id=%s" % did))
+        else:
+            stages.append(_stage("gate", "provenance_unavailable",
+                                 "extraction/engine/route.py", identifier=did,
+                                 note="No extract_queue row: document never entered the queue."))
+    else:
+        stages.append(_stage("gate", "provenance_unavailable",
+                             "extraction/engine/route.py", identifier=did,
+                             note="extract_queue is created by route.py and is absent on "
+                                  "this database (e.g. a serving-only replica)."))
+
+    # 3. EXTRACTED DOCUMENT ---------------------------------------------------------------
+    xdoc = rec_of(one("SELECT to_jsonb(d) AS rec FROM extracted.document d "
+                      "WHERE d.document_id = %s", (did,)))
+    if xdoc:
+        found_any = True
+        stages.append(_stage(
+            "extracted_document", "recorded", "extraction/engine/store_pg.py",
+            identifier=did, timestamp=xdoc.get("first_seen"),
+            reason="passed the gate and was extracted (Layer A)",
+            record=xdoc, downstream_ref="extracted.proposition.document_id=%s" % did))
+    else:
+        stages.append(_stage("extracted_document", "provenance_unavailable",
+                             "extraction/engine/store_pg.py", identifier=did,
+                             note="No extracted.document row: not yet extracted, or purged."))
+
+    # 4. PROPOSITIONS + SPANS + 5. RUN LINEAGE --------------------------------------------
+    props = [rec_of({"rec": r["rec"]}) for r in many(
+        "SELECT to_jsonb(p) AS rec FROM extracted.proposition p "
+        "WHERE p.document_id = %s ORDER BY p.i", (did,))]
+    span_row = one("SELECT count(*) AS n FROM extracted.span WHERE document_id = %s", (did,))
+    n_spans = (span_row or {}).get("n")
+
+    run_ids = sorted({p.get("run_id") for p in props if p and p.get("run_id")})
+    if props:
+        found_any = True
+        stages.append(_stage(
+            "propositions", "recorded",
+            "extraction/engine/comprehend.py -> extracted.proposition",
+            identifier="%d proposition(s), %s span(s)" % (
+                len(props), n_spans if n_spans is not None else "?"),
+            reason="claims extracted with verbatim evidence quotes and byte offsets",
+            evidence=[{"i": p.get("i"),
+                       "spo": "%s / %s / %s" % (p.get("subject"), p.get("predicate"),
+                                                p.get("object")),
+                       "modality": p.get("modality"), "polarity": p.get("polarity"),
+                       "ev_quote": p.get("ev_quote"),
+                       "ev_span": [p.get("ev_start"), p.get("ev_end")]}
+                      for p in props],
+            downstream_ref="signal_card.id=pl_%s (link NOT stored; see gaps)" % did))
+    else:
+        stages.append(_stage("propositions", "provenance_unavailable",
+                             "extraction/engine/comprehend.py", identifier=did,
+                             note="No propositions recorded for this document."))
+
+    for rid in run_ids:
+        run = rec_of(one("SELECT to_jsonb(r) AS rec FROM extracted.extraction_run r "
+                         "WHERE r.run_id = %s", (rid,)))
+        if run:
+            stages.append(_stage(
+                "extraction_run", "recorded",
+                "extraction/engine/lineage.py -> extracted.extraction_run",
+                identifier=rid, timestamp=run.get("started_at"),
+                reason="run version/model/config that produced the propositions above",
+                model={"model": run.get("model"),
+                       "pipeline_version": run.get("pipeline_version"),
+                       "lexicon_version": run.get("lexicon_version"),
+                       "config": run.get("config")},
+                record=run))
+    if props and not run_ids:
+        stages.append(_stage("extraction_run", "provenance_unavailable",
+                             "extracted.extraction_run",
+                             note="Propositions carry no run_id (pre-lineage extraction)."))
+
+    # 6. SIGNAL CARD + 7. SIGNAL DETAIL ---------------------------------------------------
+    card_id = "pl_" + did
+    card = rec_of(one("SELECT to_jsonb(c) AS rec FROM serving.signal_card c "
+                      "WHERE c.id = %s", (card_id,)))
+    detail = rec_of(one("SELECT to_jsonb(d) AS rec FROM serving.signal_detail d "
+                        "WHERE d.id = %s", (card_id,)))
+    lane = card.get("lane") if card else None
+    if card:
+        found_any = True
+        origin = card.get("origin")
+        stages.append(_stage(
+            "signal_card", "recorded",
+            "extraction/signals/serving_fill.py -> serving.signal_card",
+            identifier=card_id, timestamp=card.get("updated_at"),
+            reason="card written for this document (id convention pl_<document_id>); "
+                   "origin=%s" % origin,
+            record=card, downstream_ref="/api/dataset signal_card[%s]" % (lane or "?"),
+            note=("reference-origin row: no document lineage" if origin == "reference"
+                  else None)))
+    else:
+        stages.append(_stage("signal_card", "provenance_unavailable",
+                             "serving.signal_card", identifier=card_id,
+                             note="No signal_card for pl_%s: the document produced no card "
+                                  "(gated out at the card stage, undated, off-topic, or "
+                                  "stale). NOTE: card-stage rejection reasons are printed to "
+                                  "stdout only and are not stored." % did))
+    if detail:
+        stages.append(_stage(
+            "signal_detail", "recorded",
+            "extraction/signals/serving_fill.py -> serving.signal_detail",
+            identifier=card_id, timestamp=detail.get("updated_at"),
+            reason="detail written for the card; translated=%s (translation prompt version)"
+                   % detail.get("translated"),
+            record=detail, downstream_ref="/api/dataset signal_detail[%s]" % card_id))
+
+    # prop -> card link: RECONSTRUCTED ONLY, by quote overlap. Never asserted as recorded.
+    if props and (card or detail):
+        hay = " ".join(str(v) for v in [
+            card.get("title") if card else "", card.get("lens") if card else "",
+            card.get("sowhat") if card else "",
+            (detail or {}).get("what"), (detail or {}).get("why"),
+            json.dumps((detail or {}).get("facts")) if (detail or {}).get("facts") else "",
+        ]).lower()
+        matched = [p.get("i") for p in props
+                   if p.get("ev_quote") and len(p["ev_quote"]) >= 12
+                   and p["ev_quote"][:24].lower() in hay]
+        stages.append(_stage(
+            "prop_to_card_link", "reconstructed",
+            "quote-overlap heuristic (NOT a stored link)",
+            identifier=card_id, method="ev_quote substring match against card/detail text",
+            matched_proposition_indices=matched,
+            note=("No overlap found: the card text is translated from source-language "
+                  "propositions, so quotes do not match literally. The link is genuinely "
+                  "not recoverable from stored data." if not matched else
+                  "Overlap is a heuristic guess, not a recorded fact.")))
+
+    # 8. API DESTINATION + 9. UI DESTINATION (deterministic code paths) -------------------
+    if card:
+        stages.append(_stage(
+            "api_destination", "reconstructed", "backend/app.py (/api/dataset)",
+            identifier="signal_card[%s] + signal_detail[%s]" % (lane or "?", card_id),
+            method="deterministic: origin='pipeline' rows flow through serving_live into "
+                   "/api/dataset; no stored row records the serve event",
+            note=None if card.get("origin") == "pipeline" else
+                 "origin!=pipeline: serving_live filters this row OUT; it is NOT served."))
+        stages.append(_stage(
+            "ui_destination", "reconstructed", "frontend/src/pages",
+            identifier=_LANE_TO_UI.get(lane, "(unknown lane -> no mapped page)"),
+            method="lane->page mapping lives in frontend code, not in data"))
+
+    # ENRICHMENT: show the systemic gap, and the only available reconstruction (URL match).
+    enrich_hits = []
+    if doc_url:
+        for tbl, col in (("serving.competitor_news", "url"), ("serving.partner", "src"),
+                         ("serving.partner", "srcnote"), ("serving.innovation", "url")):
+            reg = one("SELECT to_regclass(%s) AS t", (tbl,))
+            if not (reg and reg.get("t")):
+                continue
+            hit = one("SELECT count(*) AS n FROM %s WHERE %s = %%s" % (tbl, col), (doc_url,))
+            if hit and hit.get("n"):
+                enrich_hits.append({"table": tbl, "column": col, "rows": hit["n"]})
+    stages.append(_stage(
+        "enrichment", "reconstructed" if enrich_hits else "provenance_unavailable",
+        "extraction/signals/enrich_serving.py + fill_competitor_news.py",
+        identifier=did,
+        matched_by_url=enrich_hits or None,
+        note="Enrichment rows carry no document_id/run_id. "
+             + ("This document's URL was found in the rows above by STRING match only."
+                if enrich_hits else
+                "This document's URL appears in no enrichment row; even the URL-string "
+                "reconstruction finds nothing. The link is not recoverable.")))
+
+    if not found_any:
+        return 404, {"error": "no lineage recorded for this document_id",
+                     "document_id": did,
+                     "checked": ["public.documents", "extracted.document",
+                                 "extracted.proposition", "serving.signal_card"]}
+
+    return 200, {
+        "document_id": did,
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "read_only": True,
+        "stage_order": ["raw_corpus", "gate", "extracted_document", "propositions",
+                        "extraction_run", "signal_card", "signal_detail",
+                        "prop_to_card_link", "api_destination", "ui_destination",
+                        "enrichment"],
+        "stages": stages,
+        "known_gaps": _KNOWN_GAPS,
+    }
+
+
+@app.get("/api/lineage/doc/{document_id}")
+def lineage_doc(document_id: str):
+    """Read-only provenance trace for one document. Writes nothing (RO connection)."""
+    try:
+        conn = psycopg2.connect(DSN, connect_timeout=5)
+    except Exception as exc:  # pragma: no cover - db down
+        return JSONResponse(status_code=503, content={"error": "db unavailable",
+                                                      "detail": str(exc)})
+    try:
+        conn.set_session(readonly=True, autocommit=True)
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        code, body = build_lineage(cur, document_id)
+        return JSONResponse(status_code=code, content=body)
+    finally:
+        conn.close()
