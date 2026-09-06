@@ -126,10 +126,12 @@ jobs:
           node-version: "20"
       # The frontend half of the same gate. It ran in ci.yml and nowhere else, so a direct
       # push -- the route production takes -- deployed a frontend that no test had touched.
-      # These need no npm install; they are plain node over src/lib.
+      # test_tender_row.mjs compiles the .jsx it asserts over with esbuild, so the loop
+      # needs node_modules even though most of these are plain node over src/lib.
       - name: Frontend regression tests
         working-directory: frontend
         run: |
+          npm ci
           fail=0
           for t in test_*.mjs; do
             echo "== $t"

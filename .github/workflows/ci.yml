@@ -184,6 +184,11 @@ jobs:
       - name: Frontend regression tests
         working-directory: frontend
         run: |
+          # test_tender_row.mjs imports esbuild to compile the .jsx it asserts over, so
+          # the loop needs node_modules. It passed on every developer machine, where
+          # node_modules exists, and this is the first CI run that has ever executed the
+          # loop -- a gate that had never run once.
+          npm ci
           fail=0
           for t in test_*.mjs; do
             echo "== $t"
@@ -194,7 +199,6 @@ jobs:
       - name: Build the bundle and serve it
         working-directory: frontend
         run: |
-          npm ci
           npm run build
           npx vite preview --port 5179 --strictPort &
           npx wait-on http://127.0.0.1:5179 -t 60000
