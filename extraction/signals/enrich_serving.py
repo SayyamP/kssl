@@ -118,7 +118,40 @@ def _ask(prompt, npredict=600, timeout=None):
         text, meta = llm_client.ask(prompt, npredict=npredict, timeout=timeout,
                                     model=MODEL, with_meta=True)
         st.items(1).tokens(int(meta.get("eval_count") or 0))
+        _note_via((meta or {}).get("via"))
         return text
+
+
+# WHICH BACKEND ANSWERED IS PART OF WHETHER THE ROW SHOULD EXIST. llmapi silently
+# fails over to a 7b on a CPU box when the farm is unreachable, and returns that fact
+# in meta["via"] -- which both of the pipeline's two model-calling functions asked for
+# and then threw away, keeping only the token count. So the standing rule that serving
+# tables are written by the 14B was enforced by nothing at all: a farm outage produced
+# a pass of 7b-written cards that are indistinguishable, afterwards, from good ones.
+#
+# This does NOT refuse the answer. During an outage a 7b card is arguably better than
+# no card, and that is the operator's call, not this function's. What it does is make
+# the choice VISIBLE: every fallback answer is counted, and the first one in a pass
+# says so loudly, so "the farm was down for this pass" is a line in the log rather
+# than something to be inferred from quality complaints weeks later.
+_VIA_SEEN = {}
+
+
+def _note_via(via):
+    if not via:
+        return
+    _VIA_SEEN[via] = _VIA_SEEN.get(via, 0) + 1
+    if via != "farm" and _VIA_SEEN[via] == 1:
+        print("[ALERT] %s: a model answer came from %r, NOT the farm. Serving rows "
+              "written from here are %s output, not the %s serving model. Counted in "
+              "the pass summary." % (__name__, via, via, MODEL),
+              file=sys.stderr, flush=True)
+
+
+def via_counts():
+    """-> {backend: answers}. Printed in the pass summary so a run that quietly ran on
+    the fallback is visible in the same line as everything else it did."""
+    return dict(_VIA_SEEN)
 
 
 def slug(name):
@@ -3587,6 +3620,15 @@ def run(only=None, limit=None, dsn=DSN):
         con.close()
     except Exception:                                                # noqa: BLE001
         pass
+    _v = via_counts()
+    if _v:
+        # WHERE THE ANSWERS CAME FROM, on the same line as what was written. A pass
+        # that quietly ran on the CPU fallback looks identical to a good one in every
+        # other number this prints.
+        print("backends: " + ", ".join("%s=%d" % kv for kv in sorted(_v.items())) +
+              ("" if set(_v) <= {"farm"} else
+               "   <-- NOT all from the farm; these rows are not %s output" % MODEL),
+              flush=True)
     print("done:", json.dumps(results), flush=True)
     if failed:
         # Loud, so the entrypoint's "(continuing)" is not the only trace of a skip.
