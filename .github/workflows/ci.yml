@@ -208,6 +208,24 @@ jobs:
         working-directory: frontend
         run: node test_overlap_badge.mjs
 
+      # AND EVERY OTHER ONE. The two steps above named a single file each, which is how
+      # 36 working tests came to run nowhere: `ls frontend/test_*.mjs` finds 39, all of
+      # them pass, and CI ran two. The one that could not run -- test_feed_pagination,
+      # which reads an untracked live export -- threw instead of skipping, and that
+      # single crash is why nobody wired the directory in. It skips now.
+      #
+      # Same loop the signals suite uses, and for the same reason: a new regression test
+      # should be picked up by being written, not by also remembering to edit this file.
+      - name: Frontend regression tests
+        working-directory: frontend
+        run: |
+          fail=0
+          for t in test_*.mjs; do
+            echo "== $t"
+            node "$t" || fail=1
+          done
+          exit $fail
+
       - name: Build the bundle and serve it
         working-directory: frontend
         run: |
