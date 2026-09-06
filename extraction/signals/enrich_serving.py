@@ -1072,6 +1072,98 @@ def load_profiles(cur):
              "products": product_names(r[5])} for r in cur.fetchall()]
 
 
+# The rebuild's ONLY write transaction. Kept apart from step_companies so a test can
+# drive it with a recording cursor and assert what runs inside the lock -- and so the
+# boundary is a thing in the code rather than a convention someone has to remember.
+COMPANIES_LOCK = 0x6B73_636F          # 'kssl-companies', any stable 32-bit constant
+
+
+def _write_companies(cur, con, rows, _prev, _carry):
+    """DELETE the old pipeline rows and INSERT the rebuilt ones, in ONE transaction.
+
+    Everything slow happened before this call. What is left is a delete and a few dozen
+    inserts, so the lock is held for the width of the writes rather than the width of
+    the model calls.
+
+    TWO PASSES MUST NOT REBUILD AT ONCE. The enrich role runs one pass at a time, but a
+    pass whose client died leaves its backend blocked in the lock queue, and the next
+    pass then queues behind a process nobody owns -- observed 2026-09-06, an UPDATE from
+    14:59 still waiting on a transaction from 14:40. A session advisory lock makes that
+    impossible to enter twice: the second pass is TOLD it lost, and skips the rebuild
+    with the table left exactly as the first pass wrote it.
+
+    Returns (written, carried, restored, skipped_because_locked).
+    """
+    cur.execute("SELECT pg_try_advisory_lock(%s)", (COMPANIES_LOCK,))
+    if not cur.fetchone()[0]:
+        con.commit()
+        print("companies: another pass holds the rebuild lock -- skipping the rebuild "
+              "(the table keeps the rows the running pass writes)", flush=True)
+        return 0, 0, 0, True
+    try:
+        # FAIL RATHER THAN QUEUE. Waiting forever is how one stuck writer became an
+        # hour of blocked writers; a step that cannot get the lock in 30s reports a
+        # failed step, which the driver already records and retries next pass.
+        cur.execute("SET LOCAL lock_timeout='30s'")
+        cur.execute("DELETE FROM serving.competitors WHERE origin='pipeline' AND ord < %s",
+                    (REV_ORD0,))
+        rows.sort(key=lambda r: (0 if r["prof"]["dir"] == "rival" else 1,
+                                 r["name"].lower()))
+        for i, r in enumerate(rows, start=1):
+            p = r["prof"]
+            cid = slug(r["name"])
+            cur.execute("""INSERT INTO serving.competitors
+                             (comp_id, ord, name, dir, sector, hq, threat, assess, updates,
+                              center, partners, site, srcs, products, "threatNote", origin)
+                           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s,
+                                   'pipeline')
+                           ON CONFLICT (comp_id) DO NOTHING""",
+                        (cid, ORD0 + i, esc(r["name"]), p["dir"], esc(p["sector"]) or None,
+                         esc(p["hq"]) or None, p["threat"], esc(p["assess"]),
+                         json.dumps(r["upd_html"] if r["updates"] else []),
+                         json.dumps({"id": cid, "label": r["name"]}),
+                         r["site"], json.dumps(r["srcs"]),
+                         json.dumps(r["products"]),
+                         p.get("threat_note")))
+        # Put back any CURATED company this pass failed to rebuild. Only allowlisted names:
+        # a company nobody chose to track should still fall off when the corpus stops
+        # mentioning it -- this protects the curated roster, it does not freeze the table.
+        _rk = roster.keys(cur)
+        carried = 0
+        if _rk:
+            for _cid, _row in _prev.items():
+                if not roster.on_roster(_row.get("name") or "", _rk):
+                    continue
+                cur.execute("SELECT 1 FROM serving.competitors WHERE comp_id=%s", (_cid,))
+                if cur.fetchone():
+                    continue
+                cur.execute("""INSERT INTO serving.competitors
+                               SELECT (jsonb_populate_record(
+                                         NULL::serving.competitors, %s::jsonb)).*
+                               ON CONFLICT (comp_id) DO NOTHING""",
+                            (json.dumps(_row),))
+                carried += cur.rowcount
+        if carried:
+            print("companies: carried %d curated row(s) forward (not rebuilt this pass)"
+                  % carried, flush=True)
+
+        # Restore the snapshotted interim columns onto the freshly-rebuilt rows.
+        _restored = roster.carry_restore(cur, _carry)
+        if _restored:
+            print("companies: restored curated columns on %d row(s)" % _restored, flush=True)
+        con.commit()
+        return len(rows), carried, _restored, False
+    finally:
+        # The lock is SESSION-scoped, so it outlives the commit above and must be given
+        # back explicitly; a pass that dies without doing so releases it when its
+        # backend ends, which is the behaviour we want for a crash.
+        try:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (COMPANIES_LOCK,))
+            con.commit()
+        except Exception:                                         # noqa: BLE001
+            pass
+
+
 def step_companies(cur, con, docs, props_by_doc, limit=None):
     # Carry interim OSINT columns (agent-populated leadership/facilities, and hq where
     # the corpus has none) across the rebuild. This step DELETEs+re-INSERTs pipeline
@@ -1094,8 +1186,17 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
     cur.execute("""SELECT comp_id, to_jsonb(c) FROM serving.competitors c
                     WHERE origin='pipeline' AND ord < %s""", (REV_ORD0,))
     _prev = {r[0]: r[1] for r in cur.fetchall()}
-    cur.execute("DELETE FROM serving.competitors WHERE origin='pipeline' AND ord < %s",
-                (REV_ORD0,))
+    # THE DELETE USED TO BE HERE, AND THAT IS WHAT HELD THE TABLE FOR AN HOUR.
+    # It took a RowExclusiveLock on serving.competitors and the step then made 56
+    # profile calls to the farm before its single commit, so every other writer --
+    # fill_revenue, mark_shared, the next pass -- queued behind a transaction whose
+    # remaining work was entirely network. Measured 2026-09-06: 33 minutes open, with
+    # an orphaned backend from a previous pass stacked behind it.
+    #
+    # It now runs in `_write_companies` below, in the same short transaction as the
+    # INSERTs that replace the rows. Same predicate, same rows, same atomicity -- a
+    # reader still never sees the table mid-rebuild -- but the window is the width of
+    # the writes rather than the width of the model calls.
     cur.execute("SELECT company FROM serving.signal_card WHERE origin='pipeline'")
     card_companies = {r[0] for r in cur.fetchall() if r[0]}
 
@@ -1144,6 +1245,13 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
                             for _d, pr in use).lower(),
         })
     calls = len(plan)
+
+    # END THE READ TRANSACTION BEFORE THE NETWORK STARTS. The reads above take
+    # AccessShareLocks, which do not block writers, but they also hold a transaction id
+    # open -- and an idle-in-transaction backend is what pg_stat_activity showed for 33
+    # minutes. Committing here means the model calls below run with NO transaction of
+    # this step's open at all, which is the property the rest of this refactor rests on.
+    con.commit()
 
     def _profile(item):
         """One profile call. Returns the exception rather than raising it, so one bad
@@ -1230,51 +1338,8 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
                      "products": product_rows(prof["products"], use, docs),
                      "srcs": srcs[:8], "site": site})
 
-    rows.sort(key=lambda r: (0 if r["prof"]["dir"] == "rival" else 1,
-                             r["name"].lower()))
-    for i, r in enumerate(rows, start=1):
-        p = r["prof"]
-        cid = slug(r["name"])
-        cur.execute("""INSERT INTO serving.competitors
-                         (comp_id, ord, name, dir, sector, hq, threat, assess, updates,
-                          center, partners, site, srcs, products, "threatNote", origin)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NULL,%s,%s,%s,%s,
-                               'pipeline')
-                       ON CONFLICT (comp_id) DO NOTHING""",
-                    (cid, ORD0 + i, esc(r["name"]), p["dir"], esc(p["sector"]) or None,
-                     esc(p["hq"]) or None, p["threat"], esc(p["assess"]),
-                     json.dumps(r["upd_html"] if r["updates"] else []),
-                     json.dumps({"id": cid, "label": r["name"]}),
-                     r["site"], json.dumps(r["srcs"]),
-                     json.dumps(r["products"]),
-                     p.get("threat_note")))
-    # Put back any CURATED company this pass failed to rebuild. Only allowlisted names:
-    # a company nobody chose to track should still fall off when the corpus stops
-    # mentioning it -- this protects the curated roster, it does not freeze the table.
-    _rk = roster.keys(cur)
-    carried = 0
-    if _rk:
-        for _cid, _row in _prev.items():
-            if not roster.on_roster(_row.get("name") or "", _rk):
-                continue
-            cur.execute("SELECT 1 FROM serving.competitors WHERE comp_id=%s", (_cid,))
-            if cur.fetchone():
-                continue
-            cur.execute("""INSERT INTO serving.competitors
-                           SELECT (jsonb_populate_record(
-                                     NULL::serving.competitors, %s::jsonb)).*
-                           ON CONFLICT (comp_id) DO NOTHING""",
-                        (json.dumps(_row),))
-            carried += cur.rowcount
-    if carried:
-        print("companies: carried %d curated row(s) forward (not rebuilt this pass)"
-              % carried, flush=True)
-
-    # Restore the snapshotted interim columns onto the freshly-rebuilt rows.
-    _restored = roster.carry_restore(cur, _carry)
-    if _restored:
-        print("companies: restored curated columns on %d row(s)" % _restored, flush=True)
-    con.commit()
+    written, carried, _restored, _skipped = _write_companies(cur, con, rows,
+                                                             _prev, _carry)
     print("companies: %d written, %d refused, %d skipped no-props, %d not a company, "
           "%d not a competitor, %d over limit"
           % (len(rows), refused, no_props, not_company, not_competitor, over_limit),
