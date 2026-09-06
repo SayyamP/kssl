@@ -1760,13 +1760,31 @@ def retranslate(dsn=DSN, limit=None, verbose=True, only=None, apply=False):
     import psycopg2
     con = psycopg2.connect(dsn)
     cur = con.cursor()
+    # THE WINDOW HAS TO ADVANCE. This selected `ORDER BY d.id LIMIT 200` with nothing
+    # recording what it had already done, and the entrypoint runs it every signals
+    # cycle -- so the same first 200 of 949 cards were re-asked forever and cards
+    # 201..949 were never reached at all. Roughly 17 minutes of farm time per cycle
+    # per replica, for no change, while two thirds of the corpus stayed foreign.
+    #
+    # `translated` holds the prompt version the row was last done under, so a row is
+    # selected only when it has never been translated or was translated under an older
+    # prompt. Oldest first, so a re-run continues rather than restarts. Bumping
+    # translate.PROMPT_VERSION re-queues the corpus for exactly one pass.
+    #
+    # FOR UPDATE SKIP LOCKED because the signals role runs three replicas: without it
+    # they pick the same rows and the last writer wins non-deterministically between a
+    # refused and a translated line.
     cur.execute("""SELECT d.id, doc.language::text
                      FROM serving.signal_detail d
                      LEFT JOIN extracted.document doc
                             ON doc.document_id = substring(d.id from 4)
                     WHERE d.origin='pipeline' AND d.id LIKE 'pl\\_%%'
                       AND (%s IS NULL OR d.id = %s)
-                    ORDER BY d.id LIMIT %s""", (only, only, limit or 10 ** 9))
+                      AND (%s OR d.translated IS DISTINCT FROM %s)
+                    ORDER BY d.translated NULLS FIRST, d.updated_at
+                    LIMIT %s
+                      FOR UPDATE OF d SKIP LOCKED""",
+                (only, only, bool(only), translate.PROMPT_VERSION, limit or 10 ** 9))
     cards = cur.fetchall()
     stats = {"cards": len(cards), "changed": 0}
     for cid, lang in cards:
@@ -1794,11 +1812,27 @@ def retranslate(dsn=DSN, limit=None, verbose=True, only=None, apply=False):
                         WHERE d.id=%s""", (cid,))
         old_lens, old_what, old_why, old_sowhat = cur.fetchone()
         old_lens = old_lens if isinstance(old_lens, list) else json.loads(old_lens or "[]")
-        prose = translate.translate_lines([old_what or "", old_why or "", old_sowhat or ""],
-                                          lang, stats=stats)
-        what2, why2, sowhat2 = prose
-        if old_lens == lens and (what2, why2, sowhat2) == (old_what or "", old_why or "",
-                                                           old_sowhat or ""):
+        # UNESCAPE ON THE WAY IN, ESCAPE ON THE WAY OUT. These columns were written
+        # through esc() by fill(), so they hold "&amp;" and "&lt;" -- sending that to
+        # the model asks it to translate HTML entities, and it duly carries them along
+        # or mangles them. Worse in the other direction: the result used to be written
+        # back with no esc() at all, so a model that emitted a bare "&" or "<" put raw
+        # markup into a column the frontend renders as HTML. reglance() already
+        # unescapes what it reads back (see its `_html.unescape(company)`); same here.
+        prose_in = [_html.unescape(x or "") for x in (old_what, old_why, old_sowhat)]
+        prose = translate.translate_lines(prose_in, lang, stats=stats)
+        what2, why2, sowhat2 = [esc(x) for x in prose]
+        if old_lens == lens and (what2, why2, sowhat2) == (esc(_html.unescape(old_what or "")),
+                                                           esc(_html.unescape(old_why or "")),
+                                                           esc(_html.unescape(old_sowhat or ""))):
+            # UNCHANGED STILL COUNTS AS DONE. Most cards are English and need nothing;
+            # if only the rewritten ones were stamped, every English card would be
+            # re-examined on every cycle and the window would never pass them.
+            if apply:
+                cur.execute("""UPDATE serving.signal_detail SET translated=%s
+                                WHERE id=%s""", (translate.PROMPT_VERSION, cid))
+                con.commit()
+            stats["already"] = stats.get("already", 0) + 1
             continue
         stats["changed"] += 1
         if verbose:
@@ -1814,8 +1848,10 @@ def retranslate(dsn=DSN, limit=None, verbose=True, only=None, apply=False):
                     print("    + %s: %s" % (nm, str(b)[:100]))
         if apply:
             cur.execute("""UPDATE serving.signal_detail
-                              SET lens=%s, what=%s, why=%s, updated_at=now()
-                            WHERE id=%s""", (json.dumps(lens), what2, why2, cid))
+                              SET lens=%s, what=%s, why=%s, translated=%s,
+                                  updated_at=now()
+                            WHERE id=%s""",
+                        (json.dumps(lens), what2, why2, translate.PROMPT_VERSION, cid))
             if old_sowhat is not None and sowhat2 != old_sowhat:
                 cur.execute("""UPDATE serving.signal_card SET sowhat=%s, updated_at=now()
                                 WHERE id=%s""", (sowhat2, cid))
@@ -1835,6 +1871,18 @@ def retranslate(dsn=DSN, limit=None, verbose=True, only=None, apply=False):
              {k: v for k, v in sorted(stats.items()) if k not in ("cards", "changed")},
              "" if apply else "  (dry run -- nothing written)"), flush=True)
     con.close()
+    # A PASS THAT ASKED AND STORED NOTHING IS AN OUTAGE, NOT A QUIET SUCCESS. The
+    # farm-only guard compares meta["via"] to the string "farm"; a renamed alias, or
+    # routing through the Pune farm with a different via, refuses every answer for
+    # ever. Exiting 0 would leave the entrypoint's `|| log` silent and new cards going
+    # out untranslated with nothing in the log to say why.
+    if stats.get("asked") and not (stats.get("translated") or
+                                   stats.get("translated_on_retry")):
+        print("[ALERT] retranslate: asked for %d line(s) and stored none -- backend "
+              "refusals %d, failures %d. Check C_MODEL and that llmapi reports "
+              "via='farm'." % (stats["asked"], stats.get("refused_backend", 0),
+                               stats.get("failed", 0)), file=sys.stderr, flush=True)
+        return None
     return stats
 
 
@@ -2182,6 +2230,7 @@ if __name__ == "__main__":
     elif a.regate:
         regate(a.dsn, apply=a.apply, recard=a.recard)
     elif a.retranslate:
-        retranslate(a.dsn, limit=a.limit, only=a.only, apply=a.apply)
+        if retranslate(a.dsn, limit=a.limit, only=a.only, apply=a.apply) is None:
+            sys.exit(1)
     else:
         fill(a.dsn, limit=a.limit, only=a.only)

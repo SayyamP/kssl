@@ -34,6 +34,7 @@ what the tab shows today.
 import os
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 HERE = Path(__file__).parent
@@ -95,9 +96,13 @@ KEEP_ALWAYS = ("Rosomak", "Borsuk", "Krab", "Rak", "Kryl", "Piorun", "Grot", "Bo
 
 # Asked alone and told the line is NOT English, rather than given six at once with an
 # invitation to copy any of them out.
-_RETRY = """This line is NOT in English. Translate ALL of it into English, including
-any words that already look English. Keep every number, unit, designator and proper
-noun exactly as written. Output the translation and nothing else.
+_RETRY = """These numbered lines are NOT fully in English. Each one mixes languages or
+is entirely in another language. Translate ALL of every line into English, including
+the words that already look English. Do not copy any line out unchanged.
+
+- Output exactly one line per input line, numbered the same way. Nothing else.
+- Keep every number, date, quantity, calibre, unit and designator exactly as written.
+- KEEP THESE EXACTLY AS WRITTEN, they are product names: %s
 
 %s"""
 
@@ -112,9 +117,29 @@ def _keep_list(extra=()):
     return out[:60]                       # a prompt, not a dictionary
 
 
+def _norm_num(tok):
+    """1.500 / 1,500 / 12,5 / 12.5 all compare equal; trailing punctuation dropped.
+
+    EVERY LANGUAGE IN THIS CORPUS BUT ENGLISH GROUPS DIGITS THE OTHER WAY. German
+    writes 1.500 where English writes 1,500, and French writes 12,5 for 12.5, so a
+    correct translation loses the source's token and the number check refused it --
+    twice, since the retry refuses it again. Measured: "Auftrag über 1.500 Fahrzeuge"
+    -> "order for 1,500 vehicles" was refused `lost:1.500`. The separators carry no
+    information the check needs, so they are removed from both sides."""
+    t = re.sub(r"[.,](?!\d)", "", tok or "")     # trailing "2024," -> "2024"
+    return t.replace(".", "").replace(",", "")
+
+
+def _norm_desig(tok):
+    """8×8 == 8x8 == 8 x 8, Mk 4 == Mk4, and case is not a designator's identity."""
+    return re.sub(r"[\s\-]", "", (tok or "").replace("×", "x").replace("X", "x")).lower()
+
+
 def _kept(text):
-    """The tokens a faithful translation must still contain."""
-    return set(NUM_RX.findall(text or "")) | set(DESIG_RX.findall(text or ""))
+    """The tokens a faithful translation must still contain, in normalised form."""
+    t = text or ""
+    return ({_norm_num(x) for x in NUM_RX.findall(t)} |
+            {_norm_desig(x) for x in DESIG_RX.findall(t)}) - {""}
 
 
 # Function words that are never English. An output still carrying these is an echo of
@@ -153,9 +178,20 @@ of for with from by been over under new all any both each more most same some
 """.split())
 
 
+def _fold(w):
+    """für -> fur, più -> piu. The set is written ASCII-folded."""
+    return "".join(c for c in unicodedata.normalize("NFKD", w)
+                   if not unicodedata.combining(c))
+
+
 def _foreign_hits(text):
+    """THE ACCENTED ENTRIES WERE DEAD. _FOREIGN_FUNC is written ASCII-folded -- fuer,
+    ueber, piu, nao, icin, cok, etait -- because typing accents into a source file is
+    a portability hazard, but the lookup only lowercased. So `für`, `più`, `não`,
+    `için` and every other accented function word matched nothing, and the entries
+    meant to catch them sat inert. Folding at lookup is what makes them live."""
     toks = re.findall(r"[^\W\d_]+", str(text or "").lower(), re.UNICODE)
-    return [t for t in toks if t in _FOREIGN_FUNC]
+    return [t for t in toks if t in _FOREIGN_FUNC or _fold(t) in _FOREIGN_FUNC]
 
 
 def looks_translated(text):
@@ -260,6 +296,7 @@ def translate_lines(lines, source_language=None, keep=(), stats=None):
         bump("already_english", len(lines))
         return out
     bump("asked", len(idx))
+    lang = (source_language or "").strip().lower()[:2]
     body = "\n".join("%d. %s" % (n + 1, lines[i].replace("\n", " "))
                      for n, i in enumerate(idx))
     try:
@@ -275,9 +312,11 @@ def translate_lines(lines, source_language=None, keep=(), stats=None):
         return out
     got = {}
     for line in (raw or "").splitlines():
-        m = re.match(r"\s*(\d+)[.)]\s*(.+?)\s*$", line)
+        m = re.match(r"\s*[-*]?\s*\**(\d+)\**[.)]\s*(.+?)\s*$", line)
         if m:
             got[int(m.group(1))] = m.group(2)
+    # Weak evidence, but the only evidence when the string itself carries none.
+    foreign_doc = bool(lang) and lang != "en"
     stubborn = []
     for n, i in enumerate(idx):
         cand = got.get(n + 1)
@@ -285,11 +324,20 @@ def translate_lines(lines, source_language=None, keep=(), stats=None):
             bump("no_line")
             continue
         ok, why = verdict(lines[i], cand)
-        if ok and why == "unchanged" and not looks_translated(lines[i]):
-            # THE MODEL DECLINED A LINE IT SHOULD HAVE TRANSLATED. Measured on Finnish
-            # and Turkish: given six lines at once, three or four come back byte-for-byte
-            # because a half-English line reads as an English line. Asked again, alone
-            # and explicitly, the same model translates it.
+        if ok and why == "unchanged" and (foreign_doc or not looks_translated(lines[i])):
+            # THE MODEL DECLINED A LINE IT SHOULD HAVE TRANSLATED, and the gate cannot
+            # always tell. "sette veicoli ruotati 8x8 Centauro II are forniti" -- the
+            # row this whole layer exists for -- has no non-ASCII letter and no foreign
+            # function word, so looks_translated calls it English. A model that copies
+            # it out was therefore ACCEPTED as "unchanged", and the harness, which
+            # applies the same rule, counted it clean. The measured 97.8% could not see
+            # the defect class it was measuring.
+            #
+            # So on a document that is not English, an unchanged line is suspicious on
+            # its own -- the label is weak evidence about any one line, but it is the
+            # only evidence there is when the string itself gives none. The retry is
+            # batched, so the whole card costs at most one extra call whether one line
+            # comes back unchanged or six.
             stubborn.append(i)
             continue
         if ok:
@@ -305,25 +353,39 @@ def translate_lines(lines, source_language=None, keep=(), stats=None):
             # failed the gate on its first answer had no retry at all. Same one ask,
             # alone and explicit; if that answer fails too, the original stands.
             stubborn.append(i)
-    for i in stubborn:
-        bump("retried")
+    if stubborn:
+        # ONE CALL FOR THE WHOLE RETRY, and with the keep-list. Retrying line by line
+        # made the hard cases the expensive ones -- six declined lines cost six calls --
+        # and the single-line prompt carried no keep-list at all, so Rosomak became a
+        # wolverine precisely on the second attempt, when the first had protected it.
+        bump("retried", len(stubborn))
+        body2 = "\n".join("%d. %s" % (n + 1, lines[i].replace("\n", " "))
+                           for n, i in enumerate(stubborn))
         try:
-            raw2, via2 = _ask(_RETRY % lines[i])
+            raw2, via2 = _ask(_RETRY % (", ".join(_keep_list(keep)) or "(none)", body2))
         except Exception:                                             # noqa: BLE001
             bump("retry_failed")
-            continue
+            return out
         if FARM_ONLY and via2 != "farm":
             bump("refused_backend")
-            continue
-        cand = (raw2 or "").strip().splitlines()
-        cand = cand[0].strip() if cand else ""
-        ok, why = verdict(lines[i], cand)
-        if ok and why != "unchanged":
-            out[i] = cand
-            bump("translated_on_retry")
-        else:
-            bump("retry_no_better")
-            bump("retry_no_better_" + (why.split(":")[0] if not ok else "unchanged"))
+            return out
+        got2 = {}
+        for line in (raw2 or "").splitlines():
+            m = re.match(r"\s*\**(\d+)\**[.)]\s*(.+?)\s*$", line)
+            if m:
+                got2[int(m.group(1))] = m.group(2)
+        for n, i in enumerate(stubborn):
+            cand = got2.get(n + 1)
+            if cand is None:
+                bump("retry_no_line")
+                continue
+            ok, why = verdict(lines[i], cand)
+            if ok and why != "unchanged":
+                out[i] = cand
+                bump("translated_on_retry")
+            else:
+                bump("retry_no_better")
+                bump("retry_no_better_" + (why.split(":")[0] if not ok else "unchanged"))
     return out
 
 
@@ -384,7 +446,9 @@ def _demo():
         unchanged, anything else comes back as English."""
         calls.append(prompt)
         out = []
-        for line in prompt.split("LINES\n", 1)[1].splitlines():
+        # The retry prompt has no "LINES" header, so take whatever is numbered.
+        body = prompt.split("LINES\n", 1)[1] if "LINES\n" in prompt else prompt
+        for line in body.splitlines():
             m = re.match(r"\s*(\d+)[.)]\s*(.+)$", line)
             if not m:
                 continue
@@ -401,15 +465,33 @@ def _demo():
                  "due veicoli del lotto iniziale sono consegnati"]
     out = translate_lines(src_lines, "it", stats=st)
     assert len(out) == 3, "length is preserved"
-    assert len(calls) == 1, "ONE call for the whole card, not one per line"
     # A non-English DOCUMENT sends every line, because a document label cannot tell
-    # which of its lines the extraction model already wrote in English...
+    # which of its lines the extraction model already wrote in English.
     assert st["asked"] == 3, st
     assert "1. Leonardo signed" in calls[0] and "2. sette veicoli" in calls[0]
-    # ...and the English one comes back untouched, recorded as such rather than as a
-    # translation, so the counters do not overstate the work.
-    assert out[0] == src_lines[0], "an English line survives the round trip unaltered"
-    assert st.get("model_said_unchanged") == 1 and st.get("translated") == 2, st
+    # The English line comes back unchanged. On a foreign document that is SUSPICIOUS,
+    # not accepted: the row this layer exists for -- "sette veicoli ruotati 8x8
+    # Centauro II are forniti" -- also comes back unchanged and also passes the gate,
+    # so accepting unchanged here is what made the defect invisible. It is asked once
+    # more, and the stub (like the model) confirms it really is English.
+    assert st.get("retried") == 1, st
+    assert len(calls) == 2, "one batch + ONE batched retry, never one call per line"
+    assert out[0] == src_lines[0], "a genuinely English line survives unaltered"
+    assert st.get("translated") == 2, st
+
+    # THE RETRY IS BATCHED. Six declined lines must cost one extra call, not six --
+    # otherwise the hardest cards are the most expensive ones.
+    calls.clear(); st = {}
+    six = ["sette veicoli sono forniti"] * 6
+    translate_lines(six, "it", stats=st)
+    assert len(calls) <= 2, "six lines: one batch, at most one retry batch, got %d" % len(calls)
+
+    # ...and the retry carries the keep-list, which the single-line prompt did not:
+    # Rosomak is a wolverine, and losing it on the SECOND ask after protecting it on
+    # the first is the worst of both.
+    calls.clear()
+    translate_lines(["Rosomak dostarczony do jednostki"], "pl", keep=["Rosomak"])
+    assert all("Rosomak" in c for c in calls), "every ask protects the product names"
 
     # WITH NO LANGUAGE, THE STRING IS ALL THERE IS, AND IT IS NOT ENOUGH. The clearly
     # foreign line goes; "sette veicoli ruotati sono forniti" carries one function word
@@ -456,18 +538,22 @@ def _demo():
         == "sette veicoli sono forniti"
     assert st.get("failed") == 1, st
 
-    # IDEMPOTENCE, stated exactly. Feeding the output back must not alter it. With a
-    # non-English document label it still costs a call -- the label describes the
-    # document, not the line -- but the model copies English out unchanged and that is
-    # recorded as "unchanged" rather than as a translation. With no label it costs
-    # nothing at all, because the string gate sees English and never asks.
+    # IDEMPOTENCE, STATED EXACTLY, INCLUDING WHAT IT COSTS. Feeding the output back
+    # must not alter it, and does not. On a document labelled non-English it costs two
+    # calls to establish that -- the batch, then the retry that double-checks an
+    # unchanged line -- and changes nothing. That is the price of not trusting
+    # "unchanged" on a foreign document, and not trusting it is what stops the
+    # flagship defect row from being silently accepted. With no label it costs nothing
+    # at all: the string gate sees English and never asks.
     globals()["_ask"] = fake
     once = translate_lines(["Leonardo signed a production contract"], "it")
     assert once == ["Leonardo signed a production contract"]
     st = {}
     assert translate_lines(once, "it", stats=st) == once, \
         "re-translating English text must not alter it"
-    assert st.get("model_said_unchanged") == 1 and not st.get("translated"), st
+    assert not st.get("translated"), st
+    assert st.get("retried") == 1 and st.get("retry_no_better_unchanged") == 1, \
+        "the second ask confirms it really was English, and nothing is rewritten"
     st = {}
     assert translate_lines(once, None, stats=st) == once
     assert not st.get("asked"), "with no document language it costs no call at all"
