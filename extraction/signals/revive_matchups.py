@@ -61,7 +61,8 @@ import client_portfolio  # noqa: E402
 import pairing  # noqa: E402
 import positioning_gate  # noqa: E402
 import spec_direction  # noqa: E402
-import spec_join  # noqa: E402
+import spec_join
+import spec_number  # noqa: E402
 
 publishable, st_domain = client_portfolio.publishable, client_portfolio.st_domain
 
@@ -1116,6 +1117,15 @@ def rebuild(row, docs, prows=()):
     # counterpart is a fact about KSSL, not a comparison, and counting it in "N value(s)
     # sourced, none comparable on both sides" would make that sentence claim rival
     # figures the panel does not have.
+    # BOTH SIDES STATE A NUMBER, SO COMPARE THEM.
+    # 32 served specs carried a value on each side with only the rival's parsed, so the
+    # panel drew chips and claimed nothing on comparisons a reader can make by eye --
+    # "185 hp" against "220hp / ECAS susp". spec_number pairs them on the unit BOTH
+    # sides state, and refuses where a first-number parse would invert the verdict
+    # (one field holding two quantities) or invent one (3 rounds/30 sec IS 6 rds/min).
+    # Run before scored()/edge_of so the panel's bars and the stored edge are one
+    # number, not two.
+    all_specs = spec_number.fill(all_specs)
     shown = spec_join.scored(all_specs)
     edge = edge_of(shown)
     who_c, who_k = (compby or comp), (bfby or bf)

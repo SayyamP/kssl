@@ -35,6 +35,10 @@ python extraction/engine/presignal.py --demo
 # published four news publishers as competitors' official websites -- and put AM
 # General's site on General Dynamics' profile.
 python extraction/signals/company_sites.py --demo
+# Both sides state a number, so compare them -- on the unit BOTH sides name. Refuses
+# where a first-number parse would invert a verdict (one field, two quantities) or
+# invent one (3 rounds/30 sec IS 6 rds/min).
+python extraction/signals/spec_number.py
 # The queue router.
 C_DS_JSON=extraction/engine/ds.json \
 C_TIERS_PATH=extraction/engine/source_tiers.py \
