@@ -70,6 +70,7 @@ _st_spec = _ilu.spec_from_file_location(
 _st = _ilu.module_from_spec(_st_spec); _st_spec.loader.exec_module(_st)  # type: ignore
 publishable = _st.publishable  # noqa: E402  (ONE source bar, shared)
 import roster  # noqa: E402  (the curated roster, shared with serving_fill)
+import company_sites
 import threat_gate  # noqa: E402  (what a threat level is -- one vocabulary)
 from aliases import (  # noqa: E402  (ONE identity layer, shared with serving_fill)
     CLIENT_MARKS, canonical as canon_name, client_led, fold as fold_name,
@@ -1374,15 +1375,15 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
             if u and u not in seen_u:
                 seen_u.add(u)
                 srcs.append({"label": docs[did]["source"], "url": u})
-        site = None
-        tok = next((t for t in re.findall(r"[a-z0-9]+", name.lower()) if len(t) >= 4),
-                   None)
-        for did in dids:   # company-owned domain among its own docs -> site
-            u = docs[did]["url"] or ""
-            m = re.match(r"https?://([^/]+)", u)
-            if m and tok and tok in m.group(1).lower():
-                site = "https://" + m.group(1)
-                break
+        # THE COMPANY'S OWN SITE, NOT A PAGE THAT MENTIONS IT.
+        # This used to take the first >=4-character token of the name and accept any
+        # host CONTAINING it, which published four news publishers as competitors'
+        # official websites -- and, worst of the four, put AM General's site on General
+        # Dynamics' profile, attributing one real manufacturer's website to another.
+        # company_sites compares whole names instead of fragments, and returns None
+        # rather than a best guess. See company_sites.py --demo.
+        site = company_sites.pick_site(slug(name), name,
+                                       [docs[did]["url"] or "" for did in dids])
         rows.append({"name": name, "prof": prof, "updates": updates,
                      "upd_html": upd_html,
                      # built HERE because `use` -- the statements this profile was read

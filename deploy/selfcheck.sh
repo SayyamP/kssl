@@ -31,6 +31,10 @@ pip install -r extraction/requirements.txt
 
 # The presignal relevance gate (competitor roster, alias list, code stoplist).
 python extraction/engine/presignal.py --demo
+# Is a URL the company's OWN site, or a page that mentions it? The rule this replaced
+# published four news publishers as competitors' official websites -- and put AM
+# General's site on General Dynamics' profile.
+python extraction/signals/company_sites.py --demo
 # The queue router.
 C_DS_JSON=extraction/engine/ds.json \
 C_TIERS_PATH=extraction/engine/source_tiers.py \
