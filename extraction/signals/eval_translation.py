@@ -22,6 +22,8 @@ import translate as T                                                  # noqa: E
 
 DSN = os.environ.get("KSSL_DSN", "postgresql://postgres:kssl@127.0.0.1:5460/kssl")
 CAPS_RX = re.compile(r"\b[A-Z][A-Za-z]{2,}\b")
+# Han, hiragana, katakana, Hangul: scripts where one character carries a word.
+CJK_RX = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]")
 
 
 def sample(cur, langs, per_lang):
@@ -70,10 +72,27 @@ def check(src, out):
     lost_d = set(T.DESIG_RX.findall(src)) - set(T.DESIG_RX.findall(out))
     if lost_d:
         bad.append("lost-designator:" + ",".join(sorted(lost_d)[:2]))
-    r = len(out) / max(1, len(src))
-    if r < 0.45:
+    # A CHARACTER IS NOT A UNIT OF MEANING IN EVERY SCRIPT, and comparing character
+    # counts across scripts is how a perfect translation gets flagged as padding:
+    # "赛峰增压系统公司" is 8 characters and "Safran Propulsion Systems" is 25, a ratio
+    # of 3.1 for a faultless rendering. All three too-long flags in round 3 were of
+    # this kind. Where the source is ideographic, one character is roughly one word,
+    # so the comparison is made in words on both sides instead.
+    if CJK_RX.search(src):
+        src_units = len(CJK_RX.findall(src)) + len(re.findall(r"[A-Za-z]+", src))
+        out_units = len(re.findall(r"[^\W\d_]+", out, re.UNICODE))
+        r = out_units / max(1, src_units)
+        # Wide, because the character-to-word mapping is genuinely noisy: a nine-
+        # character compound ("高度专业且敬业的员工") is five English words, while an
+        # eight-character company name is three. Only a summary or a padded invention
+        # falls outside this, which is all the check is for.
+        lo, hi = 0.35, 2.5
+    else:
+        r = len(out) / max(1, len(src))
+        lo, hi = 0.45, 2.6
+    if r < lo:
         bad.append("too-short:%.2f" % r)
-    if r > 2.6:
+    if r > hi:
         bad.append("too-long:%.2f" % r)
     return bad
 
@@ -86,7 +105,9 @@ def check(src, out):
 # yes/no about meaning, and the things it must NOT report are named explicitly,
 # because naming the exclusion is what actually suppresses it.
 JUDGE = """For each item, decide ONE thing: does the ENGLISH state the same facts as
-the SOURCE? Answer one line per item, "<n>. OK" or "<n>. BAD <=6 words".
+the SOURCE? Answer one line per item: either "<n>. OK", or "<n>. BAD" followed by a
+few words naming the fact that changed. Write the reason in your own words -- do not
+copy this instruction back.
 
 BAD only if the English changes or drops a fact: a different number, quantity, date,
 unit or calibre; a different organisation, person, product or country; a negation or
