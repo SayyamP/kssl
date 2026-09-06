@@ -8,6 +8,14 @@
  * a useMemo that runs on every render, so it took the whole panel down, not one
  * button.
  *
+ * A SECOND WAY THE SAME BUG ARRIVES: the name resolves, and the binding is not
+ * usable yet. A `const` is in its temporal dead zone until its own line runs, so a
+ * useMemo placed above the value it depends on compiles and then throws "Cannot
+ * access 'feedArticles' before initialization" at render. That shipped in
+ * Profile.jsx on 2026-09-06 and this check now refuses it, by reading hook
+ * dependency arrays -- the one construct that is evaluated on the spot, so a
+ * verdict about it needs no knowledge of React's semantics.
+ *
  * This is scope analysis, not a grep: @babel/traverse resolves each referenced
  * identifier against the scope chain it actually appears in, so a parameter, a
  * loop variable, a destructured binding and a hoisted function all count as
@@ -64,6 +72,36 @@ for (const file of files) {
       }
       if (path.scope.hasBinding(name, { noGlobals: true })) return;
       bad.push(`${file}:${path.node.loc.start.line}  ${name}`);
+    },
+  });
+
+  /* THE BINDING EXISTS AND IS STILL NOT USABLE YET.
+     A `const` is in its temporal dead zone until its own line runs, so a reference
+     above it resolves, compiles, and throws at render. Only references evaluated
+     ON THE SPOT can be judged here -- a name used inside a nested function may
+     legitimately be read later -- so this checks the one place that is always
+     evaluated immediately and where the mistake actually happens: a hook's
+     dependency array. `useMemo(() => f(x), [x])` with `const x` declared below
+     throws on `[x]` before React sees anything. */
+  traverse(ast, {
+    CallExpression(path) {
+      const callee = path.node.callee;
+      const fn = callee.name || (callee.property && callee.property.name);
+      if (!/^use[A-Z]/.test(fn || "")) return;
+      const deps = path.node.arguments[path.node.arguments.length - 1];
+      if (!deps || deps.type !== "ArrayExpression") return;
+      for (const el of deps.elements) {
+        if (!el || el.type !== "Identifier") continue;
+        const binding = path.scope.getBinding(el.name);
+        if (!binding || !binding.path.node.loc) continue;
+        const kind = binding.path.parentPath && binding.path.parentPath.node.kind;
+        if (kind !== "const" && kind !== "let") continue;
+        if (binding.path.node.loc.start.line > el.loc.start.line) {
+          bad.push(`${file}:${el.loc.start.line}  ${el.name}`
+            + ` (declared on line ${binding.path.node.loc.start.line}:`
+            + " read here before it is initialised)");
+        }
+      }
     },
   });
 }

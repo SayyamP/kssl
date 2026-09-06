@@ -165,12 +165,6 @@ export default function Profile() {
      stack now opens NEWS_PAGE at a time and the button says how many remain. */
   const [newsShown, setNewsShown] = useState(NEWS_PAGE);
   const [showAllNews, setShowAllNews] = useState(false);
-  /* THE FEED IS THREADED; THE FULL LIST BELOW IS NOT.
-     Three PAC-3 stories in a fortnight are one running story, and the same wire piece
-     from four outlets is one event reported four times. news_chain.py decides which,
-     from spans the extraction layer typed -- not from a word in the headline. The full
-     News section still lists every article, so collapsing here hides nothing. */
-  const threadedFeed = useMemo(() => collapseThreads(feedArticles), [feedArticles]);
 
   useEffect(() => {
     const pend = takePending("profile");
@@ -288,6 +282,20 @@ export default function Profile() {
   const feedArticles = useMemo(() => {
     return filteredArticles.filter((a) => a.id !== (topStory && topStory.id));
   }, [filteredArticles, topStory]);
+
+  /* THE FEED IS THREADED; THE FULL LIST BELOW IS NOT.
+     Three PAC-3 stories in a fortnight are one running story, and the same wire piece
+     from four outlets is one event reported four times. news_chain.py decides which,
+     from spans the extraction layer typed -- not from a word in the headline. The full
+     News section still lists every article, so collapsing here hides nothing.
+
+     It has to sit BELOW feedArticles, not beside the useState calls at the top of the
+     component. A const is in its temporal dead zone until its own line runs, so a
+     useMemo declared earlier that reads it throws "Cannot access 'feedArticles' before
+     initialization" -- at RENDER, not at build. esbuild compiled it happily and every
+     name resolved to a binding; test_filter_counts.mjs, which actually renders the
+     page, is what caught it. */
+  const threadedFeed = useMemo(() => collapseThreads(feedArticles), [feedArticles]);
 
   /* What the header's Copy / Export / Print act on: this company's profile as shown --
      details, leadership, and every sourced article. Nothing is added to the record. */
