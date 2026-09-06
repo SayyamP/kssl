@@ -309,6 +309,58 @@ check("the hand-listed fallback is exactly the file's vocabulary",
 check("the fallback lists every category, not a subset",
       len(tg._KSSL_LINE_LABELS), len(tg.KSSL_LINES))
 
+# 9. capability_dir(): the TECHNOLOGY lane, which could only ever read zero.
+#
+# Three layers each moved cards one way only -- serving_fill would not write a threat
+# outside the competitive pillar, grade() returns early unless the card is already one,
+# and the backfill skips anything that is not. So 274 of 274 technology signals sat at
+# watch and the tile honestly reported "not assessed" for ever.
+_cap_gate = tg.RosterGate(["Rheinmetall", "Anduril", "Kalyani Strategic Systems"])
+# products are ROWS with a category from the nine-item vocabulary, which is what
+# competitor_lines reads -- a list of bare strings yields nothing and is an unknown.
+_gun = {"threat": "high",
+        "products": [{"category": "Artillery"}, {"category": "Ammunition"}]}
+
+# they MEET on the line: KSSL's line, and the rival's catalogue covers it
+_d, _why = tg.capability_dir({"company": "Rheinmetall", "tags": "Artillery", "dir": "watch"},
+                             _gun, _cap_gate)
+check("a rival moving on a line it and KSSL BOTH work is a capability threat", _d, "threat")
+check("...and it needs no reason", _why, None)
+
+# the promotion grade() will not do -- this is the whole gap
+check("capability_dir promotes where grade() only demotes",
+      tg.grade({"company": "Rheinmetall", "tags": "Artillery", "dir": "watch"},
+               _gun, _cap_gate)[0], "watch")
+
+# KSSL's line, but this rival does not sell into it -> they do not meet on it
+_d, _why = tg.capability_dir({"company": "Anduril", "tags": "Artillery", "dir": "watch"},
+                             {"threat": "high",
+                              "products": [{"category": "UAVs & Drones"}]},
+                             _cap_gate)
+check("a KSSL line the rival does not cover is not a capability threat", _d, "watch")
+check("...and the reason names which half failed", _why, "kssl-line-but-rival-not-in-it")
+
+# not a KSSL line at all
+_d, _why = tg.capability_dir({"company": "Rheinmetall", "tags": "Naval shipbuilding",
+                              "dir": "watch"}, _gun, _cap_gate)
+check("a line KSSL does not work in is not a capability threat", _d, "watch")
+
+# UNMEASURED IS NOT HARMLESS -- the distinction this module exists for
+_d, _why = tg.capability_dir({"company": "Rheinmetall", "dir": "watch"},
+                             {"threat": "high", "products": []}, _cap_gate)
+check("an ungraded card stays watch", _d, "watch")
+check("...but its reason says NOT ASSESSED, not 'no kssl line'", _why, "impact-not-assessed")
+
+# a company the reader cannot open a profile for never carries the badge
+_d, _why = tg.capability_dir({"company": "Some Startup Ltd", "tags": "Artillery",
+                              "dir": "watch"}, _gun, _cap_gate)
+check("a company off the served roster is refused the badge", _d, "watch")
+
+# the client is not a threat to itself
+_d, _ = tg.capability_dir({"company": "Kalyani Strategic Systems", "tags": "Artillery",
+                           "dir": "watch"}, _gun, _cap_gate)
+check("the client is never its own capability threat", _d, "watch")
+
 if bad:
     print("\n%d failure(s)" % bad)
     sys.exit(1)

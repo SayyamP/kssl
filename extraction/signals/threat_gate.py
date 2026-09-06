@@ -485,6 +485,55 @@ def grade(card, comp, gate=None):
     return "threat", None, imp, severity_of((comp or {}).get("threat"), imp)
 
 
+def capability_dir(card, comp, gate=None):
+    """The TECHNOLOGY lane's own direction: is this a capability threat? -> (dir, reason)
+
+    WHY THIS EXISTS. The Technology tab has a "Capability threats" tile that could only
+    ever read zero, because three separate layers each moved cards one way only:
+
+      serving_fill  writes dir='threat' only when pillar == 'competitive', so a
+                    technology card was never written as one in the first place;
+      grade()       returns early for any card that is not already a threat, so it can
+                    DEMOTE and never promote;
+      backfill      `if card["dir"] != "threat": continue` -- it only inspects cards
+                    that are threats already.
+
+    None of the three is wrong on its own. Together they meant the tile asked a question
+    the pipeline had no path to answer, and 274 of 274 served technology signals sat at
+    watch. The honest tile said "not assessed", which was true, and stayed true.
+
+    THE DEFINITION, built from what is already measured rather than a new opinion:
+
+      direction   is this a capability threat at all -- the card's line is one KSSL
+                  works in AND this rival's own catalogue covers that same line, so the
+                  two companies actually MEET on it (impact_of's `direct`), and the
+                  company resolves to one on the served roster.
+      severity    how bad -- already computed by severity_of from the rival's own threat
+                  level and that same impact.
+
+    Direction classifies, severity ranks. That is the split the competitive lane already
+    uses, and keeping it means severity does not silently become a second direction.
+
+    `adjacent` is NOT a capability threat: the line is KSSL's, but the rival's catalogue
+    does not cover it, so nothing yet says the two meet there. `not_assessed` is not one
+    either -- we did not measure it, which is not the same as measuring it harmless.
+    Both keep watch, and the reason says which.
+    """
+    imp = impact_of(card, comp)
+    name = (card or {}).get("company")
+    if gate is not None:
+        resolved, why = gate.classify(name)
+        if not resolved:
+            return "watch", why
+    if imp.state == "direct":
+        return "threat", None
+    if imp.state == "adjacent":
+        return "watch", "kssl-line-but-rival-not-in-it"
+    if imp.state == "none":
+        return "watch", "no-kssl-line"
+    return "watch", "impact-not-assessed"
+
+
 # ---------------------------------------------------------------------------------
 
 
