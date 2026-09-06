@@ -3528,9 +3528,34 @@ def step_revenue(cur, con, docs, props_by_doc, limit=None):
     return {"written": n, "companies": len(found), "total": total}
 
 
+def step_founded(cur, con, docs, props_by_doc, limit=None):
+    """Fill serving.competitors.starting_year -- the Profile panel's "Starting year".
+
+    The column existed, was carried across rebuilds by roster.CARRIED_COLUMNS, and was
+    empty on every one of the 44 shown competitors, because its only writer reads a
+    hand-maintained workbook and is not a step. Same shape as step_revenue: runs on the
+    caller's cursor inside the pass, after step_companies has re-inserted the rows.
+
+    See signals/fill_founded.py for what counts as a founding and what does not -- the
+    short version is that the founding verb must be passive, because "Lockheed created
+    the Skunk Works division in 1943" is not Lockheed's founding year.
+    """
+    import fill_founded
+    found = fill_founded.collect(cur)
+    n = 0
+    for cid, (year, _votes, _exact) in found.items():
+        cur.execute("UPDATE serving.competitors SET starting_year = %s "
+                    "WHERE comp_id = %s", (year, cid))
+        n += cur.rowcount
+    con.commit()
+    print("founded: %d competitor(s) given a founding year" % n, flush=True)
+    return {"written": n, "companies": len(found)}
+
+
 # ----------------------------------------------------------------------------- driver
 
 STEPS = [("companies", step_companies), ("news", step_news), ("revenue", step_revenue),
+         ("founded", step_founded),
          ("partnerships", step_partnerships),
          ("structure", step_structure), ("metrics", step_metrics),
          ("geo", step_geo), ("tenders", step_tenders),
