@@ -784,6 +784,38 @@ def is_dup(seen, company, title):
 # 262k asks ollama for a 95 GB KV cache and the request dies as an opaque HTTP 500.
 
 
+# WHICH BACKEND ANSWERED IS PART OF WHETHER THE ROW SHOULD EXIST. llmapi silently
+# fails over to a 7b on a CPU box when the farm is unreachable, and returns that fact
+# in meta["via"] -- which both of the pipeline's two model-calling functions asked for
+# and then threw away, keeping only the token count. So the standing rule that serving
+# tables are written by the 14B was enforced by nothing at all: a farm outage produced
+# a pass of 7b-written cards that are indistinguishable, afterwards, from good ones.
+#
+# This does NOT refuse the answer. During an outage a 7b card is arguably better than
+# no card, and that is the operator's call, not this function's. What it does is make
+# the choice VISIBLE: every fallback answer is counted, and the first one in a pass
+# says so loudly, so "the farm was down for this pass" is a line in the log rather
+# than something to be inferred from quality complaints weeks later.
+_VIA_SEEN = {}
+
+
+def _note_via(via):
+    if not via:
+        return
+    _VIA_SEEN[via] = _VIA_SEEN.get(via, 0) + 1
+    if via != "farm" and _VIA_SEEN[via] == 1:
+        print("[ALERT] %s: a model answer came from %r, NOT the farm. Serving rows "
+              "written from here are %s output, not the %s serving model. Counted in "
+              "the pass summary." % (__name__, via, via, MODEL),
+              file=sys.stderr, flush=True)
+
+
+def via_counts():
+    """-> {backend: answers}. Printed in the pass summary so a run that quietly ran on
+    the fallback is visible in the same line as everything else it did."""
+    return dict(_VIA_SEEN)
+
+
 def ask(prompt, timeout=None, doc_id=None, npredict=420):  # 14B writes longer; avoid mid-JSON truncation
     """One card-step generation, through the LLM API.
 
@@ -797,6 +829,7 @@ def ask(prompt, timeout=None, doc_id=None, npredict=420):  # 14B writes longer; 
         text, meta = llm_client.ask(prompt, npredict=npredict, timeout=timeout,
                                     model=MODEL, with_meta=True)
         st.items(1).tokens(int(meta.get("eval_count") or 0))
+        _note_via((meta or {}).get("via"))
         return text
 
 
@@ -1679,6 +1712,12 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
     reorder_all(cur, con, comp_patterns)
     con.close()
     if verbose:
+        _v = via_counts()
+        if _v:
+            print("backends: " + ", ".join("%s=%d" % kv for kv in sorted(_v.items())) +
+                  ("" if set(_v) <= {"farm"} else
+                   "   <-- NOT all from the farm; these cards are not %s output" % MODEL),
+                  flush=True)
         print("done: %(cards)d card(s) written, %(none)d judged not-a-signal, "
               "%(thin)d without propositions, %(stale)d dated too old, "
               "%(cstale)d stale-content, "
