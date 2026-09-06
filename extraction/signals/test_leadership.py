@@ -9,6 +9,7 @@ kind of wrong content on this dashboard -- more damaging than an empty panel, wh
 why the panel was left empty until something could fill it correctly. So the faults are
 pinned individually rather than as one "it works" assertion.
 """
+import datetime
 import re
 import sys
 from pathlib import Path
@@ -175,6 +176,38 @@ def test_an_appointment_outranks_a_mention():
               "url": "u1", "line": "l1", "appointed": False, "when": None},
         "b": {"name": "Jaiteerth R. Joshi", "roles": {"CEO": 1}, "unit": False,
               "url": "u2", "line": "l2", "appointed": True, "when": None}})
+    assert [r["value"] for r in out] == ["Jaiteerth R. Joshi"], out
+
+
+def _p(name, role, votes, appointed=False, when=None, seen=None, unit=False):
+    return {"name": name, "roles": {role: votes}, "unit": unit, "url": "u",
+            "line": "l", "appointed": appointed, "when": when, "seen": seen}
+
+
+def test_an_old_claim_is_not_dropped_for_being_old():
+    """The date of the newest sentence asserting an office is not the date the person
+    last held it.
+
+    General Dynamics' newest Phebe Novakovic document is 2026-01-05 and the newest
+    sentence asserting her title is from 2019: she is the sitting chairman and chief
+    executive, and a four-year staleness window deleted her. Meanwhile Tom Kennedy,
+    the officer such a window was written for, has no published_at at all and so
+    survived it. The rule is not in the code; this pins that it stays out.
+    """
+    old = datetime.datetime(2019, 6, 13, tzinfo=datetime.timezone.utc)
+    out = L.seat({"a": _p("Phebe Novakovic", "Chairman and Chief Executive Officer",
+                          4, seen=old)})
+    assert [r["value"] for r in out] == ["Phebe Novakovic"], out
+
+
+def test_a_stated_year_dates_the_appointment():
+    """"took over as BrahMos Corp. CEO in 2014" is a 2014 appointment, whatever the
+    date of the article reporting it."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    y2014 = datetime.datetime(2014, 1, 1, tzinfo=datetime.timezone.utc)
+    out = L.seat({
+        "a": _p("Sudhir Kumar Mishra", "CEO", 9, appointed=True, when=y2014, seen=now),
+        "b": _p("Jaiteerth R. Joshi", "CEO", 1, appointed=True, when=now, seen=now)})
     assert [r["value"] for r in out] == ["Jaiteerth R. Joshi"], out
 
 

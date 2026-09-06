@@ -39,6 +39,7 @@ phrase that starts at that name must be the competitor ITSELF -- `same_org`, the
 division-versus-parent test that stopped Raytheon printing a division's revenue.
 """
 import argparse
+import datetime
 import json
 import os
 import re
@@ -216,6 +217,32 @@ ASSERTS = re.compile(
 # BrahMos, DRDO and CEO&MD of BrahMos Aerospace". The sentence that reports somebody
 # TAKING the office beats a dozen that merely mention them holding it, and between two
 # appointments the later document wins.
+# WHY THERE IS NO "DROP ANYTHING OLDER THAN N YEARS" RULE, HAVING TRIED ONE.
+#
+# It is the obvious answer to Raytheon showing Tom Kennedy, whose only sentence is a
+# 2019 article about the RTX merger. It does not survive contact with the corpus,
+# because the date of the newest sentence ASSERTING an office is not the date the
+# person last held it. Measured:
+#
+#   Phebe Novakovic  newest document 2026-01-05, newest sentence asserting her
+#                    title 2019 -- General Dynamics' sitting chairman and chief
+#                    executive, dropped by a four-year window
+#   Tom Kennedy      no published_at at all, so the fallback to fetched_at made a
+#                    2019 article look like it was published last month -- KEPT
+#
+# So the rule deleted a correct officer from a major competitor and failed to remove
+# the one it was written for. The corpus simply stops restating the title of somebody
+# who has held it a while; absence of a recent assertion is not a departure.
+#
+# What replaces it is ranking, below: where two people claim one office the later
+# appointment wins, which is decidable from evidence. Where nobody newer exists, the
+# old claim is the best the corpus has and it is published WITH its source line, which
+# is the honest outcome rather than a confident silence.
+
+# "took over as BrahMos Corp. CEO in 2014" dates the APPOINTMENT to 2014, whatever the
+# date of the article reporting it. Where the sentence says when, the sentence wins.
+APPT_YEAR = re.compile(r"\b(19[5-9]\d|20[0-4]\d)\b")
+
 APPOINTED = re.compile(
     r"\b(?:assumed?(?: charge| office| the role)?|has assumed|appointed|appoints|"
     r"takes? over as|took over as|named|elected|becomes?|became|promoted to|"
@@ -468,6 +495,8 @@ def merge_spellings(people):
             keyed[key] = pr
             continue
         mine, theirs = sum(pr["roles"].values()), sum(cur_["roles"].values())
+        if _stamp(pr.get("seen")) > _stamp(cur_.get("seen")):
+            cur_["seen"] = pr.get("seen")
         if pr.get("appointed") and not cur_.get("appointed"):
             cur_["appointed"], cur_["when"] = True, pr.get("when")
             cur_["url"], cur_["line"] = pr["url"], pr["line"]
@@ -502,8 +531,10 @@ def collect(cur):
              for cid, n, ctry in cur.fetchall() if len(n) >= 3]
     persons = person_names(cur)
     roster = {fold_name(n) for _c, n, _r, _k in names}
+    # fetched_at is present on every row; published_at on 92%. The fallback is what
+    # gives a date to companies like BrahMos Aerospace, whose documents carry none.
     cur.execute("""SELECT p.subject, p.predicate, p.object, p.ev_quote, d.url,
-                            m.published_at
+                            coalesce(m.published_at, m.fetched_at)
                      FROM extracted.proposition p
                      JOIN extracted.document d ON d.document_id = p.document_id
                      LEFT JOIN documents m ON m.document_id = d.document_id
@@ -515,7 +546,8 @@ def collect(cur):
 
     # cid -> folded person -> {"name": .., "roles": {role: votes}, "url": .., "line": ..}
     tally = {}
-    for subject, pred, obj, quote, url, when in cur.fetchall():
+    for subject, pred, obj, quote, url, raw_when in cur.fetchall():
+        when = as_date(raw_when)
         if not usable_source(url):
             continue
         for cid, who, role, divisional in officers(subject, pred, obj, quote,
@@ -525,10 +557,19 @@ def collect(cur):
             slot = tally.setdefault(cid, {}).setdefault(
                 fold_name(who), {"name": who, "roles": {}, "unit": divisional,
                                  "url": url, "appointed": False, "when": None,
+                                 "seen": None,
                                  "line": re.sub(r"\s+", " ", quote or "").strip()[:400]})
             slot["roles"][role] = slot["roles"].get(role, 0) + 1
             slot["unit"] = slot["unit"] and divisional
+            if when and (slot["seen"] is None or when > slot["seen"]):
+                slot["seen"] = when
             fresh = APPOINTED.search((pred or "") + " " + (quote or ""))
+            said = APPT_YEAR.search(quote or "") if fresh else None
+            if said:
+                # A stated year beats the article's own date: a 2019 piece can report a
+                # 2014 appointment, and it is the appointment that is being ranked.
+                when = datetime.datetime(int(said.group(1)), 1, 1,
+                                         tzinfo=datetime.timezone.utc)
             if fresh and not slot["appointed"]:
                 slot["appointed"] = True
                 slot["when"] = when
@@ -539,7 +580,27 @@ def collect(cur):
                 slot["when"], slot["url"] = when, url
                 slot["line"] = re.sub(r"\s+", " ", quote or "").strip()[:400]
 
-    return {cid: seat(people) for cid, people in tally.items()}
+    out = {cid: seat(people) for cid, people in tally.items()}
+    return {cid: rows for cid, rows in out.items() if rows}
+
+
+def as_date(text):
+    """A datetime from the corpus's date columns, or None.
+
+    `documents.published_at` and `.fetched_at` are BOTH text, and a text cast in SQL
+    would take the whole query down on one malformed row out of 133,000. Parsed here,
+    a row nobody can date simply has no date.
+    """
+    if isinstance(text, datetime.datetime):
+        return text if text.tzinfo else text.replace(tzinfo=datetime.timezone.utc)
+    raw = (text or "").strip().replace("Z", "+00:00")
+    for cut in (len(raw), 19, 10):
+        try:
+            d = datetime.datetime.fromisoformat(raw[:cut])
+            return d if d.tzinfo else d.replace(tzinfo=datetime.timezone.utc)
+        except ValueError:
+            continue
+    return None
 
 
 def _stamp(when):
@@ -572,7 +633,8 @@ def seat(people):
             office, rank, seats = "unit:" + title, rank + 10, 1
         # An appointment outranks a mention; between two appointments the later
         # document wins; only then does the corpus's raw enthusiasm get a vote.
-        rows.append((rank, 0 if pr.get("appointed") else 1, -_stamp(pr.get("when")),
+        rows.append((rank, 0 if pr.get("appointed") else 1,
+                     -_stamp(pr.get("when") or pr.get("seen")),
                      -sum(pr["roles"].values()), -len(pr["name"]),
                      office, seats, title, pr))
     rows.sort(key=lambda r: r[:5])
