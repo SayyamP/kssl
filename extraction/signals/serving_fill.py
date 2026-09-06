@@ -1940,7 +1940,15 @@ def reglance(dsn=DSN, limit=None, verbose=True, only=None):
                      FROM serving.signal_detail d JOIN serving.signal_card c ON c.id = d.id
                     WHERE d.origin='pipeline' AND d.id LIKE 'pl_%%'
                       AND (%s IS NULL OR d.id = %s)
-                    ORDER BY d.id LIMIT %s""", (only, only, limit or 10 ** 9))
+                    -- OLDEST FIRST, so a run with --limit advances instead of
+                    -- re-deriving the same first N cards on every invocation. This
+                    -- ordered by d.id, which is the shape that made --retranslate
+                    -- re-ask the same 200 of 949 cards every signals cycle for hours.
+                    -- reglance is not in the entrypoint loop today, so this is latent
+                    -- rather than live -- but it is one line, and the person who wires
+                    -- it in with a --limit will not read this comment first.
+                    ORDER BY d.updated_at NULLS FIRST, d.id LIMIT %s""",
+                (only, only, limit or 10 ** 9))
     cards = cur.fetchall()
     stats = {"cards": len(cards), "changed": 0, "with_rows": 0}
     for cid, company, title, facts in cards:
