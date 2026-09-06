@@ -78,12 +78,31 @@ def check(src, out):
     return bad
 
 
-JUDGE = """You are checking a translation into English. Answer with one line per item:
-"<n>. OK" if the English is a faithful translation that preserves the facts, numbers,
-units and names of the source, or "<n>. BAD <short reason>" if it does not.
-A source that was already in English and was copied out unchanged is OK.
-Translating an organisation whose name is ordinary words is OK ("Tag der Deutschen
-Einheit" -> "Day of German Unity"). Judge faithfulness only, not style.
+# JUDGE ONE THING. Told merely to "judge faithfulness, not style", the model spent
+# round 2 reporting "grammar and clarity", "unclear and unnatural phrasing" and
+# "redundant achievement" -- style, on rows whose facts were intact. A judge that
+# drifts into style manufactures work: every one of those would have sent the loop
+# chasing a rewrite of a correct translation. So the question is narrowed to a single
+# yes/no about meaning, and the things it must NOT report are named explicitly,
+# because naming the exclusion is what actually suppresses it.
+JUDGE = """For each item, decide ONE thing: does the ENGLISH state the same facts as
+the SOURCE? Answer one line per item, "<n>. OK" or "<n>. BAD <=6 words".
+
+BAD only if the English changes or drops a fact: a different number, quantity, date,
+unit or calibre; a different organisation, person, product or country; a negation or
+modality flipped ("will supply" vs "may supply"); a clause of the source missing; or
+text still in the source language.
+
+OK -- and you must answer OK -- for all of these:
+- a source already in English, copied out unchanged
+- an organisation or event whose name is ordinary words, translated
+  ("Tag der Deutschen Einheit" -> "Day of German Unity")
+- a proper noun deliberately left in its own language
+- awkward, redundant, ungrammatical or unnatural English
+- different word order, different register, a clumsy or literal rendering
+- British vs American spelling, or a differently formatted date
+
+Style is not your concern. Only whether the facts survived.
 
 %s"""
 
