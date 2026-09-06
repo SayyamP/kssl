@@ -149,6 +149,12 @@
   .pat-li:hover{background:var(--d-bg-2)}
   .pat-li.active{background:var(--d-bg-2);border-left:3px solid #b0892b}
   .pat-li .pli-n{font-size:13.5px;font-weight:600;color:var(--d-txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  /* THE FULL NAME UNDER THE SHORT ONE. Quieter and lighter than the name above it: it
+     is a gloss, not a second company. `white-space:normal` because "Advanced Weapons
+     and Equipment India Limited" does not fit a 300px rail on one line, and an
+     ellipsis in the middle of an expansion defeats the point of showing it. */
+  .pat-li .pli-full{font-size:11px;font-weight:500;color:var(--d-txt-3);line-height:1.35;margin-top:2px;white-space:normal;overflow-wrap:anywhere}
+  .pat-li.active .pli-full{color:var(--d-txt-2)}
   .pat-li .pli-c{font-size:11px;color:var(--d-txt-3);background:var(--d-bg-1);border:1px solid var(--d-bg-2);border-radius:10px;padding:2px 8px;min-width:20px;text-align:center;flex-shrink:0}
   .pat-api-note{margin-top:18px;padding:11px 13px;background:var(--d-bg-2);border-radius:8px;font-size:10.5px;line-height:1.5;color:var(--d-txt-3)}
   .pat-api-note b{color:var(--d-txt-2)}
