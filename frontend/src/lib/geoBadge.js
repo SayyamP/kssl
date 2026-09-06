@@ -56,8 +56,17 @@ export function activityLabels(rows, actLabel) {
 
 /** The same, for the CLIENT's own rows: 'bf' and any self-naming label removed. */
 export function ownActivityLabels(rows, actLabel, clientLabel) {
+  /* READ THROUGH THE OVERWRITE. dataset.js stamps p.c = 'bf' over EVERY client
+     footprint row, so by the time the badge sees them the real activity code is
+     already gone: India is stored c='lp' ("Local production") and arrives here as
+     'bf'. Dropping 'bf' therefore removes the echo AND the only thing the badge
+     still had to say, leaving a bare "KSSL Present" on a row whose activity we do
+     know. dataset.js now keeps the original in `c0`; prefer it, and fall back to
+     `c` for any caller that did not come through that path. */
   return activityLabels(
-    (rows || []).filter((r) => r && r.c !== CLIENT_ACT),
+    (rows || [])
+      .map((r) => (r && r.c === CLIENT_ACT && r.c0 ? { ...r, c: r.c0 } : r))
+      .filter((r) => r && r.c !== CLIENT_ACT),
     actLabel,
   ).filter((label) => !echoesPresence(label, clientLabel));
 }

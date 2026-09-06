@@ -240,6 +240,9 @@ export function wireDataset(raw) {
     const ownGeo = (d.geoData && d.geoData[clientShort]) || {};
     Object.keys(ownGeo).forEach((ct) =>
       ownGeo[ct].forEach((p) => {
+        // keep the real activity: geoBadge needs it to say "Local production"
+        // instead of nothing once the self-naming "KSSL present" label is gone.
+        if (p.c && p.c !== "bf") p.c0 = p.c;
         p.c = "bf";
       }),
     );
