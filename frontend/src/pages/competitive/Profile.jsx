@@ -70,6 +70,31 @@ const firstFigure = (v) => {
   return period ? `${hit.value} (${period})` : hit.value || null;
 };
 
+/* HEADQUARTERS, AT ONE GRANULARITY. The column holds three different things: a full
+   postal address ("241 18th Street South, Suite 650, Arlington, Virginia 22202, United
+   States"), a city/region/country chain, and a bare country ("Israel"). Rendered raw
+   they read as different fields, and the street line is noise on a competitor profile.
+
+   This only REMOVES -- street lines, postcodes, parenthetical asides -- and then keeps
+   the last three components. It never guesses which token is the city, so a value that
+   is already short passes through untouched and nothing is invented for a row that has
+   only a country. */
+const HQ_STREET = /\b(street|st\.?|road|rd\.?|marg|avenue|ave\.?|blvd|boulevard|lane|drive|dr\.?|strasse|stra\u00dfe|via|viale|gardens|house|bhavan|tower|plot|suite|floor|block|sy\s*no|industrial area|link road|estate|po box|p\.o\.)\b/i;
+const HQ_HOUSE = /^\s*(no\.?\s*)?\d+[a-z]?[-/]?\d*\s+\S/i;
+const HQ_POST = /\b(\d{4,6}|[A-Z]{1,2}\d[A-Z\d]?\s+\d[A-Z]{2})\b/g;
+
+const tidyHq = (raw) => {
+  if (!raw) return null;
+  const head = String(raw).split(";")[0].replace(/\([^)]*\)/g, " ");
+  const parts = head
+    .split(",")
+    .map((p) => p.replace(HQ_POST, "").replace(/\s{2,}/g, " ").trim())
+    .filter(Boolean);
+  const kept = parts.filter((p) => !(HQ_STREET.test(p) || HQ_HOUSE.test(p)));
+  const use = kept.length ? kept : parts;
+  return use.slice(-3).join(", ") || String(raw).trim();
+};
+
 const joinList = (v) => {
   if (!Array.isArray(v) || !v.length) return null;
   const names = v
@@ -89,7 +114,7 @@ const getCompanyDetailsMeta = (p) => {
   if (!p) return null;
   return {
     founded: p.starting_year ? String(p.starting_year) : DASH,
-    hq: p.hq || DASH,
+    hq: tidyHq(p.hq) || DASH,
     globalLocs: joinList(p.global_locations) || DASH,
     size: p.company_size || DASH,
     revenue: firstFigure(p.sales) || DASH,
