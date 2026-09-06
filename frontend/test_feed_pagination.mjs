@@ -13,7 +13,19 @@ import assert from "node:assert/strict";
 import { buildFeed, paginateFeed, FEED_PAGE_SIZE } from "./src/lib/overview.js";
 
 const path = process.argv[2] || "../../ds_prod.json";
-const d = JSON.parse(readFileSync(path, "utf-8"));
+// SKIP, DON'T CRASH, WHEN THE DATASET IS NOT HERE. ds_prod.json is a live export and
+// is not tracked, so this file could never run anywhere but one laptop -- and because
+// it threw instead of skipping, it was the reason the whole test_*.mjs directory was
+// left out of CI, taking 38 working tests with it. The Python suite already skips
+// without a DSN; this now does the same, and takes an explicit path argument for
+// anyone who does have an export.
+let d;
+try {
+  d = JSON.parse(readFileSync(path, "utf-8"));
+} catch (e) {
+  console.log(`SKIP ${path} not present — pass a dataset path to run this one`);
+  process.exit(0);
+}
 
 const PILLARS = [
   ["competitive", d.competitiveCards],
