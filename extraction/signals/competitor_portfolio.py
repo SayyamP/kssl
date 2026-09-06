@@ -301,6 +301,38 @@ def key_of(name):
     return ALIAS.get(k, k)
 
 
+# A CELL CAN CONTAIN A SENTENCE SAYING THERE IS NO FIGURE, and `re.search(r"\d", ...)`
+# passes it because the sentence cites a year or an old bound. SSS Defence reached the
+# Profile panel as an annual revenue of "Not publicly disclosed -- privately held;
+# historical SIDM directory classified company as <=Rs100 crore turnover in FY2018-19".
+# The honest rendering of an unknown value is the dash the column already falls back to.
+_NO_FIGURE = re.compile(r"\b(not (?:publicly )?(?:disclosed|available|published|reported)"
+                        r"|undisclosed|not disclosed|no public (?:figure|filing)"
+                        r"|figures? not|n/?a)\b", re.I)
+# A SEGMENT OF SOMETHING ELSE IS NOT THE COMPANY. The workbook offered Oshkosh Defense
+# its parent's "Oshkosh Corporation Transport segment sales" -- a different segment of
+# the same group, which is neither the roster entity's revenue nor its parent's.
+#
+# But "segment" alone cannot be the test, because several roster entities ARE a named
+# segment and say so: Nexter is "KNDS Land Systems France segment revenue" and that is
+# the right figure for it. WHAT SEPARATES THEM IS WHERE THE AMOUNT SITS. A cell about
+# this company leads with its number -- "EUR 1.3 billion -- KNDS Land Systems France
+# segment revenue", "NOK 58.6 billion total legacy-group revenue; ..." -- while a cell
+# describing somebody else's segment has to name it first: "Oshkosh Corporation
+# Transport segment sales: US$2.0967 billion". So the refusal is a segment word BEFORE
+# the first amount, not anywhere in the cell.
+_SEGMENT = re.compile(r"\bsegment (?:sales|revenues?|turnover)\b", re.I)
+_AMOUNT = re.compile(r"[\u20ac\u00a3\u20b9\u00a5$]|\b(?:USD|EUR|GBP|INR|NOK|SEK|KRW|JPY|Rs)\b"
+                     r"|\b\d[\d,.]*\s*(?:billion|million|crore|trillion|lakh)\b", re.I)
+
+
+def _leads_with_another_segment(text):
+    """True when a segment is named BEFORE this cell states any amount."""
+    m = _AMOUNT.search(text or "")
+    head = text[:m.start()] if m else (text or "")
+    return bool(_SEGMENT.search(head))
+
+
 def plan_profiles(cur, profiles):
     """Which competitor rows have a blank this workbook can fill. Reads only."""
     cur.execute("SELECT comp_id, name, hq, starting_year, company_size, sales, country "
@@ -369,7 +401,9 @@ def plan_profiles(cur, profiles):
         # REVENUE / SALES and reads as the company's revenue. The dash is the true
         # answer. Tested by a digit rather than a phrase list, because whatever a
         # workbook writes to mean "unknown" will not carry a number.
-        if not sl and p["sales"] and p["publishable"] and re.search(r"\d", p["sales"]):
+        if (not sl and p["sales"] and p["publishable"] and re.search(r"\d", p["sales"])
+                and not _NO_FIGURE.search(p["sales"])
+                and not _leads_with_another_segment(p["sales"])):
             set_["sales"] = {"text": p["sales"], "fy": p["financial_year"],
                              "srcs": p["sources"][:3]}
         if p["global_locations"]:
@@ -443,6 +477,28 @@ def demo():
     # in CI while passing on the machine that wrote it.
     products, profiles, REFUSED = load()
     assert len(profiles) == 50, len(profiles)
+
+    # WHAT THE SALES CELL MAY AND MAY NOT SAY. Every string below is a real cell from
+    # Defence_Competitor_MASTER_DATASET_CORRECTED_2026-09-06.xlsx.
+    def _ok(t):
+        return not _NO_FIGURE.search(t) and not _leads_with_another_segment(t)
+
+    assert not _ok("Not publicly disclosed \u2014 privately held; historical SIDM "
+                   "directory classified company as \u2264\u20b9100 crore turnover in "
+                   "FY2018-19"), "SSS Defence: a sentence saying there is no figure"
+    assert not _ok("Absolute consolidated revenue not publicly disclosed in accessible "
+                   "filings"), "Kalashnikov Concern: same, worded differently"
+    # A DIFFERENT segment of the parent -- named before the cell states any amount.
+    assert not _ok("Oshkosh Corporation Transport segment sales: US$2.0967 billion"), \
+        "Oshkosh Defense must not inherit its parent's Transport segment"
+    # ...but a company that IS a named segment leads with its own number, and stays.
+    assert _ok("\u20ac1.3 billion \u2014 KNDS Land Systems France segment revenue"), \
+        "Nexter IS KNDS Land Systems France"
+    assert _ok("NOK 58.6 billion total legacy-group revenue; Kongsberg Defence & "
+               "Aerospace segment revenue NOK 25.32 billion"), \
+        "a group total does not stop being one because a segment is mentioned after it"
+    assert _ok("\u20b95,051.20 crore turnover"), "Tata Advanced Systems"
+    assert _ok("\u00a369.06 million turnover"), "Supacat"
 
     # 1. the maker is official about its OWN product and a news mention about a
     #    rival's. Without this, one company's marketing sets another's numbers.
