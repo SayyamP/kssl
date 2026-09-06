@@ -131,24 +131,47 @@ def test_second_pass_is_refused_not_queued():
 
 
 def test_lock_is_released_even_when_the_write_fails():
+    """POSTGRES SEMANTICS, NOT A FRIENDLY FAKE. After a statement raises, the
+    transaction is ABORTED and every later statement on it raises too -- including the
+    unlock. A cursor that happily accepts the unlock anyway would pass this test while
+    production leaked the advisory lock, which is exactly what the first version of
+    this test did. `Aborted` refuses everything until it sees a rollback."""
     import enrich_serving as E
 
-    class Boom(Cur):
+    class Aborted(Cur):
+        def __init__(self, log):
+            super().__init__(log)
+            self.failed = False
+
         def execute(self, sql, args=None):
+            if self.failed and "ROLLBACK" not in sql.upper():
+                raise RuntimeError("current transaction is aborted, commands ignored")
             super().execute(sql, args)
             if sql.strip().upper().startswith("DELETE"):
+                self.failed = True
                 raise RuntimeError("connection reset mid-rebuild")
 
+    class RollbackCon(Con):
+        def rollback(self):
+            self.cur.failed = False
+            self.log.append(("rollback", ""))
+
     log = []
-    cur = Boom(log)
-    con = Con(log, cur)
+    cur = Aborted(log)
+    con = RollbackCon(log, cur)
     try:
         E._write_companies(cur, con, [], {}, {})
     except RuntimeError:
         pass
+    assert any(k == "rollback" for k, _ in log), \
+        "the failure path must roll back before it can run any statement at all"
     assert any(k == "unlock" for k, _ in log), \
-        "a failed rebuild must give the advisory lock back, or every later pass skips"
-    print("ok  retry-safe: the advisory lock is released when the write blows up")
+        "a failed rebuild must give the advisory lock back, or every later pass on this " \
+        "connection declines to rebuild and silently writes nothing"
+    order = [k for k, _ in log]
+    assert order.index("rollback") < order.index("unlock"), \
+        "the rollback must come FIRST -- an unlock on an aborted transaction is refused"
+    print("ok  retry-safe: rollback then unlock, so a failed rebuild frees the lock")
 
 
 def test_write_is_idempotent():

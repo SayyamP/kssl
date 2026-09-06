@@ -1114,6 +1114,15 @@ def rebuild_window(cur, con, lock_id, label):
         cur.execute("SET LOCAL lock_timeout='30s'")
         yield True
     finally:
+        # ROLL BACK FIRST. If the block raised, the transaction is ABORTED, and every
+        # statement on an aborted transaction raises InFailedSqlTransaction -- including
+        # the unlock. Without this rollback the `except` below swallowed that and the
+        # advisory lock stayed held for the life of the session, so the next pass on the
+        # same connection would decline to rebuild and quietly write nothing.
+        try:
+            con.rollback()
+        except Exception:                                         # noqa: BLE001
+            pass
         try:
             cur.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
             con.commit()
