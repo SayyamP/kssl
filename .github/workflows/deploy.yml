@@ -248,7 +248,7 @@ jobs:
                 echo "::error::TCP: port $PORT does NOT accept a connection from this runner,"
                 echo "::error::while DNS resolves. So the address is routable but the port is"
                 echo "::error::filtered or closed: a cloud-provider firewall or security group"
-                echo "::error::in front of the box (the box'"'"'s OWN firewall is a separate"
+                echo "::error::in front of the box (the box's OWN firewall is a separate"
                 echo "::error::thing and may well be inactive), or VPS_SSH_PORT is not the"
                 echo "::error::port sshd uses, or VPS_HOST points at a different machine."
               fi
