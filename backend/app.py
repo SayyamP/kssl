@@ -1176,3 +1176,180 @@ def ops_pipeline():
                              "events_available": has_events, "stages": stages})
     finally:
         conn.close()
+
+
+# ============================================================================================
+# RUN TIMELINE -- what one run_id did, over time. READ-ONLY.
+#
+# IMPORTANT SCOPE, established by investigation (do not misread it): a run_id is a
+# COMPONENT/PROCESS scope, NOT one end-to-end pipeline run. stage_timer.RUN_ID is a
+# per-process uuid, so a container's while-loop keeps one run_id across many passes, and
+# most llm run_ids are a single call. Extraction uses a SEPARATE namespace
+# (extracted.extraction_run.run_id = 'run-YYYYMMDD-...'), which provenance 'extracted'
+# events carry. So a run_id groups one component's work, and this view says so. A single
+# document's journey ACROSS components is the Document Lineage view, not this one.
+#
+# Two recorded sources, joined on run_id: metrics.stage_run (timings) and provenance.event
+# (lifecycle, after #47). Roll-ups are marked aggregated; a missing provenance.event is
+# marked unavailable. No start/end is ever manufactured.
+# ============================================================================================
+
+def _run_status(open_rows, last_at):
+    """in_progress if any stage_run row has no ended_at; else completed. Never guessed
+    beyond what is recorded."""
+    if open_rows and open_rows > 0:
+        return "in_progress"
+    return "completed"
+
+
+@app.get("/api/ops/runs")
+def ops_runs(limit: int = 40):
+    """List recent runs (component/process scope) from stage_run and provenance.event."""
+    limit = max(1, min(int(limit), 200))
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        runs = {}
+        has_sr = _regclass(cur, "metrics.stage_run")
+        has_ev = _regclass(cur, "provenance.event")
+        if has_sr:
+            cur.execute(
+                "SELECT run_id, min(started_at)::text AS first_at, "
+                "max(coalesce(ended_at, started_at))::text AS last_at, count(*) AS stage_rows, "
+                "count(*) FILTER (WHERE ok IS FALSE) AS failures, "
+                "count(*) FILTER (WHERE ended_at IS NULL) AS open_rows, "
+                "count(DISTINCT doc_id) AS docs, string_agg(DISTINCT stage, ',') AS stages, "
+                "coalesce(sum(n_tokens),0)::bigint AS tokens "
+                "FROM metrics.stage_run GROUP BY run_id "
+                "ORDER BY max(coalesce(ended_at, started_at)) DESC NULLS LAST LIMIT %s", (limit,))
+            for r in cur.fetchall():
+                d = dict(r)
+                runs[d["run_id"]] = {
+                    "run_id": d["run_id"], "sources": ["stage_run"],
+                    "first_at": d["first_at"], "last_at": d["last_at"],
+                    "stage_rows": d["stage_rows"], "failures": d["failures"],
+                    "docs": d["docs"], "stages": (d["stages"] or "").split(",") if d["stages"] else [],
+                    "tokens": d["tokens"],
+                    "status": _run_status(d["open_rows"], d["last_at"]),
+                    "events": None, "event_actions": None}
+        if has_ev:
+            cur.execute(
+                "SELECT run_id, min(ts)::text AS first_at, max(ts)::text AS last_at, "
+                "count(*) AS events, string_agg(DISTINCT action, ',') AS actions, "
+                "string_agg(DISTINCT component, ',') AS components "
+                "FROM provenance.event WHERE run_id IS NOT NULL GROUP BY run_id "
+                "ORDER BY max(ts) DESC LIMIT %s", (limit,))
+            for r in cur.fetchall():
+                d = dict(r)
+                cur2 = runs.get(d["run_id"])
+                if cur2:
+                    cur2["sources"].append("provenance.event")
+                    cur2["events"] = d["events"]
+                    cur2["event_actions"] = (d["actions"] or "").split(",")
+                    cur2["components"] = (d["components"] or "").split(",")
+                    # widen the window to whichever source saw activity first/last
+                    cur2["first_at"] = min(cur2["first_at"], d["first_at"])
+                    cur2["last_at"] = max(cur2["last_at"], d["last_at"])
+                else:
+                    runs[d["run_id"]] = {
+                        "run_id": d["run_id"], "sources": ["provenance.event"],
+                        "first_at": d["first_at"], "last_at": d["last_at"],
+                        "stage_rows": None, "failures": None, "docs": None, "stages": None,
+                        "tokens": None, "status": "completed",
+                        "events": d["events"],
+                        "event_actions": (d["actions"] or "").split(","),
+                        "components": (d["components"] or "").split(",")}
+        out = sorted(runs.values(), key=lambda x: x["last_at"] or "", reverse=True)[:limit]
+        return JSONResponse({
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "read_only": True, "events_available": has_ev,
+            "scope_note": "A run_id is a component/process scope, not one end-to-end "
+                          "pipeline run. Extraction runs use the 'run-YYYYMMDD-...' namespace.",
+            "runs": out,
+            "events_note": None if has_ev else
+                "provenance.event not present; runs are shown from metrics.stage_run only "
+                "until the migration is applied."})
+    finally:
+        conn.close()
+
+
+@app.get("/api/ops/runs/{run_id}")
+def ops_run_detail(run_id: str):
+    """One run's timeline: stage_run timings + provenance events, chronological, plus
+    aggregated roll-ups. Recorded rows vs aggregated roll-ups vs unavailable are marked."""
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        has_sr = _regclass(cur, "metrics.stage_run")
+        has_ev = _regclass(cur, "provenance.event")
+        timeline, stage_rollup, action_rollup, reject_reasons = [], [], [], []
+        found = False
+
+        if has_sr:
+            cur.execute(
+                "SELECT stage, doc_id, started_at::text AS started_at, ended_at::text AS ended_at, "
+                "ms, n_items, n_tokens, ok, host, note FROM metrics.stage_run "
+                "WHERE run_id = %s ORDER BY started_at, id", (run_id,))
+            for r in cur.fetchall():
+                found = True
+                d = dict(r)
+                timeline.append({"kind": "timing", "at": d["started_at"], "stage": d["stage"],
+                                 "doc_id": d["doc_id"], "ended_at": d["ended_at"], "ms": d["ms"],
+                                 "n_items": d["n_items"], "n_tokens": d["n_tokens"],
+                                 "ok": d["ok"], "host": d["host"], "note": d["note"]})
+            cur.execute(
+                "SELECT stage, count(*) AS runs, coalesce(sum(ms),0)::bigint AS total_ms, "
+                "round(avg(ms))::int AS avg_ms, count(*) FILTER (WHERE ok IS FALSE) AS failures, "
+                "coalesce(sum(n_items),0)::bigint AS items, coalesce(sum(n_tokens),0)::bigint AS tokens "
+                "FROM metrics.stage_run WHERE run_id = %s GROUP BY stage ORDER BY min(started_at)",
+                (run_id,))
+            stage_rollup = [dict(r) for r in cur.fetchall()]
+
+        if has_ev:
+            cur.execute(
+                "SELECT ts::text AS ts, stage, component, document_id, ref_table, ref_id, "
+                "action, reason, evidence FROM provenance.event WHERE run_id = %s "
+                "ORDER BY event_id", (run_id,))
+            for r in cur.fetchall():
+                found = True
+                d = dict(r)
+                timeline.append({"kind": "event", "at": d["ts"], "stage": d["stage"],
+                                 "component": d["component"], "doc_id": d["document_id"],
+                                 "ref_table": d["ref_table"], "ref_id": d["ref_id"],
+                                 "action": d["action"], "reason": d["reason"],
+                                 "evidence": d["evidence"]})
+            cur.execute("SELECT action, count(*) AS n FROM provenance.event WHERE run_id = %s "
+                        "GROUP BY action ORDER BY n DESC", (run_id,))
+            action_rollup = [dict(r) for r in cur.fetchall()]
+            cur.execute("SELECT reason, count(*) AS n FROM provenance.event "
+                        "WHERE run_id = %s AND action = 'record_rejected' "
+                        "GROUP BY reason ORDER BY n DESC", (run_id,))
+            reject_reasons = [dict(r) for r in cur.fetchall()]
+
+        if not found:
+            return JSONResponse(status_code=404, content={
+                "error": "no run with this run_id in metrics.stage_run or provenance.event",
+                "run_id": run_id})
+
+        timeline.sort(key=lambda e: (e["at"] or ""))
+        starts = [e["at"] for e in timeline if e["at"]]
+        ends = [e.get("ended_at") or e.get("at") for e in timeline if (e.get("ended_at") or e.get("at"))]
+        open_rows = sum(1 for e in timeline if e["kind"] == "timing" and e.get("ended_at") is None)
+        return JSONResponse({
+            "run_id": run_id,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "read_only": True,
+            "events_available": has_ev,
+            "status": _run_status(open_rows, None),
+            "first_at": min(starts) if starts else None,
+            "last_at": max(ends) if ends else None,
+            "timeline": timeline,                        # recorded rows
+            "stage_rollup": stage_rollup,                # aggregated
+            "action_rollup": action_rollup,              # aggregated
+            "reject_reasons": reject_reasons,            # aggregated
+            "events_note": None if has_ev else
+                "provenance.event not present; this run shows metrics.stage_run timings "
+                "only. Actions, rejection reasons and model events are unavailable until "
+                "the migration is applied."})
+    finally:
+        conn.close()

@@ -143,10 +143,91 @@ def test_no_writes_issued():
     print("  ok  ops endpoints issue only SELECT/SET -- no writes")
 
 
+def test_runs_list_stage_run_only():
+    rows = {"FROM metrics.stage_run GROUP BY run_id": [
+        {"run_id": "r1", "first_at": "2026-09-06 20:00:00+00", "last_at": "2026-09-06 21:00:00+00",
+         "stage_rows": 186, "failures": 0, "open_rows": 0, "docs": 0, "stages": "llm",
+         "tokens": 19961}]}
+    wire(rows, {"metrics.stage_run": True, "provenance.event": False})
+    d = body(app.ops_runs())
+    assert d["events_available"] is False and "scope_note" in d
+    r = d["runs"][0]
+    assert r["run_id"] == "r1" and r["status"] == "completed" and r["stages"] == ["llm"]
+    assert r["events"] is None
+    print("  ok  runs list: stage_run only, events flagged unavailable, scope noted")
+
+
+def test_runs_list_marks_in_progress():
+    rows = {"FROM metrics.stage_run GROUP BY run_id": [
+        {"run_id": "r2", "first_at": "2026-09-06 20:00:00+00", "last_at": "2026-09-06 20:05:00+00",
+         "stage_rows": 3, "failures": 0, "open_rows": 1, "docs": 0, "stages": "llm", "tokens": 0}]}
+    wire(rows, {"metrics.stage_run": True, "provenance.event": False})
+    assert body(app.ops_runs())["runs"][0]["status"] == "in_progress", "open stage_run row -> in_progress"
+    print("  ok  runs list: an unfinished stage_run row marks the run in_progress")
+
+
+def test_run_detail_timeline_rollup_and_rejects():
+    rows = {
+        "FROM metrics.stage_run WHERE run_id = %s ORDER BY started_at": [
+            {"stage": "llm", "doc_id": "doc_a", "started_at": "2026-09-06 20:00:00+00",
+             "ended_at": "2026-09-06 20:00:15+00", "ms": 15000, "n_items": 1, "n_tokens": 200,
+             "ok": True, "host": "vps", "note": None},
+            {"stage": "llm", "doc_id": "doc_b", "started_at": "2026-09-06 20:01:00+00",
+             "ended_at": "2026-09-06 20:01:05+00", "ms": 5000, "n_items": 1, "n_tokens": 90,
+             "ok": False, "host": "vps", "note": "boom"}],
+        "FROM metrics.stage_run WHERE run_id = %s GROUP BY stage": [
+            {"stage": "llm", "runs": 2, "total_ms": 20000, "avg_ms": 10000, "failures": 1,
+             "items": 2, "tokens": 290}],
+        "FROM provenance.event WHERE run_id = %s ORDER BY event_id": [
+            {"ts": "2026-09-06 20:00:30+00", "stage": "signals", "component": "serving_fill.py",
+             "document_id": "doc_c", "ref_table": "serving.signal_card", "ref_id": "pl_doc_c",
+             "action": "record_rejected", "reason": "stale", "evidence": None}],
+        "WHERE run_id = %s AND action = 'record_rejected'": [{"reason": "stale", "n": 1}],
+        "WHERE run_id = %s GROUP BY action": [{"action": "record_rejected", "n": 1}],
+    }
+    wire(rows, {"metrics.stage_run": True, "provenance.event": True})
+    d = body(app.ops_run_detail("r1"))
+    kinds = [e["kind"] for e in d["timeline"]]
+    assert "timing" in kinds and "event" in kinds, "both sources present in the timeline"
+    ats = [e["at"] for e in d["timeline"]]
+    assert ats == sorted(ats), "timeline is chronological"
+    assert d["stage_rollup"][0]["failures"] == 1
+    assert d["reject_reasons"][0]["reason"] == "stale"
+    assert any(e["kind"] == "timing" and e["ok"] is False for e in d["timeline"]), "a failure is preserved"
+    print("  ok  run detail: timing+event timeline sorted; rollup + reject reasons; failure kept")
+
+
+def test_run_detail_events_unavailable():
+    rows = {"FROM metrics.stage_run WHERE run_id = %s ORDER BY started_at": [
+        {"stage": "llm", "doc_id": None, "started_at": "2026-09-06 20:00:00+00",
+         "ended_at": "2026-09-06 20:00:15+00", "ms": 15000, "n_items": 1, "n_tokens": 200,
+         "ok": True, "host": "vps", "note": None}],
+        "FROM metrics.stage_run WHERE run_id = %s GROUP BY stage": [
+            {"stage": "llm", "runs": 1, "total_ms": 15000, "avg_ms": 15000, "failures": 0,
+             "items": 1, "tokens": 200}]}
+    wire(rows, {"metrics.stage_run": True, "provenance.event": False})
+    d = body(app.ops_run_detail("r1"))
+    assert d["events_note"] and all(e["kind"] == "timing" for e in d["timeline"])
+    assert d["action_rollup"] == [] and d["reject_reasons"] == []
+    print("  ok  run detail: without provenance.event, timings show and events are unavailable")
+
+
+def test_run_detail_404():
+    wire({}, {"metrics.stage_run": True, "provenance.event": True})
+    r = app.ops_run_detail("nope")
+    assert r.status_code == 404
+    print("  ok  unknown run_id -> clean 404")
+
+
 if __name__ == "__main__":
     test_overview_readonly_and_shaped()
     test_overview_survives_all_tables_missing()
     test_events_unavailable_and_available()
     test_pipeline_map_is_grounded()
     test_no_writes_issued()
+    test_runs_list_stage_run_only()
+    test_runs_list_marks_in_progress()
+    test_run_detail_timeline_rollup_and_rejects()
+    test_run_detail_events_unavailable()
+    test_run_detail_404()
     print("ok - ops endpoints: read-only, resilient, grounded")
