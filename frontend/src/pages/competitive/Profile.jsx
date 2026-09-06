@@ -52,6 +52,16 @@ const firstValue = (v) => {
    extractor tied the amount to, so show it. Undated figures (kept only when the sentence
    calls itself annual) have an empty `detail` and render as the bare amount. */
 const firstFigure = (v) => {
+  /* TWO WRITERS, TWO SHAPES. The corpus fill writes an array of {value, detail, url},
+     newest first; the audited workbook writes one {text, fy, srcs} object. Both land in
+     the same `sales` column, and reading only the array shape showed a dash for every
+     company the workbook covered -- the value was in the database the whole time. */
+  if (v && !Array.isArray(v) && typeof v === "object") {
+    const text = (v.text || "").trim();
+    if (!text) return null;
+    const fy = (v.fy || "").trim();
+    return fy ? `${text} (${fy})` : text;
+  }
   if (!Array.isArray(v)) return firstValue(v);
   const hit = v.find((x) => x && (typeof x === "string" ? x.trim() : x.value));
   if (!hit) return null;
