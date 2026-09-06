@@ -2246,11 +2246,27 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
     # died before reaching here.
     cur.execute("DELETE FROM serving.partner WHERE origin='pipeline' AND ord < %s",
                 (REV_ORD0,))
-    seen_c = set()
+    # ONE ROSTER ROW PER COMPANY, and seen_c only guarantees that WITHIN this pass.
+    #
+    # The roster also holds curated reference rows, which this writer does not own and
+    # must not delete -- so a company the corpus finds that is ALSO reference data got a
+    # second row, and the tab showed it twice. Measured in production after the identical
+    # fix landed in revive_partners: "Paramount Group", "Israel Aerospace Industries
+    # (IAI)" and "Thales" each appeared twice, once as reference (ord 2/4/6) and once as
+    # plp_* here. Fixing the other writer did not touch these, because these were never
+    # its rows -- ord 1001-1009 is this range.
+    #
+    # Scoped the same way as there: the DELETE stays on rows this writer owns, and the
+    # duplicate CHECK asks about every row it does not.
+    cur.execute("SELECT label FROM serving.partner WHERE ord >= %s OR origin <> 'pipeline'",
+                (REV_ORD0,))
+    seen_c = {slug(roster.head_org(r[0])) for r in cur.fetchall()}
+    written_c = set()
     for i, (other, g) in enumerate(client_rows, start=1):
-        if slug(other) in seen_c or is_client(other):
+        if slug(roster.head_org(other)) in seen_c or is_client(other):
             continue
-        seen_c.add(slug(other))
+        seen_c.add(slug(roster.head_org(other)))
+        written_c.add(slug(other))
         cur.execute("""INSERT INTO serving.partner
                          (id, ord, label, kind, rel, sig, ptype, note, date, country,
                           deal, insight, mean, origin)
@@ -2264,7 +2280,7 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
     print("partnerships: %d tie(s) found from %d model call(s), %d refused, "
           "%d call(s) errored; %d competitor(s) updated, %d client partner row(s), "
           "%d tie(s) stored nowhere (both sides unprofiled)"
-          % (found, calls, refused, errored, len(written_to), len(seen_c),
+          % (found, calls, refused, errored, len(written_to), len(written_c),
              len(orphans)), flush=True)
     for o in orphans[:10]:
         print("  not stored: %s" % o, flush=True)

@@ -30,6 +30,7 @@ import psycopg2
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 import roster                                                  # noqa: E402
+from roster import head_org                                    # noqa: E402
 from source_tiers import domain as st_domain, publishable      # noqa: E402
 from revive_matchups import (load_docs, norm, index_df, DF,     # noqa: E402
                              COMMON)
@@ -175,24 +176,6 @@ def owner_at(text, code, name):
     return find_at(text, rare_tokens(name))
 
 
-def head_org(label):
-    """The organisation the label is ABOUT.
-
-    Archive labels are compound: "IndianOil & ReNew Power", "GE Aviation (CFM
-    International)". Matching on any token of those published an L&T-IndianOil tie
-    on the word "renew" and a TASL-GE tie on the string "cfm". Only the first
-    organisation named counts -- plus its own acronym, when the bracket holds one
-    word ("(IAI)") rather than a second company ("(CFM International)")."""
-    # A SPACED ampersand joins two companies; an unspaced one is inside a name
-    # ("R&D", "M&M"), and splitting on it turned DRDO into "Defence R".
-    txt = re.split(r"\s+[&/,]\s+|\s*/\s*|\s*,\s*", (label or "").strip())[0]
-    m = re.match(r"\s*([^(]+?)\s*(?:\(([^)]*)\))?\s*$", txt)
-    if not m:
-        return txt
-    head, paren = m.group(1) or "", (m.group(2) or "").strip()
-    if paren and not re.search(r"[\s&/]", paren):
-        head = head + " (" + paren + ")"
-    return head
 
 
 # Words that describe a line of business rather than name a company. Frequency
