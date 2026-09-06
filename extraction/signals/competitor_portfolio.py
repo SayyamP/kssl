@@ -301,6 +301,20 @@ def key_of(name):
     return ALIAS.get(k, k)
 
 
+# A CELL CAN CONTAIN A SENTENCE SAYING THERE IS NO FIGURE, and `re.search(r"\d", ...)`
+# passes it because the sentence cites a year or an old bound. SSS Defence reached the
+# Profile panel as an annual revenue of "Not publicly disclosed -- privately held;
+# historical SIDM directory classified company as <=Rs100 crore turnover in FY2018-19".
+# The honest rendering of an unknown value is the dash the column already falls back to.
+_NO_FIGURE = re.compile(r"\b(not (?:publicly )?(?:disclosed|available|published|reported)"
+                        r"|undisclosed|not disclosed|no public (?:figure|filing)"
+                        r"|figures? not|n/?a)\b", re.I)
+# A SEGMENT IS NOT THE COMPANY, the same way arms revenue is not total revenue. The
+# workbook offered Oshkosh Defense its parent's "Transport segment sales", and a segment
+# line understates or overstates whichever way the roster entity is drawn.
+_SEGMENT = re.compile(r"\bsegment (?:sales|revenues?|turnover)\b", re.I)
+
+
 def plan_profiles(cur, profiles):
     """Which competitor rows have a blank this workbook can fill. Reads only."""
     cur.execute("SELECT comp_id, name, hq, starting_year, company_size, sales, country "
@@ -369,7 +383,9 @@ def plan_profiles(cur, profiles):
         # REVENUE / SALES and reads as the company's revenue. The dash is the true
         # answer. Tested by a digit rather than a phrase list, because whatever a
         # workbook writes to mean "unknown" will not carry a number.
-        if not sl and p["sales"] and p["publishable"] and re.search(r"\d", p["sales"]):
+        if (not sl and p["sales"] and p["publishable"] and re.search(r"\d", p["sales"])
+                and not _NO_FIGURE.search(p["sales"])
+                and not _SEGMENT.search(p["sales"])):
             set_["sales"] = {"text": p["sales"], "fy": p["financial_year"],
                              "srcs": p["sources"][:3]}
         if p["global_locations"]:
