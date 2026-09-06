@@ -298,6 +298,13 @@ def translate_lines(lines, source_language=None, keep=(), stats=None):
         else:
             bump("refused")
             bump("refused_" + why.split(":")[0])
+            # AND A REFUSED LINE DESERVES THE SAME SECOND ASK. Only the "came back
+            # unchanged" path retried, so a line whose first answer was bad -- still
+            # Korean, a number dropped -- was written off after one attempt while a
+            # line the model simply ignored got two. Measured: a Korean CSR row that
+            # failed the gate on its first answer had no retry at all. Same one ask,
+            # alone and explicit; if that answer fails too, the original stands.
+            stubborn.append(i)
     for i in stubborn:
         bump("retried")
         try:
@@ -316,6 +323,7 @@ def translate_lines(lines, source_language=None, keep=(), stats=None):
             bump("translated_on_retry")
         else:
             bump("retry_no_better")
+            bump("retry_no_better_" + (why.split(":")[0] if not ok else "unchanged"))
     return out
 
 
