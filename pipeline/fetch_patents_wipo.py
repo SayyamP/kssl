@@ -658,15 +658,33 @@ def write_db(rows):
                          % (top, PATENT_ORD0))
     cur.execute("DELETE FROM serving.patent WHERE origin = 'pipeline' AND ord >= %s",
                 (PATENT_ORD0,))
+    # THE ATTRIBUTION IS THE ANSWER; DO NOT MAKE THE DASHBOARD GUESS IT AGAIN.
+    # Every row here reached this point by resolving its applicant of record against
+    # the allow-list above -- Korean, Hebrew and German surfaces included. Dropping
+    # comp_id left the frontend re-deriving it by matching Latin word tokens, which
+    # loses every Korean applicant and Krauss-Maffei Wegmann: 56 of 1,157.
+    cur.execute("SELECT column_name FROM information_schema.columns"
+                " WHERE table_schema='serving_live' AND table_name='patent'"
+                " AND column_name='comp_id'")
+    has_comp = cur.fetchone() is not None
+    if not has_comp:
+        print("  serving_live.patent has no comp_id; run"
+              " db/migrations/2026-09-06_patent_comp_id.sql to group patents by"
+              " competitor instead of by legal name")
+    cols = ("ord, assignee_ord, \"no\", title, assignee, status, filed, granted,"
+            " country, ipc, abstract, area, threat, relev, url, p, origin")
+    marks = "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pipeline'"
+    if has_comp:
+        cols += ", comp_id"
+        marks += ",%s"
     for i, r in enumerate(rows):
-        cur.execute(
-            "INSERT INTO serving.patent (ord, assignee_ord, \"no\", title, assignee,"
-            " status, filed, granted, country, ipc, abstract, area, threat, relev,"
-            " url, p, origin) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,"
-            "'pipeline')",
-            (PATENT_ORD0 + i, i, r["no"], r["title"], r["assignee"], r["status"],
-             r["filed"], r["granted"], r["country"], json.dumps(r["ipc"]),
-             r["abstract"], r["area"], r["threat"], r["relev"], r["url"], r["p"]))
+        vals = [PATENT_ORD0 + i, i, r["no"], r["title"], r["assignee"], r["status"],
+                r["filed"], r["granted"], r["country"], json.dumps(r["ipc"]),
+                r["abstract"], r["area"], r["threat"], r["relev"], r["url"], r["p"]]
+        if has_comp:
+            vals.append(r.get("comp_id"))
+        cur.execute("INSERT INTO serving.patent (%s) VALUES (%s)" % (cols, marks),
+                    tuple(vals))
     conn.commit()
     return len(rows)
 

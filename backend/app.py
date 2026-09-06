@@ -101,7 +101,15 @@ TENDER_FIELDS = ["id", "title", "issuer", "country", "cat", "value", "qty",
 TENDER_OPT = frozenset(["stage"])
 PATENT_FIELDS = ["no", "title", "assignee", "status", "filed", "granted",
                  "country", "ipc", "abstract", "area", "threat", "relev",
-                 "url", "p"]  # granted stays, null is honest
+                 "url", "p",  # granted stays, null is honest
+                 # 2026-09-06. Which competitor this filing belongs to, resolved by
+                 # the harvester against its own applicant allow-list. The frontend
+                 # used to re-derive it by matching Latin word tokens, which cannot
+                 # see a Korean or a German legal name.
+                 "comp_id"]
+# comp_id is null on the 26 curated reference rows and absent entirely on a database
+# that has not run 2026-09-06_patent_comp_id.sql, so it is optional in both senses.
+PATENT_OPT = frozenset(["comp_id"])
 GEO_FIELDS = ["name", "c", "val", "since", "qty", "stage", "note", "src", "srcnote",
               "geo_news"]
 GEOCOMP_FIELDS = ["id", "name", "dir", "hq", "isBf"]
@@ -222,6 +230,7 @@ _SERVED = [
     ("tender", TENDER_FIELDS, TENDER_OPT),
     ("innovation", INNOV_FIELDS, INNOV_OPT),
     ("partner", PARTNER_FIELDS, PARTNER_OPT),
+    ("patent", PATENT_FIELDS, PATENT_OPT),
 ]
 _reconciled = False
 
@@ -361,12 +370,14 @@ def _dataset(_st=None):
         _q(cur, "SELECT %s FROM serving.patent ORDER BY ord" % _cols(PATENT_FIELDS))
         by_area = {}
         for r in cur.fetchall():
-            by_area.setdefault(r["area"], []).append(_emit(r, PATENT_FIELDS))
+            by_area.setdefault(r["area"], []).append(
+                _emit(r, PATENT_FIELDS, PATENT_OPT))
         _q(cur, "SELECT %s FROM serving.patent ORDER BY assignee_ord"
                     % _cols(PATENT_FIELDS))
         by_assignee = {}
         for r in cur.fetchall():
-            by_assignee.setdefault(r["assignee"], []).append(_emit(r, PATENT_FIELDS))
+            by_assignee.setdefault(r["assignee"], []).append(
+                _emit(r, PATENT_FIELDS, PATENT_OPT))
         # _meta.total/lastSync are computed from the served rows -- the config copy
         # described the reference sync and kept asserting 26 filings on an empty store.
         _q(cur, "SELECT count(*), max(updated_at) FROM serving.patent")

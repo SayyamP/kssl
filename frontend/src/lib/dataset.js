@@ -487,8 +487,34 @@ function adaptPatents(d) {
   }));
 
   PATENTS.byCompetitor = {};
+
+  /* THE ROW MAY ALREADY KNOW WHOSE IT IS.
+     fetch_patents_wipo.py resolves every applicant of record against an explicit
+     allow-list, Korean and German surfaces included, and now stores that answer as
+     comp_id. Where it is present it is used, because re-deriving it here by matching
+     Latin word tokens is strictly worse: on the 1,157 harvested rows the token match
+     loses 56 -- 49 Korean applicants (the Hanwha Aerospace and Poongsan registrations
+     share no Latin word with their trading names) and Krauss-Maffei Wegmann, which
+     shares none with "KNDS". A word-token matcher over a multilingual register is a
+     language detector.
+
+     The token match stays for rows without comp_id -- the 26 curated reference
+     filings, and any dataset served by a backend older than the column. */
+  const known = new Set(d.compOrder);
+  Object.keys(byArea).forEach((area) => {
+    byArea[area].forEach((r) => {
+      const cid = r.comp_id;
+      if (!cid || !known.has(cid)) return;
+      if (!PATENTS.byCompetitor[cid])
+        PATENTS.byCompetitor[cid] = { stats: null, records: [] };
+      PATENTS.byCompetitor[cid].records.push(norm(r));
+    });
+  });
+
   Object.keys(byAssignee).forEach((name) => {
     if (clientRe.test(name)) return; // KSSL's own filings
+    // Already placed by the id the harvester resolved; guessing again would double it.
+    if (byAssignee[name].some((r) => r.comp_id && known.has(r.comp_id))) return;
     const at = toks(name);
     let best = null;
     let bestN = 0;
