@@ -135,18 +135,20 @@ def test_one_seat_per_office_and_one_spelling_per_person():
     # A company has one chief executive. Nothing in either sentence says which of these
     # is current, so printing both as "President and CEO" states something false.
     people = {"a": {"name": "Micael Johansson", "roles": {"President and CEO": 9},
-                    "unit": False, "url": "u1", "line": "l1"},
+                    "unit": False, "url": "u1", "line": "l1",
+                    "appointed": False, "when": None},
               "b": {"name": "Hakan Buskhe", "roles": {"President and CEO": 3},
-                    "unit": False, "url": "u2", "line": "l2"}}
+                    "unit": False, "url": "u2", "line": "l2",
+                    "appointed": False, "when": None}}
     out = L.seat(people)
     assert [r["value"] for r in out] == ["Micael Johansson"], out
 
     # One person, two spellings, two titles -- Lockheed printed Taiclet twice.
     merged = L.merge_spellings({
         "x": {"name": "James D. TAICLET", "roles": {"President and CEO": 2},
-              "unit": False, "url": "u", "line": "l"},
+              "unit": False, "url": "u", "line": "l", "appointed": False, "when": None},
         "y": {"name": "Jim Taiclet", "roles": {"Chairman": 5},
-              "unit": False, "url": "u", "line": "l"}})
+              "unit": False, "url": "u", "line": "l", "appointed": False, "when": None}})
     assert len(merged) == 1, merged
     only = list(merged.values())[0]
     assert only["name"] == "Jim Taiclet", only          # best-attested, not longest
@@ -155,10 +157,25 @@ def test_one_seat_per_office_and_one_spelling_per_person():
     # A typo is a spelling, and it is one character longer than the right name.
     merged = L.merge_spellings({
         "x": {"name": "Colina Whelan", "roles": {"President": 1}, "unit": False,
-              "url": "u", "line": "l"},
+              "url": "u", "line": "l", "appointed": False, "when": None},
         "y": {"name": "Colin Whelan", "roles": {"President": 6}, "unit": False,
-              "url": "u", "line": "l"}})
+              "url": "u", "line": "l", "appointed": False, "when": None}})
     assert list(merged.values())[0]["name"] == "Colin Whelan", merged
+
+
+def test_an_appointment_outranks_a_mention():
+    """The corpus names the officer who LEFT more often than the one who arrived.
+
+    BrahMos Aerospace has many documents mentioning Sudhir Kumar Mishra and one saying
+    Jaiteerth R. Joshi "has assumed charge as the DG BrahMos, DRDO and CEO&MD of BrahMos
+    Aerospace". Vote count alone published the wrong man as chief executive.
+    """
+    out = L.seat({
+        "a": {"name": "Sudhir Kumar Mishra", "roles": {"CEO": 9}, "unit": False,
+              "url": "u1", "line": "l1", "appointed": False, "when": None},
+        "b": {"name": "Jaiteerth R. Joshi", "roles": {"CEO": 1}, "unit": False,
+              "url": "u2", "line": "l2", "appointed": True, "when": None}})
+    assert [r["value"] for r in out] == ["Jaiteerth R. Joshi"], out
 
 
 def main():

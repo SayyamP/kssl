@@ -49,6 +49,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from aliases import canonical as canon_name, fold as fold_name  # noqa: E402
+from aliases import spellings  # noqa: E402
 from fill_revenue import same_org, usable_source                # noqa: E402
 
 DSN = os.environ.get("KSSL_DSN", os.environ.get("KSSL_CORPUS_DSN", ""))
@@ -184,6 +185,43 @@ def clean_name(raw, persons=None):
     return n if persons is None or fold_name(n) in persons else None
 
 
+# THE PREDICATE MUST PREDICATE THE OFFICE. A proposition can name a person and an
+# office in one clause without saying that the person HOLDS it -- the corpus reports
+# defence business as meetings, and the other party to the meeting is usually the chief
+# executive:
+#
+#   "Lt. Gen. Upendra Dwivedi in conversation with BrahMos CEO & MD"
+#
+# subject "Upendra Dwivedi", predicate "converses with", object "BrahMos CEO & MD".
+# Every other rule passes it: he is a real person, BrahMos is a real competitor, the
+# role hugs the name and nothing marks the tenure as over. India's Chief of Army Staff
+# was published as BrahMos Aerospace's chief executive.
+#
+# An ALLOW-list, not a block-list, and deliberately: the cost of being too strict is a
+# missing officer, which shows up as a coverage number that can be measured. The cost of
+# being too loose is a named person in a named role at a real company, which shows up on
+# the dashboard as fact.
+ASSERTS = re.compile(
+    r"^\W*(?:is|are|was|were|be|been|being|as|an?|the|now|also|currently|"
+    r"serves?|serving|acts?|acting|remains?|stays?|continues?|"
+    r"becomes?|became|appointed|appoints?|named|names?|elects?|elected|"
+    r"assumed?|assumes|takes?|took|holds?|held|heads?|leads?|will|"
+    r"has|have|had|joins?|joined|promoted|succeeds?)\b", re.I)
+
+
+# AN APPOINTMENT IS BETTER EVIDENCE THAN A MENTION, AND A RECENT ONE IS BETTER STILL.
+# Vote count alone answers "who does the corpus talk about most", which is not the
+# question: BrahMos Aerospace has more documents naming Sudhir Kumar Mishra, who left,
+# than naming Jaiteerth R. Joshi, whose one document says "has assumed charge as the DG
+# BrahMos, DRDO and CEO&MD of BrahMos Aerospace". The sentence that reports somebody
+# TAKING the office beats a dozen that merely mention them holding it, and between two
+# appointments the later document wins.
+APPOINTED = re.compile(
+    r"\b(?:assumed?(?: charge| office| the role)?|has assumed|appointed|appoints|"
+    r"takes? over as|took over as|named|elected|becomes?|became|promoted to|"
+    r"steps? up as|joins? as|will (?:become|take over|lead|assume))\b", re.I)
+
+
 def looks_like_person(name):
     """True if `name` reads as a human being's full name."""
     n = HON_RX.sub("", (name or "").strip().strip(",;:")).strip()
@@ -314,7 +352,7 @@ def officers(subject, predicate, obj, quote, names, persons=None):
     # ORIENTATION A -- the subject is the person, the company is beside the role.
     hits = []
     who = clean_name(subj, persons)
-    if who:
+    if who and ASSERTS.match(predicate or ""):
         unit, employer = qualifier(text[rm.end():])
         for cid, name, rx, country in names:
             # A QUALIFIED OFFICE IS THE QUALIFIER'S OFFICE. When the title says what it
@@ -373,6 +411,33 @@ def officers(subject, predicate, obj, quote, names, persons=None):
     return hits
 
 
+def name_rx(name):
+    """A matcher for every spelling of one company.
+
+    Built from the canonical name AND its aliases, because the corpus writes "CEO of
+    Rafael" and "BDL Chairman" -- neither of which contains the roster's own spelling,
+    which is why Rafael Advanced Defense Systems, Bharat Dynamics, Tata Advanced
+    Systems and Israel Aerospace Industries matched nothing through their long names.
+
+    AN ACRONYM MUST LOOK LIKE ONE. "mil" is Munitions India and also an ordinary word
+    in several of the corpus languages, so a short alias is matched case-SENSITIVELY
+    against its capitals while long forms stay case-insensitive.
+    """
+    # THE ROSTER'S OWN NAME IS NEVER AN ACRONYM RULE. "Saab" is four characters, and
+    # matching it only as "SAAB" lost the company entirely -- 5 officers to nothing.
+    # Only an ALIAS earns the case-sensitive treatment.
+    own = {canon_name(name), name}
+    forms = spellings(name)
+    long_ = sorted(own | {f for f in forms if len(f) > 4}, key=len, reverse=True)
+    short = sorted({f.upper() for f in forms - own if 3 <= len(f) <= 4})
+    parts = []
+    if long_:
+        parts.append("(?i:%s)" % "|".join(re.escape(f) for f in long_))
+    if short:
+        parts.append("|".join(re.escape(f) for f in short))
+    return re.compile(r"(?<!\w)(?:%s)(?!\w)" % "|".join(parts))
+
+
 def person_names(cur):
     """Every name the extraction layer TYPED as a person, folded.
 
@@ -403,6 +468,12 @@ def merge_spellings(people):
             keyed[key] = pr
             continue
         mine, theirs = sum(pr["roles"].values()), sum(cur_["roles"].values())
+        if pr.get("appointed") and not cur_.get("appointed"):
+            cur_["appointed"], cur_["when"] = True, pr.get("when")
+            cur_["url"], cur_["line"] = pr["url"], pr["line"]
+        elif pr.get("appointed") == cur_.get("appointed") \
+                and _stamp(pr.get("when")) > _stamp(cur_.get("when")):
+            cur_["when"], cur_["url"], cur_["line"] = pr.get("when"), pr["url"], pr["line"]
         for role, votes in pr["roles"].items():
             cur_["roles"][role] = cur_["roles"].get(role, 0) + votes
         # BEST-ATTESTED SPELLING, then the fuller one, and never a SHOUTED one.
@@ -427,14 +498,15 @@ def collect(cur):
     """{comp_id: [{value, detail, url, line}, ...]} -- the officers of each competitor."""
     cur.execute("SELECT comp_id, name, coalesce(country, '') FROM serving.competitors "
                 "WHERE name <> '' AND coalesce(dir, '') <> 'client'")
-    names = [(cid, canon_name(n),
-              re.compile(r"(?<!\w)" + re.escape(canon_name(n)) + r"(?!\w)", re.I), ctry)
+    names = [(cid, canon_name(n), name_rx(n), ctry)
              for cid, n, ctry in cur.fetchall() if len(n) >= 3]
     persons = person_names(cur)
     roster = {fold_name(n) for _c, n, _r, _k in names}
-    cur.execute("""SELECT p.subject, p.predicate, p.object, p.ev_quote, d.url
+    cur.execute("""SELECT p.subject, p.predicate, p.object, p.ev_quote, d.url,
+                            m.published_at
                      FROM extracted.proposition p
                      JOIN extracted.document d ON d.document_id = p.document_id
+                     LEFT JOIN documents m ON m.document_id = d.document_id
                     WHERE p.modality NOT IN ('planned', 'expected')
                       AND (p.predicate || ' ' || p.object) ~*
                           '(chief executive|CEO|CFO|COO|CTO|chairman|chairperson|'
@@ -443,7 +515,7 @@ def collect(cur):
 
     # cid -> folded person -> {"name": .., "roles": {role: votes}, "url": .., "line": ..}
     tally = {}
-    for subject, pred, obj, quote, url in cur.fetchall():
+    for subject, pred, obj, quote, url, when in cur.fetchall():
         if not usable_source(url):
             continue
         for cid, who, role, divisional in officers(subject, pred, obj, quote,
@@ -452,12 +524,30 @@ def collect(cur):
                 continue
             slot = tally.setdefault(cid, {}).setdefault(
                 fold_name(who), {"name": who, "roles": {}, "unit": divisional,
-                                 "url": url,
+                                 "url": url, "appointed": False, "when": None,
                                  "line": re.sub(r"\s+", " ", quote or "").strip()[:400]})
             slot["roles"][role] = slot["roles"].get(role, 0) + 1
             slot["unit"] = slot["unit"] and divisional
+            fresh = APPOINTED.search((pred or "") + " " + (quote or ""))
+            if fresh and not slot["appointed"]:
+                slot["appointed"] = True
+                slot["when"] = when
+                # The sentence that reports the appointment is the one to cite.
+                slot["url"] = url
+                slot["line"] = re.sub(r"\s+", " ", quote or "").strip()[:400]
+            elif fresh and when and (slot["when"] is None or when > slot["when"]):
+                slot["when"], slot["url"] = when, url
+                slot["line"] = re.sub(r"\s+", " ", quote or "").strip()[:400]
 
     return {cid: seat(people) for cid, people in tally.items()}
+
+
+def _stamp(when):
+    """A sortable number for a document date; 0 when the corpus did not record one."""
+    try:
+        return when.timestamp()
+    except Exception:                                        # noqa: BLE001
+        return 0.0
 
 
 def seat(people):
@@ -480,11 +570,14 @@ def seat(people):
         office, rank, seats = office_of(title)
         if pr["unit"]:
             office, rank, seats = "unit:" + title, rank + 10, 1
-        rows.append((rank, -sum(pr["roles"].values()), -len(pr["name"]),
+        # An appointment outranks a mention; between two appointments the later
+        # document wins; only then does the corpus's raw enthusiasm get a vote.
+        rows.append((rank, 0 if pr.get("appointed") else 1, -_stamp(pr.get("when")),
+                     -sum(pr["roles"].values()), -len(pr["name"]),
                      office, seats, title, pr))
-    rows.sort(key=lambda r: r[:3])
+    rows.sort(key=lambda r: r[:5])
     taken, keep = {}, []
-    for _rank, _v, _l, office, seats, title, pr in rows:
+    for _rk, _ap, _wh, _v, _l, office, seats, title, pr in rows:
         if taken.get(office, 0) >= seats:
             continue
         taken[office] = taken.get(office, 0) + 1
