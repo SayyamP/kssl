@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Backend Intelligence</title>
+<!--
+  Operator dashboard for the KSSL extraction backend. READ-ONLY: it calls only the
+  read-only /api/ops/* and /api/lineage/* endpoints, same-origin, and never writes.
+  Served as a static file from the frontend build (public/ -> dist/), separate from the
+  client-facing 137Parallax app so it cannot affect it. Every number is real pipeline
+  data; anything not recorded is shown as such, never invented.
+-->
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b22; --panel2:#1c232d; --line:#2a323d; --ink:#d7dee7;
+    --dim:#8b97a6; --faint:#5c6673; --accent:#4aa3ff; --accent2:#7ee0c6;
+    --good:#3fb950; --warn:#d29922; --bad:#f85149; --grey:#6e7681;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+    --sans:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  header h1{font-size:15px;margin:0;font-weight:650;letter-spacing:.02em}
+  header .sub{color:var(--faint);font-size:12px;font-family:var(--mono)}
+  header .spacer{flex:1}
+  header .status{font-family:var(--mono);font-size:12px;color:var(--dim)}
+  nav{display:flex;gap:2px;padding:0 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+  nav button{appearance:none;background:none;border:none;color:var(--dim);font:inherit;
+    padding:11px 16px;cursor:pointer;border-bottom:2px solid transparent}
+  nav button:hover{color:var(--ink)}
+  nav button.on{color:var(--ink);border-bottom-color:var(--accent)}
+  main{padding:20px;max-width:1200px;margin:0 auto}
+  .view{display:none}
+  .view.on{display:block}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 10px;font-weight:600}
+  .grid{display:grid;gap:14px}
+  .cards{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+  .tile .k{color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .tile .v{font-family:var(--mono);font-size:22px;margin-top:4px}
+  .tile .v small{font-size:12px;color:var(--dim)}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--faint);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  td.mono,.mono{font-family:var(--mono);font-size:12px}
+  .scroll{overflow-x:auto}
+  .chip{display:inline-block;padding:2px 8px;border-radius:999px;font-family:var(--mono);
+    font-size:11px;border:1px solid var(--line);color:var(--dim)}
+  .b-good{color:var(--good);border-color:#2b5} .b-warn{color:var(--warn);border-color:#a80}
+  .b-bad{color:var(--bad);border-color:#a33} .b-info{color:var(--accent);border-color:#357}
+  .badge{font-family:var(--mono);font-size:10px;padding:1px 7px;border-radius:4px;text-transform:uppercase;letter-spacing:.04em}
+  .rec{background:#123522;color:#4ad07f;border:1px solid #1f5} .rc{background:#3a2f10;color:#e3b341;border:1px solid #a80}
+  .pu{background:#22262c;color:#8b97a6;border:1px solid #444}
+  .muted{color:var(--dim)} .faint{color:var(--faint)}
+  .note{background:var(--panel2);border:1px dashed var(--line);border-radius:6px;padding:10px 12px;color:var(--dim);font-size:13px}
+  .flow{display:flex;gap:6px;align-items:stretch;overflow-x:auto;padding-bottom:6px}
+  .stage{flex:0 0 auto;min-width:120px;background:var(--panel);border:1px solid var(--line);
+    border-radius:8px;padding:10px 12px;cursor:pointer;transition:border-color .15s}
+  .stage:hover{border-color:var(--accent)}
+  .stage.on{border-color:var(--accent);background:var(--panel2)}
+  .stage .t{font-weight:600;font-size:13px}
+  .stage .r{color:var(--faint);font-family:var(--mono);font-size:11px;margin-top:2px}
+  .stage .c{margin-top:8px;font-family:var(--mono);font-size:11px;color:var(--accent2)}
+  .arrow{align-self:center;color:var(--faint);flex:0 0 auto}
+  .kv{display:grid;grid-template-columns:130px 1fr;gap:4px 12px;font-size:13px}
+  .kv .k{color:var(--faint)}
+  .row-input{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+  input[type=text]{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+    border-radius:6px;padding:8px 12px;font-family:var(--mono);font-size:13px;min-width:340px}
+  button.act{background:var(--accent);color:#03121f;border:none;border-radius:6px;padding:8px 14px;
+    font-weight:600;cursor:pointer;font:inherit}
+  button.act.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+  .lstage{border-left:3px solid var(--line);padding:8px 0 8px 14px;margin-bottom:2px}
+  .lstage.rec{border-left-color:var(--good)} .lstage.rc{border-left-color:var(--warn)}
+  .lstage.pu{border-left-color:var(--grey)}
+  .lstage .h{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .lstage .h .name{font-weight:600}
+  .lstage .body{margin-top:5px;font-size:13px;color:var(--dim)}
+  .lstage pre{background:var(--panel2);border:1px solid var(--line);border-radius:6px;
+    padding:8px 10px;overflow-x:auto;font-size:11px;color:var(--ink);margin:6px 0 0}
+  .err{color:var(--bad)}
+  .spin{color:var(--dim);font-family:var(--mono);font-size:12px}
+  .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--faint);margin-right:5px}
+  .live-dot.on{background:var(--good);box-shadow:0 0 6px var(--good)}
+  code{font-family:var(--mono);font-size:12px;background:var(--panel2);padding:1px 5px;border-radius:4px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Backend Intelligence</h1>
+  <span class="sub">KSSL extraction pipeline &middot; read-only operator console</span>
+  <span class="spacer"></span>
+  <span class="status" id="status">&nbsp;</span>
+</header>
+<nav>
+  <button data-view="overview" class="on">System Overview</button>
+  <button data-view="pipeline">Pipeline Explorer</button>
+  <button data-view="lineage">Document Lineage</button>
+  <button data-view="events">Live Event Stream</button>
+</nav>
+<main>
+  <section id="v-overview" class="view on"><div class="spin">Loading…</div></section>
+  <section id="v-pipeline" class="view"><div class="spin">Loading…</div></section>
+  <section id="v-lineage" class="view">
+    <h2>Document Lineage</h2>
+    <div class="row-input">
+      <input type="text" id="doc-input" value="doc_84bab27259bcdb32" placeholder="document_id" />
+      <button class="act" id="doc-go">Trace</button>
+    </div>
+    <div id="lineage-out"><div class="note">Enter a document id and press Trace. Source of truth: <code>/api/lineage/doc/{id}</code>.</div></div>
+  </section>
+  <section id="v-events" class="view">
+    <h2>Live Event Stream <span class="faint" style="text-transform:none;font-weight:400">&mdash; provenance.event, polled every 4s</span></h2>
+    <div class="row-input">
+      <button class="act" id="ev-toggle"><span class="live-dot" id="ev-dot"></span>Start live</button>
+      <button class="act ghost" id="ev-clear">Clear</button>
+      <input type="text" id="ev-filter-doc" placeholder="filter by document_id (optional)" />
+    </div>
+    <div id="events-out"><div class="spin">Idle. Press Start live.</div></div>
+  </section>
+</main>
+
+<script>
+const API = "/api";
+const $ = (s, r=document) => r.querySelector(s);
+const el = (t, c, txt) => { const e=document.createElement(t); if(c)e.className=c; if(txt!=null)e.textContent=txt; return e; };
+const esc = s => (s==null?"":String(s));
+function setStatus(msg, bad){ const s=$("#status"); s.textContent=msg; s.style.color = bad?"var(--bad)":"var(--dim)"; }
+
+async function getJSON(path){
+  const r = await fetch(API+path, {headers:{Accept:"application/json"}});
+  const body = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error((body && body.error) || (r.status+" "+r.statusText));
+  return body;
+}
+
+/* ---- tabs ---- */
+const views = ["overview","pipeline","lineage","events"];
+let loaded = {};
+document.querySelectorAll("nav button").forEach(b=>{
+  b.onclick = ()=>{
+    const v=b.dataset.view;
+    document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
+    views.forEach(x=>$("#v-"+x).classList.toggle("on", x===v));
+    if(!loaded[v]) { loaded[v]=true; if(v==="overview")loadOverview(); if(v==="pipeline")loadPipeline(); }
+  };
+});
+
+/* ---- 1. Overview ---- */
+async function loadOverview(){
+  const box=$("#v-overview"); box.innerHTML='<div class="spin">Loading…</div>';
+  try{
+    const d = await getJSON("/ops/overview");
+    setStatus("overview @ "+d.generated_at);
+    box.innerHTML="";
+    // queue tiles
+    box.appendChild(el("h2",null,"Queue state"));
+    if(d.queue){
+      const g=el("div","grid cards");
+      d.queue.forEach(q=>{ const t=el("div","tile"); t.appendChild(el("div","k",q.state));
+        t.appendChild(el("div","v",Number(q.n).toLocaleString())); g.appendChild(t); });
+      box.appendChild(g);
+    } else box.appendChild(note("public.extract_queue is not present on this database."));
+    // events activity
+    box.appendChild(el("h2",null,"Event activity (24h)"));
+    if(d.events_available){
+      const wrap=el("div","panel");
+      const line=el("div","mono"); line.innerHTML =
+        "total events: <b>"+Number(d.events_total||0).toLocaleString()+"</b> &middot; last: "+esc(d.events_last_at||"—")+
+        " &middot; errors/retries 24h: "+ (d.events_errors_24h? '<span class="b-bad">'+d.events_errors_24h+'</span>':'0');
+      wrap.appendChild(line);
+      if(d.events_24h && d.events_24h.length){
+        const g=el("div","grid cards"); g.style.marginTop="10px";
+        d.events_24h.forEach(e=>{ const t=el("div","tile"); t.appendChild(el("div","k",e.action));
+          t.appendChild(el("div","v",Number(e.n).toLocaleString())); g.appendChild(t); });
+        wrap.appendChild(g);
+      }
+      box.appendChild(wrap);
+    } else box.appendChild(note(d.events_note || "provenance.event not available."));
+    // stage timings
+    box.appendChild(el("h2",null,"Stage runs (24h) — metrics.stage_run"));
+    if(d.stages_24h){
+      box.appendChild(tableFrom(["stage","runs","avg ms","max ms","failures","last"],
+        d.stages_24h.map(s=>[s.stage, num(s.runs), num(s.avg_ms), num(s.max_ms),
+          s.failures? badBadge(s.failures): "0", s.last_at])));
+    } else box.appendChild(note("metrics.stage_run is not present on this database."));
+    // recent runs
+    if(d.recent_runs && d.recent_runs.length){
+      box.appendChild(el("h2",null,"Recent stage runs"));
+      box.appendChild(tableFrom(["ended","stage","run_id","doc","ms","ok"],
+        d.recent_runs.map(r=>[r.ended_at, r.stage, mono(r.run_id), mono(r.doc_id||"—"),
+          num(r.ms), r.ok? okBadge():badBadge("fail")])));
+    }
+  }catch(e){ box.innerHTML=""; box.appendChild(errBox(e)); setStatus(e.message,true); }
+}
+
+/* ---- 2. Pipeline Explorer ---- */
+let pipeData=null;
+async function loadPipeline(){
+  const box=$("#v-pipeline"); box.innerHTML='<div class="spin">Loading…</div>';
+  try{
+    const d = await getJSON("/ops/pipeline"); pipeData=d;
+    box.innerHTML=""; box.appendChild(el("h2",null,"Pipeline — source → UI (click a stage)"));
+    const flow=el("div","flow");
+    d.stages.forEach((s,i)=>{
+      const c=el("div","stage"); c.dataset.i=i;
+      c.appendChild(el("div","t",s.title));
+      c.appendChild(el("div","r",s.id));
+      const counts = Object.values(s.live_output_counts||{});
+      if(counts.length){ c.appendChild(el("div","c", counts.map(n=>Number(n).toLocaleString()).join(" / ")+" rows")); }
+      c.onclick=()=>selectStage(i);
+      flow.appendChild(c);
+      if(i<d.stages.length-1) flow.appendChild(el("div","arrow","→"));
+    });
+    box.appendChild(flow);
+    const detail=el("div","panel"); detail.id="stage-detail"; detail.style.marginTop="14px";
+    box.appendChild(detail);
+    selectStage(0);
+    if(!d.events_available) box.appendChild(note("provenance.event not present — per-stage event counts are shown as 0 until the migration is applied and a pass runs."));
+  }catch(e){ box.innerHTML=""; box.appendChild(errBox(e)); }
+}
+function selectStage(i){
+  document.querySelectorAll(".stage").forEach(x=>x.classList.toggle("on", +x.dataset.i===i));
+  const s=pipeData.stages[i], d=$("#stage-detail"); d.innerHTML="";
+  d.appendChild(el("div","",Object.assign(el("span"),{innerHTML:"<b>"+esc(s.title)+"</b> &nbsp;<span class='chip'>"+esc(s.role)+"</span>"})));
+  const kv=el("div","kv"); kv.style.marginTop="10px";
+  const add=(k,v)=>{ kv.appendChild(el("div","k",k)); const val=el("div","mono"); val.innerHTML=v; kv.appendChild(val); };
+  add("files", s.files.map(f=>"<code>"+esc(f)+"</code>").join("<br>"));
+  add("functions", s.functions.map(f=>esc(f)).join(", "));
+  add("inputs", s.inputs.map(f=>esc(f)).join("<br>"));
+  add("outputs", s.outputs.map(f=>esc(f)).join("<br>"));
+  add("model", s.model? esc(s.model): '<span class="faint">none (no model call)</span>');
+  add("events", s.events.length? s.events.map(e=>esc(e)).join(", "): '<span class="faint">none</span>');
+  if(s.live_output_counts && Object.keys(s.live_output_counts).length)
+    add("live rows", Object.entries(s.live_output_counts).map(([k,v])=>esc(k)+": <b>"+Number(v).toLocaleString()+"</b>").join("<br>"));
+  if(s.live_event_counts && Object.keys(s.live_event_counts).length)
+    add("live events", Object.entries(s.live_event_counts).map(([k,v])=>esc(k)+": "+Number(v).toLocaleString()).join(", "));
+  d.appendChild(kv);
+}
+
+/* ---- 3. Document Lineage ---- */
+const BADGE={recorded:["rec","recorded"],reconstructed:["rc","reconstructed"],provenance_unavailable:["pu","unavailable"]};
+async function loadLineage(id){
+  const out=$("#lineage-out"); out.innerHTML='<div class="spin">Tracing '+esc(id)+'…</div>';
+  let d;
+  try{ d = await getJSON("/lineage/doc/"+encodeURIComponent(id)); }
+  catch(e){ out.innerHTML=""; out.appendChild(note("No lineage: "+e.message+" — the document id was not found in any stage (clean 404).")); return; }
+  out.innerHTML="";
+  const head=el("div","panel");
+  head.innerHTML="<b class='mono'>"+esc(d.document_id)+"</b> &middot; <span class='faint'>generated "+esc(d.generated_at)+" &middot; read-only</span>";
+  out.appendChild(head);
+  // stages in declared order
+  const byName={}; (d.stages||[]).forEach(s=>{ (byName[s.stage]=byName[s.stage]||[]).push(s); });
+  const order = d.stage_order || Object.keys(byName);
+  const seen=new Set();
+  order.forEach(name=>{ (byName[name]||[]).forEach(s=>{ seen.add(s); renderLineageStage(out,s); }); });
+  (d.stages||[]).forEach(s=>{ if(!seen.has(s)) renderLineageStage(out,s); });
+  if(d.known_gaps){ const n=el("div","note"); n.style.marginTop="14px";
+    n.innerHTML="<b>Known gaps (not fabricated):</b><br>• "+d.known_gaps.map(esc).join("<br>• "); out.appendChild(n); }
+}
+function renderLineageStage(out,s){
+  const [cls,label]=BADGE[s.status]||["pu",s.status];
+  const w=el("div","lstage "+cls);
+  const h=el("div","h");
+  h.appendChild(Object.assign(el("span","badge "+cls),{textContent:label}));
+  h.appendChild(el("span","name",s.stage));
+  if(s.component) h.appendChild(el("span","faint mono",s.component));
+  if(s.timestamp) h.appendChild(el("span","faint mono","· "+s.timestamp));
+  w.appendChild(h);
+  const b=el("div","body");
+  const bits=[];
+  if(s.identifier) bits.push("id: "+esc(s.identifier));
+  if(s.reason) bits.push("reason: "+esc(s.reason));
+  if(s.model) bits.push("model: "+esc(JSON.stringify(s.model)));
+  if(s.source_prop_ids) bits.push("props: "+esc(JSON.stringify(s.source_prop_ids)));
+  if(s.source_doc_ids) bits.push("docs: "+esc(JSON.stringify(s.source_doc_ids)));
+  if(s.downstream_ref) bits.push("→ "+esc(s.downstream_ref));
+  if(s.note) bits.push(s.note);
+  b.innerHTML = bits.map(esc).join(" &nbsp;·&nbsp; ");
+  w.appendChild(b);
+  if(s.evidence){ const p=el("pre"); p.textContent = JSON.stringify(s.evidence,null,1).slice(0,1400); w.appendChild(p); }
+  out.appendChild(w);
+}
+$("#doc-go").onclick=()=>loadLineage($("#doc-input").value.trim());
+$("#doc-input").addEventListener("keydown",e=>{ if(e.key==="Enter") loadLineage($("#doc-input").value.trim()); });
+
+/* ---- 4. Live Event Stream ---- */
+let evTimer=null, evMaxId=null, evRows=[];
+function renderEvents(){
+  const out=$("#events-out");
+  if(!evRows.length){ out.innerHTML='<div class="spin">No events yet. (The stream is empty until the provenance migration is applied and the instrumented pipeline runs — there is no backfill.)</div>'; return; }
+  out.innerHTML="";
+  out.appendChild(tableFrom(["ts","action","stage","component","document / ref","reason"],
+    evRows.slice(0,300).map(e=>[
+      mono(e.ts), actionBadge(e.action), e.stage, mono(e.component),
+      mono(e.document_id||e.ref_id||"—"), esc(e.reason||"")])));
+}
+async function pollEvents(){
+  try{
+    const doc=$("#ev-filter-doc").value.trim();
+    let path="/ops/events?limit=100"+(evMaxId?("&since_id="+evMaxId):"")+(doc?("&document_id="+encodeURIComponent(doc)):"");
+    const d=await getJSON(path);
+    if(!d.available){ $("#events-out").innerHTML=""; $("#events-out").appendChild(note(d.note||"provenance.event unavailable.")); stopEvents(); return; }
+    if(d.events && d.events.length){
+      evRows = d.events.concat(evRows);
+      evMaxId = Math.max(evMaxId||0, d.max_event_id||0);
+      renderEvents();
+    } else if(evMaxId==null){ evMaxId = d.max_event_id||0; renderEvents(); }
+    setStatus("events live · last poll "+new Date().toLocaleTimeString());
+  }catch(e){ setStatus("event poll failed: "+e.message, true); }
+}
+function startEvents(){ if(evTimer)return; $("#ev-dot").classList.add("on"); $("#ev-toggle").innerHTML='<span class="live-dot on"></span>Stop live';
+  pollEvents(); evTimer=setInterval(pollEvents,4000); }
+function stopEvents(){ if(evTimer){clearInterval(evTimer);evTimer=null;} $("#ev-dot").classList.remove("on"); $("#ev-toggle").innerHTML='<span class="live-dot"></span>Start live'; }
+$("#ev-toggle").onclick=()=> evTimer? stopEvents(): startEvents();
+$("#ev-clear").onclick=()=>{ evRows=[]; evMaxId=null; renderEvents(); };
+
+/* ---- shared render helpers ---- */
+function tableFrom(cols, rows){
+  const w=el("div","scroll"); const t=el("table"); const thead=el("thead"); const tr=el("tr");
+  cols.forEach(c=>tr.appendChild(el("th",null,c))); thead.appendChild(tr); t.appendChild(thead);
+  const tb=el("tbody");
+  rows.forEach(r=>{ const row=el("tr"); r.forEach(cell=>{ const td=el("td");
+    if(cell && cell.nodeType) td.appendChild(cell); else td.innerHTML=cell; row.appendChild(td); }); tb.appendChild(row); });
+  t.appendChild(tb); w.appendChild(t); return w;
+}
+function note(txt){ const n=el("div","note"); n.textContent=txt; return n; }
+function errBox(e){ const n=el("div","note err"); n.textContent="Error: "+e.message; return n; }
+function num(n){ return n==null? "—": Number(n).toLocaleString(); }
+function mono(s){ const e=el("span","mono"); e.textContent=esc(s); return e; }
+function okBadge(){ return '<span class="chip b-good">ok</span>'; }
+function badBadge(t){ return '<span class="chip b-bad">'+esc(t)+'</span>'; }
+const ACTION_CLS={card_written:"b-good",enriched:"b-good",extracted:"b-info",gated:"b-info",
+  record_rejected:"b-warn",error:"b-bad",retry:"b-warn",served:"b-info"};
+function actionBadge(a){ return '<span class="chip '+(ACTION_CLS[a]||"")+'">'+esc(a)+'</span>'; }
+
+/* boot */
+loadOverview();
+</script>
+</body>
+</html>

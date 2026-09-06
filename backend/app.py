@@ -982,3 +982,197 @@ def lineage_doc(document_id: str):
         return JSONResponse(status_code=code, content=body)
     finally:
         conn.close()
+
+
+# ============================================================================================
+# OPERATOR DASHBOARD -- read-only aggregations for the Backend Intelligence dashboard.
+#
+# Small endpoints over data the pipeline already records: public.extract_queue (gate),
+# metrics.stage_run (timings), provenance.event (lifecycle), and the serving.* tables. The
+# frontend never touches the database directly -- it calls these. Every one opens a
+# READ-ONLY connection and guards each source table's existence, so an environment missing
+# a table (a replica, or before a migration) degrades to "unavailable", never a 500.
+# /api/lineage/doc/{id} (above) is the source of truth for the Document Lineage view.
+# ============================================================================================
+
+def _ops_conn():
+    conn = psycopg2.connect(DSN, connect_timeout=5)
+    conn.set_session(readonly=True, autocommit=True)      # cannot write, by construction
+    return conn
+
+
+def _regclass(cur, qualified):
+    cur.execute("SELECT to_regclass(%s) IS NOT NULL AS t", (qualified,))
+    r = cur.fetchone()
+    return bool(r and (r["t"] if isinstance(r, dict) else r[0]))
+
+
+# The real pipeline, traced from the repository (files/functions/tables all exist today).
+# It is GROUNDED at request time with live table row-counts and event counts, so the map
+# is structure and the numbers beside it are real. Not invented architecture.
+_PIPELINE = [
+    {"id": "ingestion", "title": "Ingestion / crawl sync", "role": "feeder",
+     "files": ["extraction/select_worklist.py", "extraction/sync_documents.py"],
+     "functions": ["select_worklist", "sync_documents"],
+     "inputs": ["(data-centre corpus, off-box)"], "outputs": ["public.documents"],
+     "model": None, "events": []},
+    {"id": "gate", "title": "Presignal gate + queue", "role": "feeder",
+     "files": ["extraction/engine/route.py", "extraction/engine/presignal.py"],
+     "functions": ["enqueue", "dispatchable", "klass", "presignal.score"],
+     "inputs": ["public.documents"], "outputs": ["public.extract_queue"],
+     "model": None, "events": ["gated"]},
+    {"id": "extraction", "title": "Extraction (Layer A)", "role": "worker",
+     "files": ["extraction/engine/run_node.py", "extraction/engine/comprehend.py",
+               "extraction/engine/store_pg.py", "extraction/engine/lineage.py"],
+     "functions": ["run_node", "comprehend", "store_pg.save_and_commit"],
+     "inputs": ["public.extract_queue", "public.documents"],
+     "outputs": ["extracted.extraction_run", "extracted.span", "extracted.proposition",
+                 "extracted.prop_arg", "extracted.span_value"],
+     "model": "extraction LLM + GLiNER (per extraction_run.model)", "events": ["extracted"]},
+    {"id": "signals", "title": "Signals / cards", "role": "signals",
+     "files": ["extraction/signals/serving_fill.py", "extraction/signals/glance.py",
+               "extraction/signals/translate.py"],
+     "functions": ["fill", "glance_rows", "card_lineage"],
+     "inputs": ["extracted.proposition", "extracted.span", "extracted.document"],
+     "outputs": ["serving.signal_card", "serving.signal_detail"],
+     "model": "14B serving model (farm)",
+     "events": ["card_written", "record_rejected", "error"]},
+    {"id": "enrich", "title": "Enrichment", "role": "enrich",
+     "files": ["extraction/signals/enrich_serving.py", "extraction/signals/mark_shared.py",
+               "extraction/signals/fill_competitor_news.py",
+               "extraction/signals/backfill_tie_status.py"],
+     "functions": ["step_companies", "step_partnerships", "tie_doc_ids"],
+     "inputs": ["extracted.proposition", "serving.signal_card"],
+     "outputs": ["serving.competitors", "serving.partner", "serving.matchup",
+                 "serving.competitor_news", "serving.geo_presence", "serving.innovation"],
+     "model": "14B serving model (farm)", "events": ["enriched"]},
+    {"id": "serving", "title": "Serving views", "role": "db",
+     "files": ["db/03_serving_live.sql"], "functions": ["serving_live.* views"],
+     "inputs": ["serving.*"], "outputs": ["serving_live.* (origin='pipeline')"],
+     "model": None, "events": []},
+    {"id": "api", "title": "API", "role": "backend",
+     "files": ["backend/app.py"], "functions": ["dataset", "lineage_doc", "ops_*"],
+     "inputs": ["serving_live.*", "provenance.event"], "outputs": ["/api/dataset", "/api/lineage/*"],
+     "model": None, "events": ["served (reconstructed; not yet an event)"]},
+    {"id": "ui", "title": "Frontend", "role": "frontend",
+     "files": ["frontend/src/pages/*", "frontend/public/ops/index.html"],
+     "functions": ["pages + services", "operator dashboard"],
+     "inputs": ["/api/dataset", "/api/ops/*", "/api/lineage/*"], "outputs": ["rendered UI"],
+     "model": None, "events": []},
+]
+
+
+@app.get("/api/ops/overview")
+def ops_overview():
+    """System Overview: queue state, recent run timings, error/retry and event activity."""
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        out = {"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "read_only": True}
+
+        if _regclass(cur, "public.extract_queue"):
+            cur.execute("SELECT state, count(*) AS n FROM public.extract_queue "
+                        "GROUP BY state ORDER BY n DESC")
+            out["queue"] = [dict(r) for r in cur.fetchall()]
+        else:
+            out["queue"] = None
+
+        if _regclass(cur, "metrics.stage_run"):
+            cur.execute("SELECT stage, count(*) AS runs, round(avg(ms))::int AS avg_ms, "
+                        "max(ms) AS max_ms, sum((NOT ok)::int) AS failures, "
+                        "max(ended_at)::text AS last_at FROM metrics.stage_run "
+                        "WHERE ended_at > now() - interval '24 hours' "
+                        "GROUP BY stage ORDER BY last_at DESC NULLS LAST")
+            out["stages_24h"] = [dict(r) for r in cur.fetchall()]
+            cur.execute("SELECT run_id, stage, doc_id, ms, ok, ended_at::text AS ended_at "
+                        "FROM metrics.stage_run ORDER BY ended_at DESC NULLS LAST LIMIT 15")
+            out["recent_runs"] = [dict(r) for r in cur.fetchall()]
+        else:
+            out["stages_24h"] = None
+            out["recent_runs"] = None
+
+        if _regclass(cur, "provenance.event"):
+            cur.execute("SELECT action, count(*) AS n FROM provenance.event "
+                        "WHERE ts > now() - interval '24 hours' GROUP BY action ORDER BY n DESC")
+            out["events_24h"] = [dict(r) for r in cur.fetchall()]
+            cur.execute("SELECT count(*) AS n, max(ts)::text AS last_at FROM provenance.event")
+            r = cur.fetchone()
+            out["events_total"] = r["n"]
+            out["events_last_at"] = r["last_at"]
+            cur.execute("SELECT count(*) AS n FROM provenance.event "
+                        "WHERE action IN ('error','retry') AND ts > now() - interval '24 hours'")
+            out["events_errors_24h"] = cur.fetchone()["n"]
+            out["events_available"] = True
+        else:
+            out["events_24h"] = None
+            out["events_total"] = None
+            out["events_available"] = False
+            out["events_note"] = ("provenance.event does not exist on this database yet "
+                                  "(migration 2026-09-07_provenance_events.sql not applied).")
+        return JSONResponse(out)
+    finally:
+        conn.close()
+
+
+@app.get("/api/ops/events")
+def ops_events(limit: int = 50, action: str = None, document_id: str = None,
+               since_id: int = None):
+    """Live Event Stream: recent provenance.event rows, newest first. `since_id` returns
+    only events after a prior max, for cheap polling."""
+    limit = max(1, min(int(limit), 500))
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if not _regclass(cur, "provenance.event"):
+            return JSONResponse({"available": False, "events": [],
+                                 "note": "provenance.event does not exist on this database "
+                                         "yet (migration not applied). It fills once the "
+                                         "instrumented pipeline runs; there is no backfill."})
+        where, params = [], []
+        if action:
+            where.append("action = %s"); params.append(action)
+        if document_id:
+            where.append("document_id = %s"); params.append(document_id)
+        if since_id:
+            where.append("event_id > %s"); params.append(int(since_id))
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        cur.execute("SELECT event_id, ts::text AS ts, stage, component, document_id, run_id, "
+                    "ref_table, ref_id, action, reason, evidence FROM provenance.event"
+                    + clause + " ORDER BY event_id DESC LIMIT %s", params + [limit])
+        rows = [dict(r) for r in cur.fetchall()]
+        return JSONResponse({"available": True, "events": rows,
+                             "max_event_id": rows[0]["event_id"] if rows else since_id})
+    finally:
+        conn.close()
+
+
+@app.get("/api/ops/pipeline")
+def ops_pipeline():
+    """Pipeline Explorer: the real stage map, grounded with live table/event counts."""
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        has_events = _regclass(cur, "provenance.event")
+        stages = []
+        for st in _PIPELINE:
+            live = {}
+            for tbl in st["outputs"]:
+                if "." in tbl and not tbl.endswith("*)") and _regclass(cur, tbl.split(" ")[0]):
+                    name = tbl.split(" ")[0]
+                    try:
+                        cur.execute("SELECT count(*) AS n FROM " + name)  # names from our own map
+                        live[name] = cur.fetchone()["n"]
+                    except Exception:                       # noqa: BLE001
+                        pass
+            ev = {}
+            if has_events and st["events"]:
+                acts = [e.split(" ")[0] for e in st["events"]]
+                cur.execute("SELECT action, count(*) AS n FROM provenance.event "
+                            "WHERE action = ANY(%s) GROUP BY action", (acts,))
+                ev = {r["action"]: r["n"] for r in cur.fetchall()}
+            stages.append(dict(st, live_output_counts=live, live_event_counts=ev))
+        return JSONResponse({"generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                             "events_available": has_events, "stages": stages})
+    finally:
+        conn.close()
