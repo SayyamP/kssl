@@ -12,6 +12,21 @@
 # Every command is hermetic: no database, no network, no GPU, no model call.
 set -euo pipefail
 
+# EVERY HELPER RESOLVED ABSOLUTELY, AND CHECKED BEFORE ANY WORK.
+# `cd extraction/signals` further down is NOT scoped to a subshell, so a path written
+# relative to the repository root stops resolving halfway through this script. CI calls
+# us as `bash deploy/selfcheck.sh`, so ${BASH_SOURCE[0]} is relative too: the health-gate
+# test at the end resolved to a path that no longer existed and exited 127 -- AFTER eight
+# minutes of passing tests -- which failed selfcheck, skipped the deploy job, and left
+# production two commits behind while the run looked like an ordinary test failure.
+# Resolving once, here, is what makes the tail of the script independent of the cd; the
+# existence check turns a missing helper into a one-second error at the top rather than a
+# 127 at the bottom.
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for helper in "$SELF_DIR/test_healthgate.sh"; do
+  [ -f "$helper" ] || { echo "selfcheck: helper not found: $helper" >&2; exit 1; }
+done
+
 pip install -r extraction/requirements.txt
 
 # The presignal relevance gate (competitor roster, alias list, code stoplist).
@@ -59,4 +74,4 @@ done
 # gate it replaced was four lines inline in deploy.sh and had no way to be exercised
 # short of shipping a broken backend, which is how it came to miss one.
 echo "== deploy/test_healthgate.sh"
-bash "$(dirname "${BASH_SOURCE[0]}")/test_healthgate.sh"
+bash "$SELF_DIR/test_healthgate.sh"
