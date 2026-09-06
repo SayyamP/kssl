@@ -72,6 +72,8 @@ python backfill_tie_status.py --demo
 # measured, not asserted -- 0 of 600 real English lead-ins are refused, where is_english()
 # refused 16.3% of them.
 python translate.py
+# The event emitter: proves it records nothing and never raises without a DB.
+python provenance.py
 for t in test_*.py; do
   echo "== $t"
   python "$t"

@@ -46,6 +46,7 @@ import os
 import re
 import stage_timer
 import sys
+import provenance  # append-only pipeline events; never raises
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -2341,15 +2342,22 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
         written_c.add(slug(other))
         _pcol = ", source_doc_ids" if has_partner_lineage else ""
         _pval = ", %s" if has_partner_lineage else ""
+        _pid = "plp_%02d" % i
         cur.execute("""INSERT INTO serving.partner
                          (id, ord, label, kind, rel, sig, ptype, note, date, country,
                           deal, insight, mean, origin{pcol})
                        VALUES (%s,%s,%s,NULL,%s,NULL,%s,%s,%s,%s,NULL,NULL,NULL,
                                'pipeline'{pval})
                        ON CONFLICT (id) DO NOTHING""".format(pcol=_pcol, pval=_pval),
-                    ("plp_%02d" % i, ORD0 + i, esc(other), g["rel"],
+                    (_pid, ORD0 + i, esc(other), g["rel"],
                      REL_PTYPE[g["rel"]], esc(g["note"]), g["date"], g["country"])
                     + ((g.get("doc_ids"),) if has_partner_lineage else ()))
+        # One enriched event per CONTRIBUTING document, so every source of a tie is
+        # queryable -- the multi-document provenance the row's source_doc_ids records.
+        for _d in (g.get("doc_ids") or [None]):
+            provenance.emit("enrich", "enrich_serving.py", "enriched", document_id=_d,
+                            ref_table="serving.partner", ref_id=_pid,
+                            evidence={"label": other, "rel": g.get("rel")})
     con.commit()
 
     print("partnerships: %d tie(s) found from %d model call(s), %d refused, "
