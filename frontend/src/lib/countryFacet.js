@@ -45,6 +45,42 @@ export function countryVocabulary(d) {
   return vocab;
 }
 
+/* HQ AT ONE GRANULARITY. Moved here from pages/competitive/Profile.jsx on 2026-09-06,
+   byte for byte, because a SECOND reader appeared: the map's "Head office" badge
+   compared geo_comp.hq to a country name with raw full-string equality. A reference row
+   stores a bare "Germany" and matched; a pipeline row stores "Ahmedabad, Gujarat, India"
+   and never could, so the badge silently never fired for ANY pipeline competitor -- and
+   silence there is indistinguishable from "this is not their head office". The fix is to
+   reuse this rule, not to grow a second normaliser beside it.
+
+   The rule only REMOVES -- street lines, postcodes, parenthetical asides, a second clause
+   after a semicolon -- and keeps the last three components. tidyHq.test.mjs pins every
+   case against real production values. */
+const HQ_STREET = /\b(street|st\.?|road|rd\.?|marg|avenue|ave\.?|blvd|boulevard|lane|drive|dr\.?|strasse|stra\u00dfe|via|viale|gardens|house|bhavan|tower|plot|suite|floor|block|sy\s*no|industrial area|link road|estate|po box|p\.o\.)\b/i;
+const HQ_HOUSE = /^\s*(no\.?\s*)?\d+[a-z]?[-/]?\d*\s+\S/i;
+const HQ_POST = /\b(\d{4,6}|[A-Z]{1,2}\d[A-Z\d]?\s+\d[A-Z]{2})\b/g;
+
+export const tidyHq = (raw) => {
+  if (!raw) return null;
+  const head = String(raw).split(";")[0].replace(/\([^)]*\)/g, " ");
+  const parts = head
+    .split(",")
+    .map((p) => p.replace(HQ_POST, "").replace(/\s{2,}/g, " ").trim())
+    .filter(Boolean);
+  const kept = parts.filter((p) => !(HQ_STREET.test(p) || HQ_HOUSE.test(p)));
+  const use = kept.length ? kept : parts;
+  return use.slice(-3).join(", ") || String(raw).trim();
+};
+
+/* The geographic components of one hq, broadest LAST: ["Ahmedabad","Gujarat","India"].
+   It never says which of them is a country -- promoting a component is how "Virginia"
+   became one. The caller decides, against a list it already has. */
+export function hqParts(raw) {
+  const t = tidyHq(raw);
+  return t ? t.split(",").map(clean).filter(Boolean) : [];
+}
+
+
 /* WHERE A COMPANY IS FROM. One country, or null.
 
    companyCountries below answers a different question -- "which countries is this

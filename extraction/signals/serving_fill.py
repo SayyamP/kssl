@@ -26,7 +26,7 @@ import json
 import os
 import re
 import stage_timer
-import roster
+import threat_gate
 import sys
 from pathlib import Path
 
@@ -854,8 +854,10 @@ _EVENT_RX = re.compile(
     r"mou|memorandum|sign\w*|invit\w*|framework|new (?:facility|plant|line))\b", re.I)
 # the FIVE KSSL product lines -- a threat badge is meaningless outside them (a rival gaining
 # in missiles or naval, which KSSL does not make, is watch, not threat).
-_CORE_CATS = {"artillery", "ammunition", "protected & armoured vehicles",
-              "armoured vehicle mro", "small arms", "uavs & drones"}
+# KSSL's own lines. ONE list, in threat_gate, because the serve-time severity grade and
+# the write-time threat gate have to agree about what "a KSSL line" is -- a second copy
+# here is how one of them ends up a category behind the other.
+_CORE_CATS = threat_gate.KSSL_LINES
 # capital-city / metonym names journalists use for a government -- not a company.
 _CITIES = {"tokyo", "seoul", "moscow", "beijing", "london", "paris", "delhi", "new delhi",
            "washington", "berlin", "rome", "madrid", "ankara", "canberra", "ottawa",
@@ -1344,7 +1346,25 @@ def find_competitor(text, comp_patterns):
     return None
 
 
-def parse_card(raw, cats, props=None, comp_patterns=None, known_rx=None):
+# The card INSERT, as a template so the optional dir_reason column can be spliced in.
+# str.format, not %, because the statement is full of psycopg2's own %s placeholders.
+CARD_INSERT_SQL = """INSERT INTO serving.signal_card
+                       (id, lane, ord, dir, rank, title, meta, company, lens, sowhat, sec,
+                        url, ago, tags, image, origin{col})
+                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                             'pipeline'{val})
+                     ON CONFLICT (id) DO UPDATE SET
+                       lane=EXCLUDED.lane, dir=EXCLUDED.dir, title=EXCLUDED.title,
+                       meta=EXCLUDED.meta, company=EXCLUDED.company,
+                       sowhat=EXCLUDED.sowhat, sec=EXCLUDED.sec, url=EXCLUDED.url,
+                       ago=EXCLUDED.ago, tags=EXCLUDED.tags{set},
+                       -- a run that cannot reach the corpus must not wipe a
+                       -- picture an earlier run already proved good
+                       image=coalesce(EXCLUDED.image, serving.signal_card.image),
+                       updated_at=now()"""
+
+
+def parse_card(raw, cats, props=None, comp_patterns=None, known_rx=None, gate=None):
     """-> dict or None. The 7B writes the prose; this function CLASSIFIES in code, because
     every rule left to the model in-prompt (pillar, dir, category, KSSL tie) is violated."""
     if not raw or raw.strip().upper().startswith("NONE"):
@@ -1426,15 +1446,32 @@ def parse_card(raw, cats, props=None, comp_patterns=None, known_rx=None):
         direction = "threat"
     if direction not in ("threat", "watch"):
         direction = "watch"
-    # A company nobody chose to track cannot be a threat, however good its news. The
-    # evidence test above still decides whether a CURATED rival's news is a threat --
-    # this only removes the rest, so the badge means "one of my 50 won something in a
-    # line I sell". Advisory: with no allowlist, on_roster() is False for everyone and
-    # the gate is skipped rather than demoting the world.
-    if direction == "threat" and roster.keys() and not roster.on_roster(company):
-        direction = "watch"
+    # A COMPANY THE READER CANNOT OPEN A PROFILE FOR IS NOT A DIRECT COMPETITOR.
+    #
+    # This asked roster.on_roster(), which reads serving.competitor_roster_allow -- the
+    # 82-row queue of names a human is willing to consider. 43 companies are actually
+    # served. So seven companies on the queue and not on the tab could carry a red
+    # THREAT badge: Huntington Ingalls Industries (a US naval shipbuilder), Northrop
+    # Grumman, L3Harris, Czechoslovak Group, Edge Group, Diehl Defence, F3 Group.
+    #
+    # And the old line carried the `if roster.keys() and ...` shape this repo has been
+    # bitten by before: an empty read skipped the whole check and published everything.
+    # threat_gate.RosterGate refuses to exist over an empty roster, and `fill` below
+    # substitutes a gate that resolves NOTHING rather than one that resolves everything.
+    #
+    # DEMOTED, NEVER DROPPED. The article is fine; the badge was the claim that was
+    # wrong. `dir_reason` carries why, so "this was demoted" stays distinguishable from
+    # "this was never a threat".
+    dir_reason = None
+    if direction == "threat" and gate is not None:
+        resolved, why = gate.classify(company)
+        if resolved:
+            company = resolved          # aliases/divisions answer to their parent
+        else:
+            direction, dir_reason = "watch", why
     return {"pillar": pillar, "title": title[:120], "company": company[:80],
-            "category": cat, "dir": direction, "sowhat": sowhat[:500], "what": whatv[:400]}
+            "category": cat, "dir": direction, "dir_reason": dir_reason,
+            "sowhat": sowhat[:500], "what": whatv[:400]}
 
 
 def _monthval(ago):
@@ -1528,6 +1565,29 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
                 "WHERE name IS NOT NULL AND length(name) > 3")
     known_rx = [re.compile(r"(?<!\w)" + re.escape(nm) + r"(?!\w)", re.I)
                 for (nm,) in cur.fetchall() if nm]
+    # THE THREAT GATE, over the roster the dashboard actually serves.
+    #
+    # Built once per pass, and LOUD when it cannot be built. An empty roster is a broken
+    # read, and the behaviour this replaced on that reading -- skip the check, publish
+    # every card as a threat -- is the fault being fixed. refusing_gate() demotes
+    # everything instead, with the reason attached, so an outage shows up in the data as
+    # a run that produced no threats rather than as a run that produced only threats.
+    try:
+        gate = threat_gate.gate_from_db(cur)
+        if verbose:
+            print("threat gate: %d served competitor(s)" % len(gate), flush=True)
+    except threat_gate.EmptyRosterError as e:                          # noqa: BLE001
+        print("THREAT GATE REFUSING: %s -- every card this pass is watch" % e, flush=True)
+        gate = threat_gate.refusing_gate("roster-unavailable")
+    # dir_reason is written only where the column exists. Migrations are not applied by
+    # deploy.sh on any environment (see backend/app.py), so a writer that assumes its own
+    # migration has run takes the whole pass down on the environment where it has not.
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema='serving' "
+                "AND table_name='signal_card' AND column_name='dir_reason'")
+    has_dir_reason = bool(cur.fetchone())
+    if not has_dir_reason and verbose:
+        print("signal_card.dir_reason absent -- demotions are logged, not stored "
+              "(run db/migrations/2026-09-06_threat_severity.sql)", flush=True)
     cur.execute("""SELECT company, title, sowhat FROM serving.signal_card
                     WHERE origin='pipeline'""")
     _rows = cur.fetchall()
@@ -1607,10 +1667,16 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
             cur.execute("DELETE FROM serving.signal_seen WHERE document_id=%s", (did,))
             con.commit()
             continue
-        card = parse_card(raw, cats, props, comp_patterns, known_rx)
+        card = parse_card(raw, cats, props, comp_patterns, known_rx, gate)
         if card is None:
             stats["none"] += 1
             continue
+        if card.get("dir_reason"):
+            stats["demoted"] = stats.get("demoted", 0) + 1
+            if stats["demoted"] <= 20:
+                print("  demoted to watch (%s): %s -- %s"
+                      % (card["dir_reason"], card["company"][:40], (title or did)[:60]),
+                      flush=True)
         card["company"] = canon_name(card["company"])[:80]
         # The client's own move is not intelligence about anyone. Excluding it from
         # the COMPETITIVE lane only was half a rule: the TECHNOLOGY lane is the same
@@ -1644,26 +1710,21 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         img = card_image(did, url)
         if img:
             stats["images"] += 1
-        cur.execute("""INSERT INTO serving.signal_card
-                         (id, lane, ord, dir, rank, title, meta, company, lens, sowhat, sec,
-                          url, ago, tags, image, origin)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                               'pipeline')
-                       ON CONFLICT (id) DO UPDATE SET
-                         lane=EXCLUDED.lane, dir=EXCLUDED.dir, title=EXCLUDED.title,
-                         meta=EXCLUDED.meta, company=EXCLUDED.company,
-                         sowhat=EXCLUDED.sowhat, sec=EXCLUDED.sec, url=EXCLUDED.url,
-                         ago=EXCLUDED.ago, tags=EXCLUDED.tags,
-                         -- a run that cannot reach the corpus must not wipe a
-                         -- picture an earlier run already proved good
-                         image=coalesce(EXCLUDED.image, serving.signal_card.image),
-                         updated_at=now()""",
+        # dir_reason is spliced in rather than always named: the column arrives with a
+        # migration deploy.sh does not run on any environment (see backend/app.py), and a
+        # writer that assumes its own migration has landed takes the whole pass down
+        # wherever it has not.
+        cur.execute(CARD_INSERT_SQL.format(
+                        col=", dir_reason" if has_dir_reason else "",
+                        val=", %s" if has_dir_reason else "",
+                        set=", dir_reason=EXCLUDED.dir_reason" if has_dir_reason else ""),
                     (cid, lane, ord_next, card["dir"], str(ord_next).zfill(2),
                      esc(card["title"]),
                      esc("%s · %s · from %s" % (card["category"], company_chip, source)),
                      esc(card["company"]), card["pillar"].capitalize(),
                      esc(card["sowhat"]), json.dumps(sec), url,
-                     ago_of(ymd[:2]), card["category"], img))
+                     ago_of(ymd[:2]), card["category"], img)
+                    + ((card.get("dir_reason"),) if has_dir_reason else ()))
         # No "Primary lens" row: the pillar is the coloured pill in the panel header and
         # the dirtag on the feed row, so a fourth statement of it was the redundancy the
         # client complained about. The rows that follow Company/Category/Date come from

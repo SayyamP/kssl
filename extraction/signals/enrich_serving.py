@@ -70,6 +70,7 @@ _st_spec = _ilu.spec_from_file_location(
 _st = _ilu.module_from_spec(_st_spec); _st_spec.loader.exec_module(_st)  # type: ignore
 publishable = _st.publishable  # noqa: E402  (ONE source bar, shared)
 import roster  # noqa: E402  (the curated roster, shared with serving_fill)
+import threat_gate  # noqa: E402  (what a threat level is -- one vocabulary)
 from aliases import (  # noqa: E402  (ONE identity layer, shared with serving_fill)
     CLIENT_MARKS, canonical as canon_name, client_led, fold as fold_name,
     has_proper_name,
@@ -484,11 +485,15 @@ def parse_profile(raw, hay, name=None):
     assess = ground_text(assess, hay, name)
     if not assess:
         return None                      # every sentence ungrounded -> refuse the row
-    threat = _s(d.get("threat"), 10)
-    if threat:
-        threat = threat.lower()
-        if threat not in ("high", "medium", "low"):
-            return None                      # invented vocabulary refuses the row
+    # ONE vocabulary for this column, in threat_gate, checked here and constrained in
+    # the database by the migration that ships with it. This clause already refused an
+    # invented word; it did not stop a caller further down writing a paragraph, and two
+    # production rows hold one -- a partnership summary sitting in a rating column, which
+    # every consumer then renders as a rating.
+    raw_threat = _s(d.get("threat"), 40)
+    if raw_threat and threat_gate.threat_level(raw_threat) is None:
+        return None                      # invented vocabulary refuses the row
+    threat = threat_gate.threat_level(raw_threat)
     direction = (_s(d.get("dir"), 10) or "other").lower()
     if direction not in ("rival", "client", "other"):
         direction = "other"
@@ -607,7 +612,10 @@ def rate_threat(products, n_docs):
         threat = "low"
     note = ("%d corpus document(s); stated products fall in %s"
             % (n_docs, ", ".join(labels) if labels else "no KSSL category"))
-    return threat, note
+    # The MEASUREMENT goes in threatNote; only a LEVEL goes in threat. Stated here at the
+    # return rather than trusted at the call site, because the two values are computed
+    # side by side and the column that holds prose today holds a note like this one.
+    return threat_gate.threat_level(threat), note
 
 
 # A company that only SELLS SERVICES around defence is not a rival to a maker of guns and
@@ -1168,7 +1176,12 @@ def _write_companies(cur, con, rows, _prev, _carry):
                                    'pipeline')
                            ON CONFLICT (comp_id) DO NOTHING""",
                         (cid, ORD0 + i, esc(r["name"]), p["dir"], esc(p["sector"]) or None,
-                         esc(p["hq"]) or None, p["threat"], esc(p["assess"]),
+                         # threat is a LEVEL. Anything else -- notably a threatNote that
+                         # reached the wrong argument -- is stored as no rating at all,
+                         # which severity_of reads as "not assessed" rather than as a
+                         # rating it can grade. See threat_gate.threat_level.
+                         esc(p["hq"]) or None, threat_gate.threat_level(p["threat"]),
+                         esc(p["assess"]),
                          json.dumps(r["upd_html"] if r["updates"] else []),
                          json.dumps({"id": cid, "label": r["name"]}),
                          r["site"], json.dumps(r["srcs"]),

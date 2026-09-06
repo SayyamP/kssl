@@ -8,13 +8,11 @@
    city may be lost. The second property is the one that broke first: an initial
    postcode ("80997 Munich") reads exactly like a house number, and the first version of
    this rule dropped Munich and Le Plessis-Robinson, leaving a bare country. */
-import { readFileSync } from "node:fs";
-
-const src = readFileSync(new URL("./Profile.jsx", import.meta.url), "utf8");
-const start = src.indexOf("const HQ_STREET");
-const end = src.indexOf("const joinList");
-if (start < 0 || end < 0) throw new Error("tidyHq block not found in Profile.jsx");
-const tidyHq = new Function(`${src.slice(start, end)}\nreturn tidyHq;`)();
+/* 2026-09-06: tidyHq moved into lib/countryFacet.js when the geo map's "Head office"
+   badge became its second reader, so this imports it rather than slicing it out of
+   Profile.jsx's source. Same rule, same cases -- and the module is now loaded the way
+   the app loads it, so it is really this code that is under test. */
+import { tidyHq } from "../../lib/countryFacet.js";
 
 const CASES = [
   // full postal address -> the geographic chain only

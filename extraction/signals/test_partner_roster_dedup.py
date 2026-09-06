@@ -28,7 +28,7 @@ def dedup_selects(src):
 
 def test_each_writer_checks_rows_it_does_not_own():
     for f in FILES:
-        src = open(f).read()
+        src = open(f, encoding="utf-8").read()
         wheres = dedup_selects(src)
         assert wheres, f + ": no duplicate check against serving.partner at all"
         for w in wheres:
@@ -42,7 +42,7 @@ def test_delete_stays_scoped_to_its_own_rows():
     # The other half: a check that widens must not drag the DELETE with it, or one
     # writer erases the other's roster (or the curated reference rows) every pass.
     for f in FILES:
-        for d in re.findall(r'DELETE FROM serving\.partner WHERE ([^"]+)', open(f).read()):
+        for d in re.findall(r'DELETE FROM serving\.partner WHERE ([^"]+)', open(f, encoding="utf-8").read()):
             assert "origin='pipeline'" in d and "ord" in d, (
                 f + ": DELETE is not scoped to this writer's own rows: " + d.strip())
         print("  ok   %-22s deletes only its own range" % f)
@@ -57,7 +57,7 @@ READERS = ("discover_ties.py",)
 
 def test_readers_of_the_roster_are_not_scoped_either():
     for f in READERS:
-        src = open(f).read()
+        src = open(f, encoding="utf-8").read()
         assert re.search(r'SELECT label FROM serving\.partner"', src), (
             f + ": its roster read is scoped or absent; it must see every row")
         assert not re.search(r"(INSERT INTO|UPDATE|DELETE FROM)\s+serving\.partner", src), (
@@ -84,7 +84,7 @@ def test_head_org_is_the_shared_identity():
             mod.__name__ + ": has its own head_org; two writers then disagree about "
             "which company a label names, and the duplicate check misses")
     # enrich_serving reaches it by attribute, so identity is structural there.
-    assert "roster.head_org" in open("enrich_serving.py").read(), (
+    assert "roster.head_org" in open("enrich_serving.py", encoding="utf-8").read(), (
         "enrich_serving.py: does not compare on roster.head_org")
     print("  ok   head_org is one function, shared by every roster user")
 

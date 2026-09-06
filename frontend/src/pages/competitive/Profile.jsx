@@ -3,7 +3,7 @@ import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
 import { companyNews, feedSplit, FEED_N, collapseThreads } from "../../lib/news";
-import { facetOptionsByName } from "../../lib/countryFacet";
+import { facetOptionsByName, tidyHq } from "../../lib/countryFacet";
 import Thumb from "../../components/thumb/Thumb.jsx";
 import SourceLink from "../../components/sourceLink/SourceLink.jsx";
 
@@ -75,25 +75,9 @@ const firstFigure = (v) => {
    States"), a city/region/country chain, and a bare country ("Israel"). Rendered raw
    they read as different fields, and the street line is noise on a competitor profile.
 
-   This only REMOVES -- street lines, postcodes, parenthetical asides -- and then keeps
-   the last three components. It never guesses which token is the city, so a value that
-   is already short passes through untouched and nothing is invented for a row that has
-   only a country. */
-const HQ_STREET = /\b(street|st\.?|road|rd\.?|marg|avenue|ave\.?|blvd|boulevard|lane|drive|dr\.?|strasse|stra\u00dfe|via|viale|gardens|house|bhavan|tower|plot|suite|floor|block|sy\s*no|industrial area|link road|estate|po box|p\.o\.)\b/i;
-const HQ_HOUSE = /^\s*(no\.?\s*)?\d+[a-z]?[-/]?\d*\s+\S/i;
-const HQ_POST = /\b(\d{4,6}|[A-Z]{1,2}\d[A-Z\d]?\s+\d[A-Z]{2})\b/g;
-
-const tidyHq = (raw) => {
-  if (!raw) return null;
-  const head = String(raw).split(";")[0].replace(/\([^)]*\)/g, " ");
-  const parts = head
-    .split(",")
-    .map((p) => p.replace(HQ_POST, "").replace(/\s{2,}/g, " ").trim())
-    .filter(Boolean);
-  const kept = parts.filter((p) => !(HQ_STREET.test(p) || HQ_HOUSE.test(p)));
-  const use = kept.length ? kept : parts;
-  return use.slice(-3).join(", ") || String(raw).trim();
-};
+   The rule itself moved to lib/countryFacet.js on 2026-09-06 -- unchanged -- because the
+   geo map's "Head office" badge needed the same answer and had been doing raw
+   full-string equality instead. It is imported at the top of this file. */
 
 const joinList = (v) => {
   if (!Array.isArray(v) || !v.length) return null;

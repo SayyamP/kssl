@@ -18,6 +18,17 @@ Env: KSSL_DSN (default host=127.0.0.1 port=5460 dbname=kssl user=postgres passwo
 import os
 import sys
 
+# The threat grade is SHARED with the pipeline, not reimplemented here -- the same
+# reason pipeline/stage_timer.py is copied into this image rather than rewritten. Two
+# definitions of "how bad is this" is how the served number and the displayed number
+# stopped agreeing the last time a figure in this codebase was derived twice.
+for _p in (os.path.dirname(os.path.abspath(__file__)),
+           os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "extraction", "signals")):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+import threat_gate  # noqa: E402
+
 import psycopg2
 import psycopg2.extras
 from fastapi import FastAPI, Request
@@ -106,10 +117,33 @@ PATENT_FIELDS = ["no", "title", "assignee", "status", "filed", "granted",
                  # the harvester against its own applicant allow-list. The frontend
                  # used to re-derive it by matching Latin word tokens, which cannot
                  # see a Korean or a German legal name.
-                 "comp_id"]
-# comp_id is null on the 26 curated reference rows and absent entirely on a database
-# that has not run 2026-09-06_patent_comp_id.sql, so it is optional in both senses.
-PATENT_OPT = frozenset(["comp_id"])
+                 "comp_id",
+                 # 2026-09-06, THE HALF OF THAT MIGRATION NOBODY WIRED UP.
+                 # _patent_grant_status.sql added published/grant_no/pub_kind/doc_id to
+                 # serving.patent AND re-created serving_live.patent to expose them, and
+                 # the harvester writes them -- but this list is the SELECT, so the four
+                 # columns could not reach the browser whatever was in them. The card
+                 # already reads r.published ("Published <date>" for a record whose
+                 # application date is unknown) and it was reading a key the API never
+                 # sent: dead code that looked live. A column nothing selects is a column
+                 # nothing can ever show, so measuring it harder would not have helped.
+                 "published", "grant_no", "pub_kind", "doc_id",
+                 # 2026-09-06. English rendering of `title`, written by the translation
+                 # step (extraction/signals/patent_titles.py). NULL means "not looked at
+                 # yet" and the UI falls back to the source-language title -- which it
+                 # keeps showing either way, as the subline.
+                 "title_en"]
+# OPTIONAL IN BOTH SENSES, and both matter here.
+#   NULL  -- comp_id is null on the 26 curated reference rows; published/grant_no/
+#            pub_kind/doc_id are null on every row harvested before the detail pass, and
+#            title_en on every row the translation step has not reached. Omitting the
+#            key is how the frontend tells "not measured" from a value.
+#   ABSENT -- a database that has not run 2026-09-06_patent_comp_id.sql /
+#            _patent_grant_status.sql / _patent_title_en.sql has not got the column at
+#            all, and deploy.sh runs no migrations. _reconcile_optional drops those,
+#            which is why adding a field here cannot 500 the whole dataset.
+PATENT_OPT = frozenset(["comp_id", "published", "grant_no", "pub_kind", "doc_id",
+                        "title_en"])
 GEO_FIELDS = ["name", "c", "val", "since", "qty", "stage", "note", "src", "srcnote",
               "geo_news"]
 GEOCOMP_FIELDS = ["id", "name", "dir", "hq", "isBf"]
@@ -265,6 +299,59 @@ def _reconcile_optional(cur, schema=None):
     return dropped
 
 
+def _grade_cards(out):
+    """Stamp severity and impact onto every signal card, in one place.
+
+    THE OPERATOR ASKED FOR TWO THINGS and neither had anywhere to come from.
+    A threat card had to be about a company that can actually hurt KSSL, and the cards
+    had to be sequenced by how bad they are and how fresh. serving.signal_card has no
+    severity column; the two inputs to one -- the competitor's rated threat level and
+    the card's own impact on a KSSL line -- are both already on this response.
+
+    DERIVED AT SERVE TIME rather than stored, deliberately. A stored severity is a third
+    copy of a number computed from two tables that are rebuilt on different schedules,
+    and it is stale for as long as the gap between those schedules. Derived here it
+    cannot disagree with the rating it came from, and it needs no migration to work.
+
+    THE BROWSER DOES NOT RECOMPUTE IT. `severityRank` is the sort position and it is
+    computed once, here, from threat_gate.SEVERITY_RANK. lib/overview.js reads that
+    integer and never derives one -- the failure this repo has already logged is a
+    number computed in two places where the frontend silently overwrote the served one.
+
+    NULL SEVERITY IS A STATE, NOT A ZERO. A card whose company is not a tracked
+    competitor, or whose event carries no KSSL category, gets severity null, impact
+    "not_assessed" and the WORST rank -- it sorts below every graded card and says so on
+    the card, instead of being dropped or quietly scored low.
+    """
+    comps = out.get("competitors") or {}
+    by_name = {}
+    for c in comps.values():
+        name = (c.get("name") or "").strip()
+        if name:
+            by_name.setdefault(name, c)
+    try:
+        gate = threat_gate.RosterGate(list(by_name))
+    except threat_gate.EmptyRosterError as exc:
+        # Loud, and closed. Nothing is graded rather than everything being graded from
+        # an empty roster, which is the shape of the fail-open bug this replaced.
+        print("severity: %s" % exc, file=sys.stderr, flush=True)
+        gate = threat_gate.refusing_gate("roster-unavailable")
+    for key in ("competitiveCards", "marketCards", "techCards"):
+        for card in out.get(key) or []:
+            name = gate.resolve(card.get("company"))
+            comp = by_name.get(name) if name else None
+            imp = threat_gate.impact_of(card, comp)
+            sev = threat_gate.severity_of((comp or {}).get("threat"), imp)
+            card["severity"] = sev                      # null == not assessed
+            card["severityRank"] = threat_gate.severity_rank(sev)
+            card["severityLabel"] = (sev or threat_gate.SEVERITY_UNASSESSED_LABEL)
+            card["impact"] = imp.state
+            card["impactLabel"] = imp.label
+            card["impactBasis"] = imp.basis
+            card["competitor"] = name                   # null == not a tracked rival
+    return out
+
+
 def _dataset(_st=None):
     # connect_timeout so a wedged database returns an error instead of hanging
     # the request until the client gives up
@@ -349,6 +436,10 @@ def _dataset(_st=None):
             _q(cur, "SELECT %s FROM serving.signal_card WHERE lane = %%s "
                         "ORDER BY ord" % _cols(CARD_FIELDS), (lane,))
             out[gname] = [_emit(r, CARD_FIELDS, CARD_OPT) for r in cur.fetchall()]
+
+        # SEVERITY AND IMPACT, derived here and served -- not stored, and not derived
+        # again in the browser. See _grade_cards.
+        _grade_cards(out)
 
         # details (dict keyed by card id).
         _q(cur, "SELECT id, %s FROM serving.signal_detail ORDER BY ord"

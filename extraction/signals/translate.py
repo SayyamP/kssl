@@ -329,15 +329,29 @@ def _ask(prompt):
     return text, (meta or {}).get("via")
 
 
-def translate_lines(lines, source_language=None, keep=(), stats=None):
+def translate_lines(lines, source_language=None, keep=(), stats=None, ask=None):
     """Translate a batch in ONE model call, preserving order and length.
 
     A card renders up to six statements. Six calls at ~7s each would add ~40s to a
     document that holds a signal_seen claim while it runs; one call adds ~8s. Any line
     that fails its own verdict keeps its original, so a single bad line cannot take the
-    other five down with it."""
+    other five down with it.
+
+    `ask` -- optional predicate(text) -> bool that REPLACES needs_english() for deciding
+    which lines are sent. Everything after the gate is unchanged: the same verdict, the
+    same refusals, the same fall back to the original.
+
+    IT EXISTS BECAUSE A CALLER WITH BETTER EVIDENCE COULD NOT USE IT. needs_english()
+    is calibrated on thirty-word lead-ins and wants TWO foreign function words before
+    it will call a string foreign; patent_titles.py weighs the same evidence by density
+    because a patent title is six words, and "Dispositif de protection balistique pour
+    vehicule" carries exactly one. Without this, that caller selected the line, passed
+    it in, and this function silently dropped it again on its own gate -- the caller's
+    extra evidence was inert, and it counted the line as a candidate while asking about
+    nothing, which reads in the log as a model that answered."""
     out = list(lines)
-    idx = [i for i, t in enumerate(lines) if needs_english(t, source_language)]
+    gate = ask if ask is not None else (lambda t: needs_english(t, source_language))
+    idx = [i for i, t in enumerate(lines) if gate(t)]
     def bump(k, n=1):
         if stats is not None:
             stats[k] = stats.get(k, 0) + n
@@ -482,11 +496,11 @@ def translate_lines(lines, source_language=None, keep=(), stats=None):
     return out
 
 
-def translate_to_english(text, source_language=None, keep=(), stats=None):
+def translate_to_english(text, source_language=None, keep=(), stats=None, ask=None):
     """The single-string form of translate_lines. Returns the original on any doubt."""
     if not text or not str(text).strip():
         return text
-    return translate_lines([str(text)], source_language, keep, stats)[0]
+    return translate_lines([str(text)], source_language, keep, stats, ask)[0]
 
 
 def _demo():

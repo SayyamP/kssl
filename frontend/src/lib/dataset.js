@@ -10,6 +10,9 @@ import { pairingReason } from "./specs.js";
 import { wireTendersWithRealDays } from "./tenderCalc.js";
 import { titleCaseHeadline, formatProductName, tidySeparators } from "./profile.js";
 import { formatDate } from "../utils/formatDate.js";
+// the patent country vocabulary. patents.js imports nothing from here, so this edge
+// adds no cycle -- and the normaliser lives with the rest of the patent display rules.
+import { normCountry } from "./patents.js";
 import { cutGroupsByDirection } from "./overview.js";
 import { logger } from "../utils/logger.js";
 
@@ -481,7 +484,19 @@ function adaptPatents(d) {
       // the registry's publication date, which used to be stored IN `filed`
       published: r.published || "",
       granted: r.granted || "",
-      jurisdiction: r.country || r.jurisdiction || "",
+      // what the registry's detail record said, where it was read: the grant's number
+      // and the publication kind code. Absent on every row harvested before that pass.
+      grant_no: r.grant_no || "",
+      pub_kind: r.pub_kind || "",
+      /* The English title, where the translation step has produced one. `title` above
+         stays exactly as the office published it -- both are carried, and the card
+         shows the source title under the translated one. */
+      title_en: r.title_en || "",
+      /* ONE COUNTRY, ONE KEY. The stored vocabulary collides: 'India' (21 rows) and
+         'IN' (10) are the same office, as are 'US' (354) and 'USA' (2). This is the
+         only place jurisdiction is derived, and everything downstream groups on it --
+         the per-holder country chips counted the same office twice without this. */
+      jurisdiction: normCountry(r.country || r.jurisdiction || ""),
       ipc: r.ipc || [],
       abstract: r.abstract || r.claims || "",
       techArea: r.area || r.techArea || "",

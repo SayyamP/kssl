@@ -211,6 +211,11 @@ export default function Overview({
           title: c.title || null,
           company: c.company || null,
           direction: c.dir || null,
+          /* The feed is sequenced by these, so an exported report that omitted them
+             could not be checked against the order it was exported from. null severity
+             is the "not assessed" state, not a missing field. */
+          severity: c.severity || null,
+          impact: c.impact || null,
           date: signalDate(c, data) || null,
           sowhat: c.sowhat || null,
           url: c.url || null,

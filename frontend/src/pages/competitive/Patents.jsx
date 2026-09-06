@@ -91,9 +91,17 @@ export default function Patents() {
      under the category filter in force, with the search status stated -- an empty
      list says whether it is empty or still loading. */
   const report = useMemo(() => {
+    /* THE EXPORT READS LIKE THE CARD. The card leads with the English title where the
+       translation step has produced one; a Copy/Export that pasted the German original
+       instead would put a different filing in front of the reader than the one they were
+       looking at. The office's own title travels in the second column, because that is
+       the string that finds the record again in its register. */
     const recRow = (r) => [
-      r.title || r.id || "untitled",
-      [r.assignee, r.status, r.granted || r.filed, r.jurisdiction].filter(Boolean).join(" · "),
+      r.title_en || r.title || r.id || "untitled",
+      [r.assignee, r.title_en && r.title_en !== r.title ? r.title : "", r.status,
+       r.grant_no ? `Grant ${r.grant_no}` : "", r.granted || r.filed, r.jurisdiction]
+        .filter(Boolean)
+        .join(" · "),
     ];
     const res = lens === "rival" ? compRes : techRes;
     const recs = res ? res.results || [] : [];

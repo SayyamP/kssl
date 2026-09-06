@@ -74,6 +74,48 @@ export function cutGroupsByDirection(groups, firstDirs = ["threat"]) {
   return list.map((g, i) => (i === 0 ? { ...g, dirs: firstDirs.slice() } : { ...g }));
 }
 
+/* THE ONE COMPARATOR. Every surface that orders signal cards calls this.
+
+   The operator asked for two things: "in threat only those news should come first which
+   actually a direct competitor plus that news should create some kind impact", and
+   "based on threat severity do sequencing of signal card everywhere where severity is
+   high and recent show it first". The first is decided upstream, at write time --
+   extraction/signals/threat_gate.py demotes a card whose company is not a served
+   competitor, so `dir` here already means what it says. The second is this function.
+
+   SEVERITY IS READ, NEVER DERIVED. `severityRank` is computed once, by the backend, from
+   threat_gate.SEVERITY_RANK, and travels on the card. Deriving it here as well is the
+   exact fault this repo has already paid for: one edge weight was computed on both sides
+   and the frontend silently overwrote the served value, so a 1-0 winner was scored as
+   behind. If the backend did not send a rank -- an older deploy, or a card the frontend
+   itself synthesised from a tender -- the card is UNASSESSED, which is a real state and
+   ranks last, not a zero and not a "low".
+
+   A CARD WITH NO DATE SORTS LAST. dateVal("") is 0 and the date key is descending, so an
+   undated card falls to the bottom of its severity band rather than sorting as though it
+   were published today; SignalCard prints "date not known" on it rather than an empty
+   corner. */
+export const SEVERITY_UNASSESSED_RANK = 3;   // == threat_gate.SEVERITY_RANK[null]
+export const DIR_RANK = { threat: 0, watch: 1, fav: 2 };
+export const NO_DATE_LABEL = "date not known";
+// The words for the absent state. "low" is a measurement; this is the lack of one.
+export const SEVERITY_UNASSESSED_LABEL = "severity not assessed";
+
+export function severityRankOf(card) {
+  const r = card && card.severityRank;
+  return typeof r === "number" && Number.isFinite(r) ? r : SEVERITY_UNASSESSED_RANK;
+}
+
+export function compareCards(data) {
+  const when = (c) => dateVal(signalDate(c, data));
+  return (a, b) =>
+    (DIR_RANK[a.dir] === undefined ? 9 : DIR_RANK[a.dir]) -
+      (DIR_RANK[b.dir] === undefined ? 9 : DIR_RANK[b.dir]) ||
+    severityRankOf(a) - severityRankOf(b) ||
+    when(b) - when(a) ||
+    (b.sec ? b.sec.length : 0) - (a.sec ? a.sec.length : 0);
+}
+
 /* Ordered, re-ranked and split into the groups the feed renders.
 
    `data` is what the cards are DISPLAYED with: the date on a card comes from
@@ -83,26 +125,22 @@ export function cutGroupsByDirection(groups, firstDirs = ["threat"]) {
    order was real, it just belonged to a different set of values than the ones on screen.
    The comparator and the label have to read the same field. */
 export function buildFeed(cfg, seqMode, data) {
-  const dirRank = { threat: 0, watch: 1, fav: 2 };
+  const cmp = compareCards(data);
   const when = (c) => dateVal(signalDate(c, data));
+  const depth = (c) => (c.sec ? c.sec.length : 0);
   let cards = (cfg.cards || []).slice();
-  if (seqMode === "priority") {
-    cards.sort(
-      (a, b) =>
-        dirRank[a.dir] - dirRank[b.dir] ||
-        when(b) - when(a) ||
-        (b.sec ? b.sec.length : 0) - (a.sec ? a.sec.length : 0),
-    );
-  } else if (seqMode === "recency") {
-    cards.sort((a, b) => when(b) - when(a));
+  /* EVERY MODE ENDS IN THE SAME COMPARATOR. A sequence option changes which key leads,
+     never what "worse" means -- so "most recent" still puts a high-severity card above a
+     low-severity one published the same day, and there is exactly one definition of the
+     severity order in this file. */
+  if (seqMode === "recency") {
+    cards.sort((a, b) => when(b) - when(a) || cmp(a, b));
   } else if (seqMode === "depth") {
-    cards.sort(
-      (a, b) =>
-        (b.sec ? b.sec.length : 0) - (a.sec ? a.sec.length : 0) ||
-        dirRank[a.dir] - dirRank[b.dir],
-    );
+    cards.sort((a, b) => depth(b) - depth(a) || cmp(a, b));
   } else if (seqMode === "category") {
-    cards.sort((a, b) => String(a.meta).localeCompare(String(b.meta)));
+    cards.sort((a, b) => String(a.meta).localeCompare(String(b.meta)) || cmp(a, b));
+  } else {
+    cards.sort(cmp);
   }
   // re-rank display numbers after sort (a copy — the dataset card is not renumbered)
   cards = cards.map((c, n) => ({ ...c, rank: String(n + 1).padStart(2, "0") }));

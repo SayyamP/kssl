@@ -81,6 +81,9 @@
   .v-patents-comp .pat-canvas .wh-chip.unknown{background:transparent;border-color:#cbd5e1;color:#94a3b8}
   .v-patents-comp .pat-canvas .pat-rec{background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
   .v-patents-comp .pat-canvas .pat-rec-t{color:#0f172a}
+  .v-patents-comp .pat-canvas .pat-title-src{color:#64748b}
+  .v-patents-comp .pat-canvas .pat-chip{border-color:#cbd5e1;color:#475569}
+  .v-patents-comp .pat-canvas .pat-chip.missing{color:#94a3b8}
   .v-patents-comp .pat-canvas .pat-rec-meta{color:#64748b}
   .v-patents-comp .pat-canvas .pat-rec-meta b{color:#334155}
   .v-patents-comp .pat-canvas .pat-ipc span{background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}
@@ -122,6 +125,15 @@
   .pat-badge.pending{background:#f8efdc;color:#8a5a0a}
   /* the unknown state is deliberately colourless -- the three above are verdicts */
   .pat-badge.unknown{background:transparent;border:1px dashed var(--d-line-2);color:var(--d-txt-4);text-transform:none;font-weight:600;letter-spacing:0}
+  /* The title the office published, under the English one. Secondary on purpose: the
+     translated line is what the reader reads, this is what finds the record again. */
+  .pat-title-src{display:block;font-size:10.5px;font-weight:400;font-style:italic;color:var(--d-txt-3);margin-top:3px;line-height:1.35}
+  /* Registry facts that sit beside the status badge: the publication kind code and the
+     grant number. Neutral, because they are quotations, not verdicts. */
+  .pat-chip{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:4px;white-space:nowrap;flex-shrink:0;border:1px solid var(--d-line-2);color:var(--d-txt-3)}
+  /* ...and NOT MEASURED is dashed and unfilled, the same shape every other unmeasured
+     surface on this tab uses, so it can never be misread as a value. */
+  .pat-chip.missing{font-family:inherit;border-style:dashed;color:var(--d-txt-4)}
   .pat-rec-meta{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--d-txt-3);margin-bottom:8px}
   .pat-rec-meta b{color:var(--d-txt-2);font-weight:600}
   .pat-ipc{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}

@@ -60,7 +60,14 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent          # KSSL_Deploy
 WORKSPACE = REPO.parent     # mallery
 DSN = os.environ.get("KSSL_DSN", "host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl")
-TENDPRO_ENV = WORKSPACE / "TendPro" / ".env"
+# WORKSPACE is inferred from this file's own location, which is only correct when the
+# repo sits directly beside TendPro. Run the harvester from a clone anywhere else -- a
+# scratch checkout, a CI runner with the secret mounted elsewhere -- and the SAM keys
+# resolve to a path that does not exist, every SAM call is skipped, and the run still
+# exits 0 reporting "sources down: sam". An override beats copying the keys into this
+# repo, which is the one thing that must never happen.
+TENDPRO_ENV = Path(os.environ["KSSL_TENDPRO_ENV"]) if os.environ.get("KSSL_TENDPRO_ENV") \
+    else WORKSPACE / "TendPro" / ".env"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
       "Chrome/126.0.0.0 Safari/537.36")
 

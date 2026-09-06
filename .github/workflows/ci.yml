@@ -129,6 +129,25 @@ jobs:
           pip install fastapi
           python backend/test_optional_columns.py
 
+      # THE OTHER HALF OF THE SAME SEAM. The step above proves a backend AHEAD of its
+      # database loses one field instead of the dashboard. This one proves a backend
+      # BEHIND its database is not silently serving nothing: serving.patent has carried
+      # published, grant_no, pub_kind and doc_id since 2026-09-06 and PATENT_FIELDS --
+      # which is the SELECT -- named none of them, so four measured columns could not
+      # reach the browser and the tab looked exactly like a harvest that had not run.
+      # It reads db/migrations/*.sql rather than a hand-written list, so the next column
+      # added to that table has to be wired up or this goes red on its own.
+      - name: Every column a migration adds to serving.patent is served
+        run: python backend/test_patent_fields.py
+
+      # SEVERITY IS DERIVED ON THE RESPONSE, so the API is the only place it can be
+      # wrong. This checks the grade AND the call site: a unit test that calls
+      # _grade_cards directly passes happily against a _dataset that assembles the
+      # payload and ships it ungraded, which is a dashboard whose feed silently loses
+      # its ordering key. No database: the payload is the dict _dataset would have built.
+      - name: Signal cards are graded before they are served
+        run: python backend/test_severity_serve.py
+
       # The extraction and serving self-checks. These existed and were NOT run here, which
       # is how `serving_fill.py --demo` came to be failing on every invocation while looking
       # like a passing suite: it hid three separate faults, each masked by the one before it,

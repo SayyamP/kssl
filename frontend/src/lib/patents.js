@@ -25,6 +25,51 @@ import { attr, escAll, srcChips } from "./html.js";
 
 export const PATENT_BACKEND_READY = false;
 
+/* ONE COUNTRY, ONE KEY. The harvest stores the office two ways and the UI grouped on
+   the raw string, so the live corpus carries 'India' (21 rows) AND 'IN' (10) as two
+   countries, and 'US' (354) AND 'USA' (2) likewise -- a holder filing in both spellings
+   is listed as present in two jurisdictions, and the per-field country chips count the
+   same office twice.
+
+   ISO 3166 alpha-2 is the canonical form, because that is what 20 of the 22 offices in
+   the corpus already use and what the registry itself prints. The mapping is only for
+   the aliases actually observed: an unknown value is passed through UNCHANGED and
+   upper-cased only when it is already a 2-letter code. Inventing a code for a string
+   nobody has seen would be a fabricated jurisdiction, which is worse than a duplicate.
+
+   This is the display layer. db/migrations/2026-09-06_patent_country_vocab.sql fixes
+   the stored values; until it is run this keeps the tab correct, and after it is run
+   this costs nothing and still catches the next alias the harvest invents. */
+const COUNTRY_ALIAS = {
+  INDIA: "IN",
+  USA: "US",
+  "UNITED STATES": "US",
+  "U.S.": "US",
+  "U.S.A.": "US",
+  UK: "GB",
+  "UNITED KINGDOM": "GB",
+  KOREA: "KR",
+  "SOUTH KOREA": "KR",
+  "REPUBLIC OF KOREA": "KR",
+  GERMANY: "DE",
+  FRANCE: "FR",
+  SPAIN: "ES",
+  ISRAEL: "IL",
+  AUSTRALIA: "AU",
+  CANADA: "CA",
+  JAPAN: "JP",
+  CHINA: "CN",
+};
+
+export function normCountry(c) {
+  const t = String(c == null ? "" : c).trim();
+  if (!t) return "";
+  const k = t.toUpperCase();
+  if (COUNTRY_ALIAS[k]) return COUNTRY_ALIAS[k];
+  // already a code -> canonical case; anything else is left exactly as it arrived
+  return /^[a-z]{2}$/i.test(t) ? k : t;
+}
+
 export async function searchPatents(d, params) {
   // ---- dataset-backed (today) ----
   if (!PATENT_BACKEND_READY) {
@@ -60,11 +105,28 @@ function normSample(r) {
   return {
     id: r.id,
     title: r.title,
+    /* The English rendering, where the translation step has produced one. The source
+       title is NOT replaced -- both travel, and the card shows the original underneath.
+       A patent title is the legal name of the invention; losing it would make the row
+       unsearchable against the registry that published it. */
+    title_en: r.title_en || "",
     assignee: r.assignee || "",
-    status: r.status || "filed",
+    /* NOT "filed". A record that arrives with no status at all was not measured, and
+       'filed' is a registry answer -- the same conflation dataset.js's normaliser was
+       fixed for. Records that came through that normaliser always carry one of the four
+       states, so this fall-through only fires for a record that bypassed it, where
+       "unknown" is the only honest answer. */
+    status: r.status || "unknown",
     filed: r.filed || "",
     granted: r.granted || "",
-    jurisdiction: r.jurisdiction || "",
+    /* THE FIELDS THE SELECT NOW SENDS. published/grant_no/pub_kind were dropped here,
+       so even after the backend started selecting them the card would have seen
+       nothing: patRecCard's "Published <date>" branch reads r.published and this
+       normaliser is what builds the object it reads. */
+    published: r.published || "",
+    grant_no: r.grant_no || "",
+    pub_kind: r.pub_kind || "",
+    jurisdiction: normCountry(r.jurisdiction || ""),
     ipc: r.ipc || [],
     abstract: r.abstract || "",
     techArea: r.techArea || "",
@@ -130,17 +192,50 @@ export function patRecCard(r, showAssignee, meta) {
       ? `Published ${r.published}`
       : `Filed ${r.filed || r.published || "—"}`
     : st === "granted"
-      ? `Filed ${r.filed || "—"} · Granted ${r.granted || "—"}`
-      : `Filed ${r.filed || "—"}${st === "pending" ? " · Pending" : ""}`;
+      ? `Filed ${r.filed || "—"}${r.published ? ` · Published ${r.published}` : ""} · Granted ${r.granted || "—"}`
+      : `Filed ${r.filed || "—"}${r.published ? ` · Published ${r.published}` : ""}${st === "pending" ? " · Pending" : ""}`;
+  /* WHAT THE DETAIL RECORD ACTUALLY SAID, beside the badge that summarises it. Both
+     come from serving.patent and both are NULL on every row harvested before the
+     detail pass, so both are drawn only where there is a value -- with one exception:
+     a record whose status IS 'granted' and whose grant number is missing says so. That
+     asymmetry is deliberate. An absent kind code claims nothing; a grant asserted with
+     no number behind it is the one place a reader would assume we simply had not
+     bothered to print it. */
+  const kind = r.pub_kind
+    ? `<span class="pat-chip" title="Publication kind code as the registry prints it (A1/A2 an application, B1/B2 a granted patent).">${esc(r.pub_kind)}</span>`
+    : "";
+  const gno =
+    st === "granted"
+      ? r.grant_no
+        ? `<span class="pat-chip" title="Grant number as the registry states it">Grant ${esc(r.grant_no)}</span>`
+        : '<span class="pat-chip missing" title="This record is recorded as granted, but no grant number was captured for it. It is not being reported as having none.">grant no. not captured</span>'
+      : "";
   const ipc = (r.ipc || []).map((c) => `<span>${esc(c)}</span>`).join("");
   const relev =
     m.relevDiscriminates && r.koel_relevance
       ? `<span class="pat-relev ${r.koel_relevance}">${r.koel_relevance}</span>`
       : "";
   const assignee = showAssignee && r.assignee ? `<b>${esc(r.assignee)}</b> · ` : "";
+  /* ENGLISH FIRST, THE REGISTRY'S OWN WORDS UNDERNEATH. 169 of the 1,183 stored titles
+     are not in English -- German, French, Spanish and Korean -- and a reader who cannot
+     read the title cannot judge the filing. `title_en` is the translation step's output
+     (extraction/signals/patent_titles.py); where it is absent, or identical because the
+     title was already English, nothing changes and no subline is drawn.
+
+     THE SOURCE TITLE IS NEVER DESTROYED. It is the legal name the office published the
+     invention under and the string that finds the record again; it is stored in its own
+     column and shown here as the subline, so the card can be read AND the filing can
+     still be looked up. */
+  const titleEn = (r.title_en || "").trim();
+  const titleSrc = (r.title || "").trim();
+  const translated = titleEn && titleEn !== titleSrc;
+  const titleHtml = translated
+    ? `<div class="pat-rec-t">${esc(titleEn)}` +
+      `<span class="pat-title-src" title="The title as the office published it, in its source language">${esc(titleSrc)}</span></div>`
+    : `<div class="pat-rec-t">${esc(titleSrc)}</div>`;
   return (
     `<div class="pat-rec" data-cat="${attr(r.techArea || "")}">` +
-    `<div class="pat-rec-h"><div class="pat-rec-t">${esc(r.title)}</div>${relev}${badge}</div>` +
+    `<div class="pat-rec-h">${titleHtml}${relev}${kind}${gno}${badge}</div>` +
     `<div class="pat-rec-meta"><span>${assignee}${esc(r.id || "")}</span><span>${esc(r.jurisdiction || "")}</span><span>${dateLine}</span></div>` +
     (ipc ? `<div class="pat-ipc">${ipc}</div>` : "") +
     `<div class="pat-abs">${esc(r.abstract || "")}</div>` +
@@ -171,16 +266,30 @@ export function patApiNote(d) {
   );
 }
 
-/* Arithmetic only, and correct on its own terms -- but note what it CANNOT say: every
-   record whose status was never captured normalises to 'filed', so on a corpus with no
-   grant data this returns granted 0 / pending 0 / filed N without anything having been
-   looked up. Callers must gate the three-tile presentation on _meta.grantStatusKnown;
-   a bare 0 under "Granted" is a registry claim this function never made. */
+/* FOUR BUCKETS, AND THE FOURTH IS THE POINT. This had granted / filed / pending and an
+   `else` that swallowed everything it did not recognise into `filed` -- including
+   status='unknown', the state the harvester emits when it could not read the registry
+   at all. So the one status that means "nobody looked" was counted as the registry
+   having answered "no grant yet", for as many records as the harvest gave up on.
+
+   dataset.js's per-holder roll-up already got this right (see "THREE BUCKETS, NOT TWO"
+   there): it counts granted, counts unknown, and derives pending as
+   filings - granted - unknown, so an unread record is subtracted out instead of
+   absorbed. This now agrees with it -- s.filed + s.pending is exactly that derived
+   remainder, and the four buckets sum to the record count.
+
+   What this still CANNOT say is whether anything was looked up at all: on a corpus
+   where no row carries a grant, this returns granted 0 with nothing having been asked.
+   Callers gate the three-tile presentation on _meta.grantStatusKnown; a bare 0 under
+   "Granted" is a registry claim this function never made. */
 export function deriveStats(recs) {
-  const s = { granted: 0, filed: 0, pending: 0 };
+  const s = { granted: 0, filed: 0, pending: 0, unknown: 0 };
   (recs || []).forEach((r) => {
-    if (r.status === "granted") s.granted++;
-    else if (r.status === "pending") s.pending++;
+    const st = r.status || "";
+    if (st === "granted") s.granted++;
+    else if (st === "pending") s.pending++;
+    // no status is not a status: an unmeasured record joins the unmeasured ones
+    else if (st === "unknown" || !st) s.unknown++;
     else s.filed++;
   });
   return s;
@@ -201,14 +310,31 @@ export function patCompBody(d, cid, res) {
      three-way split the moment any row carries a grant date or status. */
   let h;
   if (meta.grantStatusKnown) {
+    /* A MIXED CORPUS NEEDS ITS FOURTH TILE. Once any row carries a grant this branch
+       runs for the whole rival, unread records included -- and with only three tiles
+       those records had to land in one of them, which is how "filed" came to mean
+       "either the registry said no grant, or nobody asked". The tile appears only when
+       there are such records, is dashed and colourless like every other not-measured
+       surface here, and it means the three counts beside it are now complete: all four
+       add up to the filings on record. */
     h =
       '<div class="pat-stats">' +
       `<div class="pat-stat granted"><div class="pv">${s.granted || 0}</div><div class="pl">Granted</div></div>` +
       `<div class="pat-stat filed"><div class="pv">${s.filed || 0}</div><div class="pl">Filed</div></div>` +
       `<div class="pat-stat pending"><div class="pv">${s.pending || 0}</div><div class="pl">Pending</div></div>` +
-      "</div>";
+      (s.unknown
+        ? `<div class="pat-stat unknown" title="The registry was not read for these records. They are not being reported as ungranted."><div class="pv">${s.unknown}</div><div class="pl">Not captured</div></div>`
+        : "") +
+      "</div>" +
+      (s.unknown
+        ? `<div class="pat-nograde">Grant status was not captured for ${s.unknown} of these ` +
+          `filing${s.unknown !== 1 ? "s" : ""} — the registry was not read for ` +
+          `${s.unknown !== 1 ? "them" : "it"}, so ${s.unknown !== 1 ? "they are" : "it is"} ` +
+          "counted separately rather than as filed.</div>"
+        : "");
   } else {
-    const total = (s.granted || 0) + (s.filed || 0) + (s.pending || 0);
+    // includes unknown: it is a filing on record whatever the registry never said
+    const total = (s.granted || 0) + (s.filed || 0) + (s.pending || 0) + (s.unknown || 0);
     h =
       '<div class="pat-stats">' +
       `<div class="pat-stat filed"><div class="pv">${total}</div><div class="pl">Filings on record</div></div>` +
