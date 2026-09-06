@@ -74,6 +74,14 @@ def read_status(ptype, note=""):
 def main(apply=False):
     con = psycopg2.connect(DSN)
     cur = con.cursor()
+    # FAIL RATHER THAN QUEUE FOREVER. This script writes serving.competitors, the same
+    # table the enrich pass rebuilds, so it will sometimes arrive mid-rebuild. Without a
+    # timeout it waits indefinitely -- and a backend BLOCKED ON A LOCK does no socket
+    # I/O, so it never notices its client has gone. That is how a dead run left a
+    # backend holding its place in the lock queue on 2026-09-06, blocking writers behind
+    # it long after the process that started it had exited. Keepalives do not help here:
+    # the kernel knows the peer is gone, the blocked backend never asks.
+    cur.execute("SET lock_timeout='30s'")
     cur.execute("""SELECT comp_id, name, partners FROM serving.competitors
                     WHERE partners IS NOT NULL AND jsonb_array_length(partners) > 0
                     ORDER BY comp_id""")

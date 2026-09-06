@@ -439,6 +439,14 @@ def keep_fields(t, src, why, note_ok=True):
 def main(apply=False, limit=None):
     con = psycopg2.connect(DSN)
     cur = con.cursor()
+    # FAIL RATHER THAN QUEUE FOREVER. This script writes serving.competitors, the same
+    # table the enrich pass rebuilds, so it will sometimes arrive mid-rebuild. Without a
+    # timeout it waits indefinitely -- and a backend BLOCKED ON A LOCK does no socket
+    # I/O, so it never notices its client has gone. That is how a dead run left a
+    # backend holding its place in the lock queue on 2026-09-06, blocking writers behind
+    # it long after the process that started it had exited. Keepalives do not help here:
+    # the kernel knows the peer is gone, the blocked backend never asks.
+    cur.execute("SET lock_timeout='30s'")
     docs = load_docs(cur)
     print("%d document(s) held" % len(docs))
     # every token that will be MATCHED on or CHECKED needs its corpus frequency
