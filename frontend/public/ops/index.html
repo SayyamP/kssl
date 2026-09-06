@@ -88,6 +88,18 @@
   .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--faint);margin-right:5px}
   .live-dot.on{background:var(--good);box-shadow:0 0 6px var(--good)}
   code{font-family:var(--mono);font-size:12px;background:var(--panel2);padding:1px 5px;border-radius:4px}
+  .runs-split{display:grid;grid-template-columns:300px 1fr;gap:14px;align-items:start}
+  @media(max-width:820px){.runs-split{grid-template-columns:1fr}}
+  .runrow{padding:9px 10px;border:1px solid var(--line);border-radius:7px;margin-bottom:7px;cursor:pointer}
+  .runrow:hover{border-color:var(--accent)} .runrow.on{border-color:var(--accent);background:var(--panel2)}
+  .runrow .id{font-family:var(--mono);font-size:12px} .runrow .m{color:var(--faint);font-size:11px;margin-top:3px}
+  .bar{height:14px;background:var(--accent);border-radius:3px;min-width:2px}
+  .barwrap{display:grid;grid-template-columns:110px 1fr 120px;gap:8px;align-items:center;margin:3px 0;font-size:12px}
+  .tl{position:relative;margin-top:8px}
+  .tlrow{display:grid;grid-template-columns:150px 90px 1fr;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);font-size:12px}
+  .tlrow.fail{background:rgba(248,81,73,.08)} .tlrow.rej{background:rgba(210,153,34,.06)}
+  .tlrow .doclink{color:var(--accent);cursor:pointer;font-family:var(--mono)}
+  .tlrow .doclink:hover{text-decoration:underline}
 </style>
 </head>
 <body>
@@ -102,6 +114,7 @@
   <button data-view="pipeline">Pipeline Explorer</button>
   <button data-view="lineage">Document Lineage</button>
   <button data-view="events">Live Event Stream</button>
+  <button data-view="runs">Run Timeline</button>
 </nav>
 <main>
   <section id="v-overview" class="view on"><div class="spin">Loading…</div></section>
@@ -123,6 +136,13 @@
     </div>
     <div id="events-out"><div class="spin">Idle. Press Start live.</div></div>
   </section>
+  <section id="v-runs" class="view">
+    <h2>Run Timeline <span class="faint" style="text-transform:none;font-weight:400">&mdash; a run_id is one component/process, not an end-to-end pipeline run</span></h2>
+    <div class="runs-split">
+      <div id="runs-list" class="panel"><div class="spin">Loading…</div></div>
+      <div id="run-detail" class="panel"><div class="note">Select a run on the left.</div></div>
+    </div>
+  </section>
 </main>
 
 <script>
@@ -140,14 +160,14 @@ async function getJSON(path){
 }
 
 /* ---- tabs ---- */
-const views = ["overview","pipeline","lineage","events"];
+const views = ["overview","pipeline","lineage","events","runs"];
 let loaded = {};
 document.querySelectorAll("nav button").forEach(b=>{
   b.onclick = ()=>{
     const v=b.dataset.view;
     document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
     views.forEach(x=>$("#v-"+x).classList.toggle("on", x===v));
-    if(!loaded[v]) { loaded[v]=true; if(v==="overview")loadOverview(); if(v==="pipeline")loadPipeline(); }
+    if(!loaded[v]) { loaded[v]=true; if(v==="overview")loadOverview(); if(v==="pipeline")loadPipeline(); if(v==="runs")loadRuns(); }
   };
 });
 
@@ -338,6 +358,97 @@ function badBadge(t){ return '<span class="chip b-bad">'+esc(t)+'</span>'; }
 const ACTION_CLS={card_written:"b-good",enriched:"b-good",extracted:"b-info",gated:"b-info",
   record_rejected:"b-warn",error:"b-bad",retry:"b-warn",served:"b-info"};
 function actionBadge(a){ return '<span class="chip '+(ACTION_CLS[a]||"")+'">'+esc(a)+'</span>'; }
+
+/* ---- 5. Run Timeline ---- */
+let runsCache=[];
+function openLineage(id){
+  const btn=document.querySelector('nav button[data-view="lineage"]'); btn.click();
+  $("#doc-input").value=id; loadLineage(id);
+}
+async function loadRuns(){
+  const list=$("#runs-list"); list.innerHTML='<div class="spin">Loading…</div>';
+  try{
+    const d=await getJSON("/ops/runs?limit=40"); runsCache=d.runs;
+    list.innerHTML="";
+    const sn=el("div","note"); sn.style.marginBottom="10px"; sn.textContent=d.scope_note; list.appendChild(sn);
+    if(!d.events_available){ const n=el("div","note"); n.style.marginBottom="10px"; n.textContent=d.events_note||"events unavailable"; list.appendChild(n); }
+    if(!d.runs.length){ list.appendChild(note("No runs recorded in metrics.stage_run or provenance.event.")); return; }
+    d.runs.forEach(r=>{
+      const row=el("div","runrow"); row.dataset.id=r.run_id;
+      const st = r.status==="in_progress"? '<span class="chip b-warn">running</span>':'<span class="chip">done</span>';
+      row.innerHTML="<div class='id'>"+esc(r.run_id)+" "+st+"</div>"+
+        "<div class='m'>"+esc((r.stages||r.components||[]).join(",")||"—")+
+        " · "+ (r.stage_rows!=null? r.stage_rows+" rows":"") +
+        (r.events!=null? " · "+r.events+" events":"") +
+        (r.failures? " · <span class='b-bad'>"+r.failures+" fail</span>":"") + "</div>"+
+        "<div class='m'>"+esc((r.last_at||"").replace('T',' ').slice(0,19))+"</div>";
+      row.onclick=()=>{ document.querySelectorAll(".runrow").forEach(x=>x.classList.toggle("on",x===row)); loadRunDetail(r.run_id); };
+      list.appendChild(row);
+    });
+  }catch(e){ list.innerHTML=""; list.appendChild(errBox(e)); }
+}
+async function loadRunDetail(id){
+  const box=$("#run-detail"); box.innerHTML='<div class="spin">Loading '+esc(id)+'…</div>';
+  let d;
+  try{ d=await getJSON("/ops/runs/"+encodeURIComponent(id)); }
+  catch(e){ box.innerHTML=""; box.appendChild(note("No run: "+e.message)); return; }
+  box.innerHTML="";
+  const st = d.status==="in_progress"? '<span class="chip b-warn">running</span>':'<span class="chip b-good">completed</span>';
+  const head=el("div"); head.innerHTML="<b class='mono'>"+esc(d.run_id)+"</b> "+st+
+    " &middot; <span class='faint'>"+esc((d.first_at||"—")).slice(0,19)+" → "+esc((d.last_at||"—")).slice(0,19)+"</span>";
+  box.appendChild(head);
+  if(d.events_note){ const n=el("div","note"); n.style.margin="8px 0"; n.textContent=d.events_note; box.appendChild(n); }
+  // duration comparison (aggregated)
+  if(d.stage_rollup && d.stage_rollup.length){
+    box.appendChild(labelled("Stage roll-up (aggregated)"));
+    const maxms=Math.max(1,...d.stage_rollup.map(s=>Number(s.total_ms)||0));
+    d.stage_rollup.forEach(s=>{
+      const w=el("div","barwrap");
+      w.appendChild(el("div","mono",s.stage+(s.failures?" ⚠":"")));
+      const bw=el("div"); const bar=el("div","bar"); bar.style.width=Math.max(2,100*Number(s.total_ms)/maxms)+"%";
+      if(s.failures) bar.style.background="var(--bad)"; bw.appendChild(bar);
+      w.appendChild(bw);
+      w.appendChild(el("div","mono",(Number(s.total_ms)/1000).toFixed(1)+"s · "+s.runs+"× · "+num(s.tokens)+"tok"));
+      box.appendChild(w);
+    });
+  }
+  // rejection reasons (aggregated, from events)
+  if(d.reject_reasons && d.reject_reasons.length){
+    box.appendChild(labelled("Rejections (why documents did not become cards)"));
+    box.appendChild(tableFrom(["reason","count"], d.reject_reasons.map(r=>[esc(r.reason), num(r.n)])));
+  }
+  if(d.action_rollup && d.action_rollup.length){
+    box.appendChild(labelled("Event actions (aggregated)"));
+    const line=el("div","mono"); line.style.marginBottom="6px";
+    line.innerHTML=d.action_rollup.map(a=>esc(a.action)+": "+a.n).join(" &nbsp;·&nbsp; "); box.appendChild(line);
+  }
+  // chronological timeline (recorded)
+  box.appendChild(labelled("Timeline ("+d.timeline.length+" recorded entries)"));
+  const tl=el("div","tl");
+  d.timeline.slice(0,400).forEach(e=>{
+    const isFail = e.kind==="timing" && e.ok===false;
+    const isRej = e.kind==="event" && (e.action==="record_rejected"||e.action==="error"||e.action==="retry");
+    const row=el("div","tlrow"+(isFail?" fail":"")+(isRej?" rej":""));
+    row.appendChild(mono((e.at||"").replace('T',' ').slice(11,23)));
+    if(e.kind==="timing"){
+      row.appendChild(Object.assign(el("span"),{innerHTML:'<span class="chip b-info">'+esc(e.stage)+'</span>'}));
+      const meta=el("div"); meta.innerHTML=(e.ms!=null?num(e.ms)+"ms ":"")+(e.n_tokens!=null?"· "+num(e.n_tokens)+"tok ":"")+
+        (e.ok===false?'<span class="b-bad">FAILED</span> ':"")+(e.note?esc(e.note).slice(0,80):"");
+      if(e.doc_id){ const dl=el("span","doclink"," "+e.doc_id); dl.onclick=()=>openLineage(e.doc_id); meta.appendChild(dl); }
+      row.appendChild(meta);
+    } else {
+      row.appendChild(Object.assign(el("span"),{innerHTML:actionBadge(e.action)}));
+      const meta=el("div");
+      meta.innerHTML=(e.component?esc(e.component)+" ":"")+(e.reason?"· "+esc(e.reason)+" ":"")+(e.ref_id?"· "+esc(e.ref_id):"");
+      if(e.doc_id){ const dl=el("span","doclink"," "+e.doc_id); dl.onclick=()=>openLineage(e.doc_id); meta.appendChild(dl); }
+      row.appendChild(meta);
+    }
+    tl.appendChild(row);
+  });
+  box.appendChild(tl);
+  if(d.timeline.length>400){ box.appendChild(note("Showing the first 400 of "+d.timeline.length+" entries.")); }
+}
+function labelled(t){ const h=el("h2",null,t); h.style.marginTop="16px"; return h; }
 
 /* boot */
 loadOverview();
