@@ -24,6 +24,47 @@ SYNC_SINCE_DAYS="${KSSL_SINCE_DAYS:-3}"
 
 log() { echo "[$(date -u +%H:%M:%S)] $*"; }
 
+# A STEP THAT FAILS EVERY CYCLE IS INVISIBLE. Fifteen steps in this file end in
+# `|| log "... (continuing)"`, which is right -- one broken step must not stop the
+# others -- but it means a step that has failed for a week prints exactly the same
+# single line as one that hiccupped once, there is no healthcheck on any service in
+# docker-compose.yml, and nothing alerts. This repository already records three
+# outcomes of that: fill_competitor_news was wired to nothing and the four news panels
+# "sat empty from the first rebuild until someone ran it by hand"; mark_shared was
+# wired to nothing and "not one of 42 ties carried cid", so the red line was dead
+# across the whole tab; and the retranslate window re-asked the same 200 cards every
+# cycle for hours, burning farm time and reaching nothing else.
+#
+# This does not change what happens on failure -- the loop still continues. It counts
+# CONSECUTIVE failures per step and escalates to a greppable [ALERT] once a step has
+# missed KSSL_STEP_ALERT_AFTER cycles in a row, and says so again when it recovers.
+# A hiccup stays one line; a step that is actually broken gets louder every pass.
+STEP_STATE="${KSSL_STEP_STATE:-/tmp/kssl-steps}"
+mkdir -p "$STEP_STATE" 2>/dev/null || true
+
+step() {
+  local name="$1"; shift
+  local f="$STEP_STATE/$name" n=0
+  if "$@"; then
+    n=$(cat "$f" 2>/dev/null || echo 0)
+    [ "${n:-0}" -gt 0 ] 2>/dev/null && \
+      log "[RECOVERED] $name succeeded after $n consecutive failure(s)"
+    echo 0 > "$f" 2>/dev/null || true
+    return 0
+  fi
+  n=$(( $(cat "$f" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" > "$f" 2>/dev/null || true
+  if [ "$n" -ge "${KSSL_STEP_ALERT_AFTER:-3}" ]; then
+    log "[ALERT] $name has now failed $n cycles in a row and is writing NOTHING."
+    log "[ALERT] This is not a hiccup. Check its output above; a step that fails every"
+    log "[ALERT] pass usually means a renamed model alias, a missing column, or a"
+    log "[ALERT] credential that expired -- none of which stop the other steps."
+  else
+    log "$name failed (continuing) -- $n consecutive failure(s)"
+  fi
+  return 0
+}
+
 # Health gate: the orchestrator must confirm the compute backends (vps-a + farm, behind the router)
 # are alive before it sends any document for processing. Blocks until KSSL_MIN_HEALTHY_NODES are up.
 health_gate() {
@@ -44,15 +85,15 @@ feed_once() {
   # 1. SELECTION: prime the queue from the l2_processing_list worklist, in P1..P7 lane order.
   #    This pulls the listed bodies from the corpus and enqueues them by lane (class = lane).
   log "select: worklist (P1..P7) -> queue"
-  python3 "$HERE/select_worklist.py" --limit "${KSSL_WORKLIST_LIMIT:-2000}" \
-          --max-lane "${KSSL_MAX_LANE:-7}" || log "select failed (continuing)"
+  step select python3 "$HERE/select_worklist.py" --limit "${KSSL_WORKLIST_LIMIT:-2000}" \
+          --max-lane "${KSSL_MAX_LANE:-7}"
   # 2. Also top up from freshly crawled dated docs (the crawler-freshness lane), idempotently.
   log "sync: corpus -> VPS-B documents"
-  python3 "$HERE/sync_documents.py" --limit "${KSSL_SYNC_LIMIT:-500}" || log "sync failed (continuing)"
+  step sync python3 "$HERE/sync_documents.py" --limit "${KSSL_SYNC_LIMIT:-500}"
   log "enqueue: documents -> queue (presignal gate)"
-  ( cd "$ENGINE" && python3 route.py --enqueue ) || log "enqueue failed (continuing)"
+  step enqueue sh -c 'cd "$0" && python3 route.py --enqueue' "$ENGINE"
   log "reap: release expired leases"
-  ( cd "$ENGINE" && python3 route.py --reap ) || log "reap failed (continuing)"
+  step reap sh -c 'cd "$0" && python3 route.py --reap' "$ENGINE"
   # 3. BACKFILL last, so it sees the queue exactly as the workers will: only what nothing else
   #    filled. Measured live -- ready 0, deferred/gate 51,994, 198 workers in backoff -- an idle
   #    fleet beside a 98%-full queue. This tops `ready` back up to KSSL_READY_FLOOR from the rows
@@ -63,8 +104,8 @@ feed_once() {
 
 backfill_once() {
   log "backfill: keep the fleet fed when the gate has left nothing ready"
-  ( cd "$ENGINE" && C_BACKFILL_FLOOR="${KSSL_READY_FLOOR:-400}" python3 route.py --backfill ) \
-      || log "backfill failed (continuing)"
+  step backfill sh -c 'cd "$0" && C_BACKFILL_FLOOR="$1" python3 route.py --backfill' \
+       "$ENGINE" "${KSSL_READY_FLOOR:-400}"
 }
 
 case "${1:-worker}" in
@@ -148,7 +189,7 @@ case "${1:-worker}" in
   layerb)
     log "layerb starting: canonicalise entities every ${LAYERB_EVERY_S:-3600}s (Layer B on Postgres)"
     while true; do
-      python3 "$HERE/layer_b_pg.py" || log "layer B failed (continuing)"
+      step layer-b python3 "$HERE/layer_b_pg.py"
       sleep "${LAYERB_EVERY_S:-3600}"
     done
     ;;
@@ -159,7 +200,7 @@ case "${1:-worker}" in
     # (CREATE TABLE IF NOT EXISTS), so run it every cycle rather than assume a
     # separate migrate step created it.
     while true; do
-      python3 card_writer.py --init --build || log "card build failed (continuing)"
+      step card-build python3 card_writer.py --init --build
       sleep "$CARDS_EVERY_S"
     done
     ;;
@@ -189,11 +230,11 @@ case "${1:-worker}" in
       # a gate change (this one and every later one) show up. REPORT-ONLY by default: the
       # log lists what would go; KSSL_REGATE_APPLY=1 is the operator's decision to delete.
       if [ "${KSSL_REGATE_APPLY:-0}" = "1" ]; then
-        python3 serving_fill.py --regate --apply || log "regate failed (continuing)"
+        step regate python3 serving_fill.py --regate --apply
       else
-        python3 serving_fill.py --regate || log "regate report failed (continuing)"
+        step regate-report python3 serving_fill.py --regate
       fi
-      python3 serving_fill.py --limit "${KSSL_SIGNALS_LIMIT:-1000}" || log "signal fill failed (continuing)"
+      step signal-fill python3 serving_fill.py --limit "${KSSL_SIGNALS_LIMIT:-1000}"
       # AND THE SAME PROBLEM THE REGATE ABOVE SOLVES, FOR LANGUAGE. fill() only visits
       # documents with no card, so the English lead-ins it now writes reach tomorrow's
       # cards and none of the 311 already served off a non-English source. This rebuilds
@@ -201,8 +242,8 @@ case "${1:-worker}" in
       # for an English one -- measured on staging, 186 of 210 statements never reach the
       # model -- so it is cheap to run every cycle and is what keeps the tab in English
       # as the corpus grows.
-      python3 serving_fill.py --retranslate --apply \
-              --limit "${KSSL_RETRANSLATE_LIMIT:-200}" || log "retranslate failed (continuing)"
+      step retranslate python3 serving_fill.py --retranslate --apply \
+              --limit "${KSSL_RETRANSLATE_LIMIT:-200}"
       sleep "${SIGNALS_EVERY_S:-120}"
     done
     ;;
@@ -215,7 +256,7 @@ case "${1:-worker}" in
     log "enrich starting: rebuild serving tables every ${ENRICH_EVERY_S:-7200}s via ${OLLAMA_URL:-farm}"
     cd "$HERE/signals"
     while true; do
-      python3 enrich_serving.py || log "enrich pass failed (continuing)"
+      step enrich-pass python3 enrich_serving.py
       # AND REFILL THE NEWS, IN THE SAME CYCLE THAT EMPTIES IT.
       # serving.competitor_news.comp_id is `REFERENCES serving.competitors(comp_id) ON
       # DELETE CASCADE`, and the pass above deletes and rebuilds every origin='pipeline'
@@ -228,7 +269,7 @@ case "${1:-worker}" in
       # model call and costs seconds. Failure is logged and the loop continues: an empty
       # news panel is bad, an enrich loop that stops rebuilding everything else is worse.
       log "news: refill serving.competitor_news (cascaded away by the rebuild above)"
-      python3 fill_competitor_news.py --apply || log "news fill failed (continuing)"
+      step news-fill python3 fill_competitor_news.py --apply
       # AND RE-STAMP THE OVERLAP, FOR THE SAME REASON THE NEWS NEEDS REFILLING.
       # The rebuild above rewrites every origin='pipeline' partners array from the
       # corpus, and the corpus does not know which of a rival's partners are also
@@ -237,14 +278,14 @@ case "${1:-worker}" in
       # across the whole tab, and eight real overlaps (Rafael, Elbit, DRDO, Saab)
       # drew as unshared. No model call, reads serving.partner, costs seconds.
       log "overlap: re-stamp shared partners (the red line) after the rebuild"
-      python3 mark_shared.py --apply || log "overlap marking failed (continuing)"
+      step overlap-marking python3 mark_shared.py --apply
       # And read back the status the older ties state in their own words. The rows
       # written before step_partnerships existed carry no `status`, so the graph drew
       # "Historical Joint Venture (Ended 2013)" as a live edge. Idempotent -- it never
       # touches a tie that already has one -- so it only ever reaches rows nothing
       # else has typed, including any added by hand after this.
       log "status: type the ties no model wrote"
-      python3 backfill_tie_status.py --apply || log "status backfill failed (continuing)"
+      step status-backfill python3 backfill_tie_status.py --apply
       sleep "${ENRICH_EVERY_S:-7200}"
     done
     ;;
