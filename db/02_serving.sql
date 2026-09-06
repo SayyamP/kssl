@@ -181,6 +181,12 @@ CREATE TABLE serving.signal_card (
     ago        text,
     tags       text,
     image      text,           -- the article's own picture, resolved from page markup
+    -- LINEAGE (additive, nullable). The document(s), extraction run and proposition
+    -- indices this card was built from. Read by /api/lineage/doc/{id}; nothing serves
+    -- them. A card is per-document, so these are unambiguous. NULL on reference rows.
+    source_doc_ids  text[],
+    source_run_id   text,
+    source_prop_ids integer[],
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -204,6 +210,10 @@ CREATE TABLE serving.signal_detail (
     match      jsonb,
     pursue     jsonb,
     image      text,           -- the article's own picture, same value as signal_card.image
+    -- LINEAGE (additive, nullable) -- see serving.signal_card.
+    source_doc_ids  text[],
+    source_run_id   text,
+    source_prop_ids integer[],
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -432,6 +442,10 @@ CREATE TABLE serving.partner (
     mean       text,
     src        text,
     srcnote    text,
+    -- LINEAGE (additive, nullable). A tie is corroborated across several documents, so
+    -- only the document set is meaningful here -- a run is per-document and a bare
+    -- proposition index is meaningless without its document. NULL on reference rows.
+    source_doc_ids text[],
     cid        text,
     image      text,
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),

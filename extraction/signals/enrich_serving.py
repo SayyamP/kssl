@@ -2034,6 +2034,18 @@ def bucket_partnership_candidates(profiles, docs, props_by_doc,
                      "buckets": len(buckets)}
 
 
+def tie_doc_ids(did, pr, docs):
+    """Every document that corroborates this tie: the primary plus the alt_docs the
+    dedupe carried, restricted to documents actually in the corpus, deduped and sorted.
+
+    Multi-document provenance is PRESERVED, never collapsed to one arbitrary source --
+    that set is exactly what serving.partner.source_doc_ids records. Pure, so it is
+    testable without a database.
+    """
+    dids = [did] + list(pr.get("alt_docs") or [])
+    return sorted({d for d in dids if d in docs})
+
+
 def owned_elsewhere(props_by_doc, did, pr):
     """-> the sibling proposition proving this pair is an ACQUISITION, or None.
 
@@ -2233,6 +2245,8 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
             got["urls"] = [docs[did]["url"]] + [docs[d]["url"] for d in
                                                 pr.get("alt_docs") or []
                                                 if d in docs]
+            # LINEAGE: the full contributing document set, for serving.partner.source_doc_ids.
+            got["doc_ids"] = tie_doc_ids(did, pr, docs)
             found += 1
 
             # LAND IT ON EVERY SIDE THAT HAS A ROW, not only on this bucket's company:
@@ -2316,19 +2330,26 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
                 (REV_ORD0,))
     seen_c = {slug(roster.head_org(r[0])) for r in cur.fetchall()}
     written_c = set()
+    # LINEAGE: spliced only where the column exists (deploy.sh runs no migrations).
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema='serving' "
+                "AND table_name='partner' AND column_name='source_doc_ids'")
+    has_partner_lineage = bool(cur.fetchone())
     for i, (other, g) in enumerate(client_rows, start=1):
         if slug(roster.head_org(other)) in seen_c or is_client(other):
             continue
         seen_c.add(slug(roster.head_org(other)))
         written_c.add(slug(other))
+        _pcol = ", source_doc_ids" if has_partner_lineage else ""
+        _pval = ", %s" if has_partner_lineage else ""
         cur.execute("""INSERT INTO serving.partner
                          (id, ord, label, kind, rel, sig, ptype, note, date, country,
-                          deal, insight, mean, origin)
+                          deal, insight, mean, origin{pcol})
                        VALUES (%s,%s,%s,NULL,%s,NULL,%s,%s,%s,%s,NULL,NULL,NULL,
-                               'pipeline')
-                       ON CONFLICT (id) DO NOTHING""",
+                               'pipeline'{pval})
+                       ON CONFLICT (id) DO NOTHING""".format(pcol=_pcol, pval=_pval),
                     ("plp_%02d" % i, ORD0 + i, esc(other), g["rel"],
-                     REL_PTYPE[g["rel"]], esc(g["note"]), g["date"], g["country"]))
+                     REL_PTYPE[g["rel"]], esc(g["note"]), g["date"], g["country"])
+                    + ((g.get("doc_ids"),) if has_partner_lineage else ()))
     con.commit()
 
     print("partnerships: %d tie(s) found from %d model call(s), %d refused, "

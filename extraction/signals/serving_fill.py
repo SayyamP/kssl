@@ -1348,6 +1348,21 @@ def find_competitor(text, comp_patterns):
 
 # The card INSERT, as a template so the optional dir_reason column can be spliced in.
 # str.format, not %, because the statement is full of psycopg2's own %s placeholders.
+def card_lineage(did, prop_meta):
+    """-> (source_doc_ids, source_run_id, source_prop_ids) for a per-document card.
+
+    A card is built from ONE document, so source_doc_ids is [did]. Its propositions
+    normally share one extraction run; source_run_id is that run when unambiguous and
+    NULL when the document carries propositions from more than one run -- never guessed.
+    source_prop_ids are the proposition indices fed to the card, in order. Pure, so the
+    writer's provenance is testable without a database.
+    """
+    runs = sorted({r for (r, _i) in prop_meta if r})
+    run_id = runs[0] if len(runs) == 1 else None
+    prop_ids = [i for (_r, i) in prop_meta if i is not None]
+    return [did], run_id, prop_ids
+
+
 CARD_INSERT_SQL = """INSERT INTO serving.signal_card
                        (id, lane, ord, dir, rank, title, meta, company, lens, sowhat, sec,
                         url, ago, tags, image, origin{col})
@@ -1588,6 +1603,18 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
     if not has_dir_reason and verbose:
         print("signal_card.dir_reason absent -- demotions are logged, not stored "
               "(run db/migrations/2026-09-06_threat_severity.sql)", flush=True)
+    # LINEAGE columns are spliced only where present, same migration-safety as above:
+    # deploy.sh runs no migrations, so a writer that assumes its own migration landed
+    # takes the pass down wherever it has not.
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema='serving' "
+                "AND table_name='signal_card' AND column_name='source_doc_ids'")
+    has_card_lineage = bool(cur.fetchone())
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema='serving' "
+                "AND table_name='signal_detail' AND column_name='source_doc_ids'")
+    has_detail_lineage = bool(cur.fetchone())
+    if not has_card_lineage and verbose:
+        print("signal_card/detail lineage columns absent -- provenance not recorded "
+              "(run db/migrations/2026-09-07_lineage_columns.sql)", flush=True)
     cur.execute("""SELECT company, title, sowhat FROM serving.signal_card
                     WHERE origin='pipeline'""")
     _rows = cur.fetchall()
@@ -1621,10 +1648,14 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         if did in banned:
             stats["suppressed"] += 1
             continue
-        cur.execute("""SELECT subject, predicate, object, modality, ev_quote
+        # run_id and i are read only for LINEAGE (serving.signal_card.source_*); the
+        # business logic still sees the same (s, p, o, m, q) tuples it always did.
+        cur.execute("""SELECT run_id, i, subject, predicate, object, modality, ev_quote
                          FROM extracted.proposition WHERE document_id=%s ORDER BY i""",
                     (did,))
-        props = cur.fetchall()
+        _prows = cur.fetchall()
+        props = [(s, p, o, m, q) for (_r, _i, s, p, o, m, q) in _prows]
+        prop_meta = [(r, i) for (r, i, *_rest) in _prows]   # (run_id, i), index-aligned to props
         if not props:
             stats["thin"] += 1
             continue
@@ -1656,6 +1687,7 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
             stats["offtopic"] += 1
             continue
         props = props[:12]
+        prop_meta = prop_meta[:12]   # keep lineage aligned with the props actually fed
         lines = "\n".join("- %s %s %s [%s] -- \"%s\"" % (s, p, o, m, (q or "")[:180])
                           for s, p, o, m, q in props)
         try:
@@ -1714,17 +1746,24 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         # migration deploy.sh does not run on any environment (see backend/app.py), and a
         # writer that assumes its own migration has landed takes the whole pass down
         # wherever it has not.
-        cur.execute(CARD_INSERT_SQL.format(
-                        col=", dir_reason" if has_dir_reason else "",
-                        val=", %s" if has_dir_reason else "",
-                        set=", dir_reason=EXCLUDED.dir_reason" if has_dir_reason else ""),
+        _cd, _cr, _cp = card_lineage(did, prop_meta)
+        _col = ((", dir_reason" if has_dir_reason else "")
+                + (", source_doc_ids, source_run_id, source_prop_ids" if has_card_lineage else ""))
+        _val = ((", %s" if has_dir_reason else "")
+                + (", %s, %s, %s" if has_card_lineage else ""))
+        _set = ((", dir_reason=EXCLUDED.dir_reason" if has_dir_reason else "")
+                + (", source_doc_ids=EXCLUDED.source_doc_ids, "
+                   "source_run_id=EXCLUDED.source_run_id, "
+                   "source_prop_ids=EXCLUDED.source_prop_ids" if has_card_lineage else ""))
+        cur.execute(CARD_INSERT_SQL.format(col=_col, val=_val, set=_set),
                     (cid, lane, ord_next, card["dir"], str(ord_next).zfill(2),
                      esc(card["title"]),
                      esc("%s · %s · from %s" % (card["category"], company_chip, source)),
                      esc(card["company"]), card["pillar"].capitalize(),
                      esc(card["sowhat"]), json.dumps(sec), url,
                      ago_of(ymd[:2]), card["category"], img)
-                    + ((card.get("dir_reason"),) if has_dir_reason else ()))
+                    + ((card.get("dir_reason"),) if has_dir_reason else ())
+                    + ((_cd, _cr, _cp) if has_card_lineage else ()))
         # No "Primary lens" row: the pillar is the coloured pill in the panel header and
         # the dirtag on the feed row, so a fourth statement of it was the redundancy the
         # client complained about. The rows that follow Company/Category/Date come from
@@ -1748,21 +1787,27 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         what = esc(card["what"] or (lead[0] + "." if lead else "%s %s %s." % (s0, p0, o0)))
         lens = [["STATEMENT", "%s — %s" % (esc(lead[i]), quote_html(q, lang))]
                 for i, (s, p, o, _m, q) in enumerate(props[:6])]
-        cur.execute("""INSERT INTO serving.signal_detail
+        _dcol = (", source_doc_ids, source_run_id, source_prop_ids" if has_detail_lineage else "")
+        _dval = (", %s, %s, %s" if has_detail_lineage else "")
+        _dset = (", source_doc_ids=EXCLUDED.source_doc_ids, "
+                 "source_run_id=EXCLUDED.source_run_id, "
+                 "source_prop_ids=EXCLUDED.source_prop_ids" if has_detail_lineage else "")
+        cur.execute(("""INSERT INTO serving.signal_detail
                          (id, ord, rank, dir, title, facts, what, why, lens, actions, url,
-                          suggest, image, origin)
-                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'[]',%s,'[]',%s,'pipeline')
+                          suggest, image, origin{dcol})
+                       VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'[]',%s,'[]',%s,'pipeline'{dval})
                        ON CONFLICT (id) DO UPDATE SET
                          title=EXCLUDED.title, facts=EXCLUDED.facts, what=EXCLUDED.what,
                          why=EXCLUDED.why, lens=EXCLUDED.lens, url=EXCLUDED.url,
                          -- same guard as the card: a run that cannot reach the corpus
                          -- must not wipe a picture an earlier run already proved good
                          image=coalesce(EXCLUDED.image, serving.signal_detail.image),
-                         updated_at=now()""",
+                         updated_at=now(){dset}""").format(dcol=_dcol, dval=_dval, dset=_dset),
                     (cid, ord_next, "%s SIGNAL · %02d" % (card["pillar"].upper(), ord_next),
                      card["dir"],
                      esc(card["title"]), json.dumps(facts), what, esc(card["sowhat"]),
-                     json.dumps(lens), url, img))
+                     json.dumps(lens), url, img)
+                    + ((_cd, _cr, _cp) if has_detail_lineage else ()))
         con.commit()
         stats["cards"] += 1
         if verbose and stats["cards"] % 5 == 0:
