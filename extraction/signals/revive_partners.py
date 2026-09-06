@@ -606,7 +606,16 @@ def write(cur, con, keep, newco, rkeep):
                 (REV_ORD0,))
     # The pipeline may already have found the same company from a news story. One
     # roster row per company, or the tab shows Paramount twice.
-    cur.execute("SELECT label FROM serving.partner WHERE origin='pipeline' AND ord < %s",
+    #
+    # AND IT DOES. This asked only for origin='pipeline' rows while the table holds
+    # reference ones too, so a company already on the roster as reference data was
+    # invisible to the check and got a second row. Measured in production: "Paramount
+    # Group" and "Israel Aerospace Industries (IAI)" each appear twice, once under each
+    # origin -- the precise outcome the comment above was written to prevent, named by
+    # the same company. The DELETE above stays scoped to this writer's own rows, which
+    # is right; a duplicate CHECK has no business caring who wrote the row it would
+    # duplicate.
+    cur.execute("SELECT label FROM serving.partner WHERE ord < %s OR origin <> 'pipeline'",
                 (REV_ORD0,))
     have = {slug(r[0]) for r in cur.fetchall()}
     fresh = []
