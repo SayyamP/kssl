@@ -53,3 +53,10 @@ for t in test_*.py; do
   echo "== $t"
   python "$t"
 done
+
+# THE DEPLOY'S OWN HEALTH GATE. Stubbed docker, no containers, about a second -- and it
+# is the only thing standing between a backend that cannot import and another 404. The
+# gate it replaced was four lines inline in deploy.sh and had no way to be exercised
+# short of shipping a broken backend, which is how it came to miss one.
+echo "== deploy/test_healthgate.sh"
+bash "$(dirname "${BASH_SOURCE[0]}")/test_healthgate.sh"
