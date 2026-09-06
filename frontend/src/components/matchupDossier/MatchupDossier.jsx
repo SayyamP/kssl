@@ -50,10 +50,38 @@ export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTen
               ✕
             </button>
           </div>
+          {/* "Verified specs · analysed" was stamped on EVERY matchup, the majority of
+              which have no dimension published on both sides at all -- their client
+              column reads "no published figure" from top to bottom. A verification
+              badge over a comparison that never happened is the worst kind of claim on
+              this page, because a badge is what a reader checks before trusting the
+              numbers under it. `m.global` did not help: it selects a global-prime
+              PAIRING, which says nothing about the evidence, and both of its branches
+              asserted analysis anyway.
+
+              specDims is how many independent dimensions BOTH products publish (stored
+              by wireDataset from computeSpecEdge), so the badge states that count and
+              says plainly when it is zero.
+
+              NOTE: shell.css carries `.srcbadge{display:none !important}`, so nothing
+              in this slot is on screen today -- the false version was invisible too.
+              The class is kept, because hiding these badges was a deliberate change
+              and un-hiding them is not this fix's call; what changes is that whatever
+              this slot says is now true if it is ever shown again. */}
           <span className="eyebrow">
             {m.cat}{" "}
-            <span className="srcbadge" style={{ marginLeft: "6px" }}>
-              {m.global ? "Verified specs · analysed" : "Verified · analysed"}
+            <span
+              className="srcbadge"
+              style={{ marginLeft: "6px" }}
+              title={
+                m.specDims
+                  ? "Dimensions published by both products and compared line by line. Pairing axes (calibre, length, weight class) are excluded."
+                  : "Neither product publishes a dimension the other also publishes, so nothing here has been compared."
+              }
+            >
+              {m.specDims
+                ? `${m.specDims} spec${m.specDims === 1 ? "" : "s"} compared on both sides`
+                : "No spec published on both sides"}
             </span>
           </span>
           <div className="matchup">

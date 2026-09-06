@@ -474,13 +474,20 @@ export default function Geo() {
       const nOv = c.isBf
         ? cs.filter((ct) => geo.geoRivalsIn(ct).length).length
         : cs.filter((ct) => geo.geoOverlap(resolved.cid, ct)).length;
+      /* "meets KSSL in 0 of them" used to print for EVERY rival, because the overlap
+         test has no left-hand side when no client footprint is served (see
+         clientFootprintKnown in lib/geo.js). Zero there measures nothing — it is the
+         absence of a comparison, not a finding of separation, so the line says so. */
+      const meetsLine = geo.clientFootprintKnown
+        ? ` · meets ${clientName} in ${nOv} of them`
+        : ` · overlap with ${clientName} not assessed — no ${clientName} footprint on file`;
       return {
         kind: c.isBf ? "Own markets" : "Competitor markets",
         name: c.name,
         sub: `Supplies ${cs.length} market${cs.length !== 1 ? "s" : ""}${
           c.isBf
             ? ` · ${nOv} contested by a rival offering, ${cs.length - nOv} with none on file`
-            : ` · meets ${clientName} in ${nOv} of them`
+            : meetsLine
         } — select one for products`,
       };
     }
@@ -496,7 +503,17 @@ export default function Geo() {
       const ovs = geo.geoRivalsIn(resolved.country);
       const nSpec = ovs.filter((o) => o.tier === "spec").length;
       const nCat = ovs.length - nSpec;
-      let sub = `${rivals} competitor${rivals !== 1 ? "s" : ""} active${bf ? ` · ${clientName} present` : ` · ${clientName} absent ⚠`}`;
+      /* "KSSL absent" with a warning triangle fired on 100% of countries: the served
+         footprint tables carry no client rows at all, so `bf` is false everywhere and
+         the header was reporting a data gap as a market retreat. A missing footprint
+         table cannot say KSSL is absent from any one country — only that nothing is
+         on file about where it is. */
+      const presence = geo.clientFootprintKnown
+        ? bf
+          ? ` · ${clientName} present`
+          : ` · ${clientName} absent ⚠`
+        : ` · ${clientName} presence not established — no footprint on file`;
+      let sub = `${rivals} competitor${rivals !== 1 ? "s" : ""} active${presence}`;
       if (bf)
         sub += ovs.length
           ? ` · ${nSpec} contest ${clientName} on rating-matched models${nCat ? `, ${nCat} on category only` : ""}`

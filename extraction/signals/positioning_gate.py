@@ -3,6 +3,13 @@
     python positioning_gate.py --demo        # self-check
     python positioning_gate.py --audit       # score every matchup in the DB
 
+PORTED FROM pipeline/. It sat only there, and pipeline/ is not what runs: the
+containers run extraction/signals (see pipeline/_superseded.py, and deploy/selfcheck.sh
+which does `cd extraction/signals`). `grep -rn positioning_gate extraction/` returned
+nothing, so a gate written to stop "Shell forgings vs Excalibur" had never once been
+asked about a row that was published. It is called from revive_matchups.rebuild's
+write path now, beside pairing.refuse.
+
 THE FAULT THIS CLOSES
 ---------------------
 Positioning was pairing KSSL products against rivals that share a CATEGORY but are not
@@ -32,12 +39,22 @@ one lot.
 FAIL CLOSED. A product whose kind cannot be read from its name is REFUSED, not defaulted
 to its category. The whole failure above came from defaulting; a pairing we cannot justify
 is worth less than no pairing, because the operator cannot tell the two apart on screen.
+
+...WITH ONE MEASURED EXCEPTION, MADE EXPLICIT RATHER THAN QUIET. Run over the 507
+archive rows that revive_matchups rebuilds, this table reads:
+
+    93 pass        360 unresolved        60 refuse
+
+The 60 are findings and are dropped unconditionally. The 354 unresolved are not
+findings -- they are names this keyword table has nothing to say about (MaxxPro,
+Kestrel, Bharat 52) -- and refusing them would delete about seven of every ten
+pairings on the strength of a gap in a word list, which is the mirror of the fault
+above and is how the first draft of pairing.py came to refuse all 117 published rows.
+So `gate()` still returns three states, unchanged; the CALLER decides, and
+revive_matchups drops `refuse` always and `unresolved` only under
+KSSL_POSITIONING_STRICT=1. The unresolved count is printed on every run, because a
+number nobody sees is not a worklist.
 """
-import os as _os, sys as _sys
-_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
-from _superseded import refuse_if_superseded  # noqa: E402
-refuse_if_superseded(__file__)   # ported to extraction/signals/, which is what the
-                                 # containers run; this copy is now the older one.
 import argparse
 import os
 import re
@@ -175,6 +192,99 @@ def kind_of(label):
     return None
 
 
+# WORDS THAT NAME A KIND IN A PRODUCT NAME AND MEAN NOTHING OF THE SORT IN A SENTENCE.
+# KINDS was written to read a product LABEL. Asked of prose it misreads, and it was
+# measured: run over the 2,320 advantage bullets the archive holds, a domain check
+# built on the raw table refused 146 of them, and 58 of those turned on one of three
+# adjectives -- "T-5000M precision rifle" read as a precision-guided SHELL, "Indigenous
+# IP + forged barrel" read as a bare gun barrel rather than the gun, "155/52 with ALAS;
+# long-range precision" the same. Skipping these surfaces took the refusals to 89, and
+# every one of those is a maker-credential line naming a product from another domain
+# ("ATAGS co-producer" on an armoured-vehicle row, "Drone supplier ..." on a naval one).
+#
+# This list can only ever make the gate LESS aggressive, which is the safe direction:
+# a missing entry costs a refusal that should have happened, never a wrong refusal.
+PROSE_AMBIGUOUS = {
+    "precision", "smart", "guided", "barrel", "ordnance", "mounted", "round", "rounds",
+    "turret", "blank", "bt", "bb", "class", "interceptor", "light armoured",
+    "light armored", "light tactical", "ultra-light", "ultra light", "ultralight",
+}
+
+
+def kind_in_text(text):
+    """The kind a free-text phrase names, or None.
+
+    Same table, asked of a sentence rather than a product label. revive_matchups uses
+    it on an advantage bullet: "ATHOS/ATMOS 52-cal guns" reads as howitzer-spg, and a
+    bullet about a howitzer has no business on a UAV's matchup. Surfaces that are
+    ordinary English in a sentence are skipped -- see PROSE_AMBIGUOUS."""
+    if not text:
+        return None
+    for k, rx in KINDS:
+        for m in rx.finditer(str(text)):
+            if m.group(0).strip().lower() not in PROSE_AMBIGUOUS:
+                return k
+    return None
+
+
+def family_of(kind):
+    """The family a kind competes in, or None when the kind is unknown."""
+    return FAMILY.get(kind) if kind else None
+
+
+# The coarsest grouping: what SORT of thing this is. FAMILY answers "do these two
+# compete"; DOMAIN answers "are these two even in the same business", which is the
+# question an advantage bullet has to pass. gun-barrel sits with the guns on purpose --
+# "forged barrel" is a legitimate thing to say about a howitzer, and putting the
+# component in its own domain refused it.
+DOMAIN = {
+    "shell-empty": "ammunition", "shell-complete": "ammunition",
+    "shell-guided": "ammunition",
+    "carbine": "small-arms", "smg": "small-arms", "pistol": "small-arms",
+    "sniper-rifle": "small-arms", "machine-gun": "small-arms", "rcws": "small-arms",
+    "howitzer-towed": "artillery", "howitzer-mounted": "artillery",
+    "howitzer-spg": "artillery", "gun-barrel": "artillery",
+    "mrap": "vehicle", "apc": "vehicle", "light-armoured": "vehicle",
+    "main-battle-tank": "vehicle",
+    "uav": "uav", "ugv": "ugv", "uuv": "naval", "naval-vessel": "naval",
+}
+
+# The row's own declared category, which nothing consulted before. These nine keys are
+# the client's closed vocabulary (reference_dataset.json CAT_KEY), so this is a
+# translation, not a keyword list. 'mro', 'msl' and 'pc' map to nothing on purpose:
+# maintenance, missiles and forgings have no kind bucket above, and a category we
+# cannot place must not be used to refuse anything.
+CATKEY_DOMAIN = {
+    "art": "artillery", "ammo": "ammunition", "sa": "small-arms", "pav": "vehicle",
+    "naval": "naval", "uav": "uav",
+}
+CAT_DOMAIN = {
+    "artillery": "artillery", "ammunition": "ammunition", "small arms": "small-arms",
+    "protected & armoured vehicles": "vehicle", "marine / naval": "naval",
+    "uavs & drones": "uav",
+}
+
+
+def domain_of(kind):
+    """The domain a kind belongs to, or None when the kind is unknown."""
+    return DOMAIN.get(kind) if kind else None
+
+
+def domain_for_row(cat=None, catkey=None, label=None):
+    """What sort of thing this matchup is about, read from the row itself.
+
+    The row's own catKey first -- it is a declared field, not a guess -- then its
+    category label, then the kind read from the product's name. None means we cannot
+    say, and a domain we cannot say must never refuse anything."""
+    d = CATKEY_DOMAIN.get((catkey or "").strip().lower())
+    if d:
+        return d
+    d = CAT_DOMAIN.get((cat or "").strip().lower())
+    if d:
+        return d
+    return domain_of(kind_of(label)) if label else None
+
+
 def gate(bf, comp, kinds=None):
     """(verdict, kind, reason) where verdict is 'pass' | 'refuse' | 'unresolved'.
 
@@ -200,10 +310,18 @@ def gate(bf, comp, kinds=None):
     if why:
         return "refuse", None, why
     if FAMILY.get(kb) and FAMILY.get(kb) == FAMILY.get(kc):
-        note = CAVEAT.get((kb, kc)) or CAVEAT.get((kc, kb)) or             "different kinds within %s: %s vs %s" % (FAMILY[kb], kb, kc)
+        note = (CAVEAT.get((kb, kc)) or CAVEAT.get((kc, kb))
+                or "different kinds within %s: %s vs %s" % (FAMILY[kb], kb, kc))
         return "pass", FAMILY[kb], note
     return "refuse", None, "%s is not comparable with %s (%s vs %s)" % (
         kb, kc, FAMILY.get(kb, "?"), FAMILY.get(kc, "?"))
+
+
+# Whether an UNRESOLVED pairing is also refused. Off by default and read once here, so
+# there is one answer per run and the caller can print which way it went -- see the
+# module docstring for the 93/354/60 measurement this default is chosen on.
+def strict():
+    return os.environ.get("KSSL_POSITIONING_STRICT") == "1"
 
 
 def demo():
@@ -240,6 +358,38 @@ def demo():
     # ordering: the specific test must beat the general one
     assert kind_of("AWEIL · MTMG tank machine gun") == "machine-gun"
     assert kind_of("KSSL · 155mm shell forgings") == "shell-empty"
+
+    # the same table, asked of a sentence: this is what keeps an artillery blurb off a
+    # UAV row in revive_matchups.ground_phrase
+    assert kind_in_text("ATHOS/ATMOS 52-cal guns, longer barrel") == "howitzer-spg"
+    assert family_of(kind_in_text("ATHOS/ATMOS 52-cal guns")) == "artillery-gun"
+    assert family_of(kind_of("Adani · SkyStriker")) is None      # name says nothing
+    assert family_of(kind_of("Elbit · SkyStriker loitering munition")) == "uav"
+    assert kind_in_text("indigenous IP, lower unit cost") is None, \
+        "a bullet that names no kind must not be refused for naming the wrong one"
+
+    # ...and the three adjectives that made it misread prose. Each of these was a real
+    # archive bullet that a raw KINDS read refused.
+    assert kind_in_text("Indigenous IP + forged barrel; lower unit cost") is None
+    assert kind_in_text("155/52 with ALAS; long-range precision") is None
+    assert kind_in_text("Ultra-light strike; speed & rapid response") is None
+    assert kind_in_text("T-5000 precision rifle to 1500 m") == "sniper-rifle", \
+        "the model name still reads, it is only the adjective that is skipped"
+
+    # the domain a row is about comes from the row, not from a guess
+    assert domain_for_row(catkey="uav") == "uav"
+    assert domain_for_row(cat="Artillery") == "artillery"
+    assert domain_for_row(catkey="pav", cat="Protected & Armoured Vehicles") == "vehicle"
+    assert domain_for_row(label="KSSL · CQB Carbine") == "small-arms"
+    # a category with no kind bucket refuses nothing
+    assert domain_for_row(catkey="msl") is None and domain_for_row(catkey="pc") is None
+    assert domain_for_row() is None
+    # the two failures this is here to stop
+    assert domain_of(kind_in_text("ATHOS/ATMOS 52-cal guns")) == "artillery"
+    assert domain_of(kind_in_text("First private Indian small-arms plant; 40% of "
+                                  "Army CQB carbine order")) == "small-arms"
+    # a component of the gun is NOT a different business from the gun
+    assert DOMAIN["gun-barrel"] == DOMAIN["howitzer-towed"] == "artillery"
     print("demo ok")
 
 

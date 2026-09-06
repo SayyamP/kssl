@@ -120,6 +120,28 @@ function specRow(s, compName) {
    publisher a given number came from without leaving the comparison. */
 const SHOW_SPEC_SOURCES = false;
 
+/* THE PAGE MUST NOT PROMISE A CITATION IT DOES NOT SHOW.
+
+   revive_matchups.py closes every pairing-logic paragraph with "Every number below
+   names the page it came from." That was true while the spec panel printed a source
+   line under each value; it has been false since SHOW_SPEC_SOURCES went to false for
+   TASKS #8, and the sentence has sat over a comparison with no visible provenance ever
+   since -- on every matchup, in the dossier, in the Products drawer and in the
+   exported report.
+
+   The sentence is dropped rather than the switch flipped back, because turning the
+   source lines on would silently reverse the client's own request. Flip
+   SHOW_SPEC_SOURCES to true and the sentence survives untouched, so the copy and the
+   panel can no longer disagree. The deeper fix is upstream and not ours to make: a
+   pipeline should not be writing claims about what a UI displays. */
+export function pairingReason(reason) {
+  const s = String(reason == null ? "" : reason);
+  if (SHOW_SPEC_SOURCES || !s) return s;
+  return s
+    .replace(/\s*Every\s+number\s+below\s+names\s+the\s+page\s+it\s+came\s+from\.\s*/gi, " ")
+    .trim();
+}
+
 function srcLine(urls, why, tier) {
   if (!SHOW_SPEC_SOURCES) return "";
   if (!urls || !urls.length) return "";

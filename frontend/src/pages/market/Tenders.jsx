@@ -375,26 +375,47 @@ export default function Tenders({ mode = "tender" }) {
           tender{list.length !== 1 ? "s" : ""}
           {productType || country || cat ? " (filtered)" : ""} · sorted by deadline
         </div>
+        {/* Stated ONCE for the list, the way the Innovation view states its missing
+            fields once for the domain. `matches` is empty on every served tender, so
+            no card can carry a fit line; saying so here is the difference between a
+            field that was assessed as poor and one that was never assessed at all. */}
+        {list.length && !list.some((r) => (r.matches || []).length) ? (
+          <div className="tp-sum tp-sum-note">
+            No {clientName} fit assessment was served for these tenders — the requirement
+            match is not part of this dataset, so no card carries a fit score.
+          </div>
+        ) : null}
         <div id="tp-cards">
           {list.length ? (
             list.map((row) => {
-              /* pct is '—' when the source discloses no scored fit; fall back to the tier.
-                 With NO match row at all there is no verdict to fall back to: 'weak' was
-                 being stamped on every tender from nothing, which reads as an assessment
-                 nobody made. Say "not assessed" and draw no bar. */
+              /* THE BAR'S LENGTH HAS TO BE THE MEASUREMENT.
+                 The width came from a three-value constant map -- high 85%, mid 55%,
+                 low 25% -- so a source publishing 76% and one publishing 98% both drew
+                 the same 85% bar, and the reader was looking at a lookup table rendered
+                 as a measured quantity. A real percentage now sets its own width. A
+                 TIER WORD is a grade, not a length, so it prints as the word with no
+                 track behind it rather than being converted into a bar nobody measured.
+
+                 And with no match row at all there is no verdict to fall back on:
+                 'weak' used to be stamped on every tender out of nothing. On the served
+                 corpus that is every row -- `matches` is empty on all of them -- so the
+                 whole fit line is omitted per card (see fitAssessed below) and the list
+                 header states once that no fit assessment was served. An empty labelled
+                 shell on 136 cards is a surface pretending to have an opinion. */
               const m0 = (row.matches || [])[0];
-              const assessed = !!m0 && (has(m0.pct) || has(m0.fit));
-              const fc = assessed
-                ? /%/.test(m0.pct || "")
-                  ? fitClass(m0.pct)
-                  : m0.fit || "low"
-                : null;
-              const fw = { high: "85%", mid: "55%", low: "25%" }[fc] || "0%";
-              const fp = assessed
-                ? /%/.test(m0.pct || "")
-                  ? m0.pct
-                  : { high: "strong", mid: "partial", low: "weak" }[fc] || "—"
-                : "not assessed";
+              const pctNum = m0 && /%/.test(m0.pct || "")
+                ? parseFloat(String(m0.pct).replace(/[^\d.]/g, ""))
+                : NaN;
+              const scored = !Number.isNaN(pctNum);
+              const graded = !!(m0 && has(m0.fit));
+              const assessed = scored || graded;
+              const fc = scored ? fitClass(m0.pct) : graded ? m0.fit : null;
+              const fw = scored ? `${Math.max(0, Math.min(100, pctNum))}%` : "0%";
+              const fp = scored
+                ? m0.pct
+                : graded
+                  ? { high: "strong", mid: "partial", low: "weak" }[fc] || fc
+                  : "";
               return (
                 <div
                   className={`tcard${sel === row.id ? " sel" : ""}`}
@@ -427,13 +448,20 @@ export default function Tenders({ mode = "tender" }) {
                       </div>
                     ))}
                   </div>
-                  <div className="fitbar">
-                    <span className="fitlab">{clientName} fit</span>
-                    <span className={`fittrack${assessed ? "" : " na"}`}>
-                      {assessed ? <i className={fc} style={{ width: fw }} /> : null}
-                    </span>
-                    <span className={`fitpct${assessed ? "" : " na"}`}>{fp}</span>
-                  </div>
+                  {/* No assessment -> no fit row. A labelled control reading "not
+                      assessed" on every card is chrome for a feature that is not
+                      there; the header says it once, for the whole list. */}
+                  {assessed ? (
+                    <div className="fitbar">
+                      <span className="fitlab">{clientName} fit</span>
+                      {scored ? (
+                        <span className="fittrack">
+                          <i className={fc} style={{ width: fw }} />
+                        </span>
+                      ) : null}
+                      <span className={`fitpct${scored ? "" : " grade"}`}>{fp}</span>
+                    </div>
+                  ) : null}
                 </div>
               );
             })

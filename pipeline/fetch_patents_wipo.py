@@ -45,6 +45,8 @@ area and no "Other": gun-fired ammunition of every calibre, a 155 mm shell body
 included, belongs under "Small arms & ammunition".
 """
 import argparse
+import collections
+import http.cookiejar
 import io
 import json
 import os
@@ -85,22 +87,61 @@ _SUFFIX = {
     "group", "industries", "industrie", "systems", "system", "technologies",
     "technology", "defence", "defense", "kabushiki", "kaisha", "gongsi", "jusik",
     "hoesa", "anonim", "sirketi", "sti", "as1",
+    # Swedish and Czech legal forms the registry prints in full. "SAAB DYNAMICS
+    # AKTIEBOLAG" and "SAAB CZECH S.R.O." are the same two companies as "Saab
+    # Dynamics AB" and a Saab s.r.o.; the list failing to hold the spelled-out form
+    # is the "it can only fail to strip a suffix" failure the note above predicted.
+    # "lp" is here for the same reason: the list held llp and lllp but not the plain
+    # limited partnership BAE Systems Land & Armaments files as.
+    "aktiebolag", "sro", "lp",
 }
+# "&" folds to the WORD "and", which then sits between two alias tokens and breaks
+# their contiguity: "BAE Systems Land & Armaments L.P." became
+# bae/systems/land/AND/armaments, so the alias "BAE Systems Land Armaments" no longer
+# appeared as a run and 51 correctly-owned publications were dropped. A connector is
+# not part of a name for matching, so it is removed from BOTH sides.
+_CONNECT = {"and"}
+# WIPO's uppercase applicant index truncates at 30 characters -- 'KRAUSS MAFFEI
+# WEGMANN GMBH & C', 'SAAB BOFORS DYNAMICS SWITZERLA' and 'OTOKAR OTOBUES KAROSERI
+# SANAYI' are all exactly this long. No alias can equal a cut-off string, so at or
+# beyond the cut the LAST leftover token may be a PREFIX of a noise word instead of
+# the whole word. Only a leftover is ever forgiven; the alias itself must still
+# appear in full and contiguously.
+_TRUNC = 30
 _COMBINING = dict.fromkeys(
     i for i in range(sys.maxunicode) if unicodedata.combining(chr(i)))
 
 
-def fold(s):
-    """Comparable form of an applicant or alias. Script is preserved."""
+def _tokens(s):
+    """Script-preserving token list. NFD then strip marks, never NFKD."""
     s = unicodedata.normalize("NFD", (s or "").strip())
     s = s.translate(_COMBINING)
     s = unicodedata.normalize("NFC", s).casefold()
     s = s.replace("&amp;", " and ").replace("&", " and ")
     s = re.sub(r"[^\w\s]+", " ", s, flags=re.UNICODE)
-    toks = [t for t in s.split() if t]
-    while toks and toks[-1] in _SUFFIX:
-        toks.pop()
-    return " ".join(toks)
+    return [t for t in s.split() if t]
+
+
+def _key(s, strip_suffix=True):
+    """Match tokens: connectors dropped, THEN trailing legal forms popped.
+
+    The order matters. Popping first stops at the "and" that "& Co. KG" folds to and
+    leaves "gmbh and" welded to the name; dropping the connector first lets the pop
+    reach the whole suffix run.
+    """
+    toks = [t for t in _tokens(s) if t not in _CONNECT]
+    if strip_suffix:
+        while toks and toks[-1] in _SUFFIX:
+            toks.pop()
+    return toks
+
+
+def fold(s, strip_suffix=True):
+    """Comparable form of an applicant or alias. Script is preserved.
+
+    Also the family-dedup key for titles, which is why it stays a plain string.
+    """
+    return " ".join(_key(s, strip_suffix))
 
 
 # --------------------------------------------------------------------------
@@ -139,6 +180,8 @@ ART = [
     ("Rheinmetall Landsysteme", "rheinmetall", "subsidiary", ""),
     ("Diehl Defence", "rheinmetall", "self",
      "Diehl is not a roster row; nearest tracked German munitions rival"),
+    ("Diehl BGT Defence", "rheinmetall", "former_name",
+     "Diehl Defence's registered name until the 2017 rename; 10 publications"),
 
     ("KNDS", "knds", "self", ""),
     ("KNDS Deutschland", "knds", "subsidiary", ""),
@@ -151,6 +194,8 @@ ART = [
     ("BAE Systems", "bae-systems", "self", ""),
     ("BAE Systems Land Armaments", "bae-systems", "subsidiary", ""),
     ("BAE Systems Bofors", "bae-systems", "subsidiary", ""),
+    ("British Aerospace", "bae-systems", "former_name",
+     "BAE's name until the 1999 Marconi merger; the registry still prints it"),
     ("Lockheed Martin", "lockheed-martin", "self", ""),
     ("General Dynamics", "general-dynamics", "self", ""),
     ("General Dynamics Ordnance and Tactical Systems", "general-dynamics",
@@ -172,7 +217,15 @@ ART = [
     ("Saab", "saab", "self", ""),
     ("Saab Bofors Dynamics", "saab", "subsidiary", ""),
     ("Saab Dynamics", "saab", "subsidiary", ""),
+    ("Saab Barracuda", "saab", "subsidiary",
+     "the signature-management arm; a business line, so it needs its own row"),
     ("Patria", "patria", "self", ""),
+    # Patria's three operating companies. "Patria" is a single-token brand and a
+    # Latin word, so it matches exactly and never by containment -- which means every
+    # subsidiary has to be written out, exactly as Nammo's five are. 27 publications.
+    ("Patria Land", "patria", "subsidiary", ""),
+    ("Patria Land Armament", "patria", "subsidiary", ""),
+    ("Patria Vammas", "patria", "subsidiary", "the Vammas gun works"),
     ("Nammo", "nammo", "self", ""),
     ("Nammo Raufoss", "nammo", "subsidiary", ""),
     ("Nammo Lapua", "nammo", "subsidiary", ""),
@@ -193,6 +246,9 @@ ART = [
     ("Iveco Defence Vehicles", "idv", "self", ""),
     ("Iveco", "iveco", "self", ""),
     ("Otokar Otomotiv ve Savunma Sanayi", "otokar", "self", ""),
+    ("Otokar Otobues Karoseri Sanayi", "otokar", "former_name",
+     "Otokar's name before the 2005 rename, spelled as WIPO's index prints it "
+     "(oe for the Turkish o-umlaut) and cut off at the index's 30 characters"),
     ("Otokar", "otokar", "self", ""),
     ("Supacat", "supacat", "self", ""),
     ("Roshel", "roshel", "self", ""),
@@ -205,6 +261,9 @@ ART = [
 
     ("Elbit Systems", "elbit-systems", "self", ""),
     ("Elbit Systems Land", "elbit-systems", "subsidiary", ""),
+    ("Elbit Systems Land and C4I", "elbit-systems", "subsidiary",
+     "the merged land-and-C4I company; 'c4i' is a business line, so containment "
+     "will not reach it from 'Elbit Systems Land' and it needs its own row"),
     ("Israel Aerospace Industries", "israel-aerospace-industries", "self", ""),
     ("Rafael Advanced Defense Systems", "rafael-advanced-defense-systems", "self", ""),
     ("UVision Air", "uvision-air", "self", ""),
@@ -232,6 +291,9 @@ ART = [
      "returned by PA:(Hanwha)"),
     ("주식회사 한화", "hanwha-aerospace", "transliteration", "returned by PA:(Hanwha)"),
     ("한화시스템 주식회사", "hanwha-aerospace", "transliteration", "Hanwha Systems"),
+    ("한화디펜스 주식회사", "hanwha-aerospace", "transliteration",
+     "returned by PA:(Hanwha Techwin) -- Hanwha Defense, merged in 2022; the Latin "
+     "'Hanwha Defense' is already an entry above and shares no token with this"),
 
     ("Kalashnikov Concern", "kalashnikov", "self", ""),
     ("Концерн Калашников", "kalashnikov", "transliteration", "the Cyrillic form"),
@@ -247,40 +309,78 @@ ART = [
 # Poongsan, Supacat, Roshel, Kongsberg, Anduril. These match EXACTLY, and every
 # subsidiary of them is an explicit row above. This is the whole-name rule that the
 # spec grounder needed three attempts to get right, applied to attribution.
+# AN ALIAS IS REGISTERED IN BOTH FOLDED FORMS, NOT ONLY THE STRIPPED ONE.
+#
+# fold() was applied to the alias as well as to the applicant, so "Diehl Defence" --
+# an alias written out precisely because the brand alone is too weak -- was stored as
+# the one-token "diehl", "BAE Systems" as "bae", "Israel Weapon Industries" as
+# "israel weapon". A one-token alias then falls under the strict rule below that every
+# leftover be GEOGRAPHIC, and "defence" is a business word, not a place. The alias the
+# author wrote was silently replaced by a weaker one and then refused for being weak.
+#
+# Both forms are kept: the stripped one so "Hanwha Corporation" still answers a bare
+# "HANWHA", the unstripped one so "Diehl Defence" is still available as itself.
 _BY_FOLD = {}
 for _alias, _cid, _kind, _why in ART:
-    _BY_FOLD.setdefault(fold(_alias), (_cid, _alias, _kind))
+    for _strip in (True, False):
+        _f = fold(_alias, _strip)
+        if _f:
+            _BY_FOLD.setdefault(_f, (_cid, _alias, _kind))
+# Longest alias first, so "Iveco Defence Vehicles" is tried before "Iveco" and
+# "Elbit Systems Land and C4I" before "Elbit Systems". Dict order is insertion order,
+# which put the answer at the mercy of the order rows happen to appear in ART.
+_ALIAS_SEQ = sorted(((af.split(), v) for af, v in _BY_FOLD.items()),
+                    key=lambda kv: -len(kv[0]))
+
+
+def _noise(tok, truncated_tail=False):
+    """Is this leftover token noise -- a legal form, a place, or an initial?
+
+    A single character is an initialism fragment, never a business line: "L.P.",
+    "(I.W.I.)" and "A.S." fold to l/p, i/w/i and a/s, and each of those refused a
+    company its own registry names as itself.
+    """
+    if tok in _GEO or tok in _SUFFIX:
+        return True
+    if len(tok) == 1:
+        return True
+    if truncated_tail and len(tok) >= 3:
+        return any(w.startswith(tok) for w in _NOISE_WORDS)
+    return False
 
 
 def resolve(applicant):
     """-> (comp_id, matched_alias) or (None, None). Allow-list only, no guessing."""
-    f = fold(applicant)
-    if not f:
+    raw = (applicant or "").strip()
+    ftoks = _key(raw)
+    if not ftoks:
         return None, None
-    hit = _BY_FOLD.get(f)
+    hit = _BY_FOLD.get(" ".join(ftoks))
     if hit:
         return hit[0], hit[1]
     # Containment is permitted only for a multi-token alias, only on whole word
     # boundaries, and only when what is left over is legal-form or geographic noise.
-    # "General Dynamics Ordnance and Tactical Systems" leaves "ordnance and tactical",
+    # "General Dynamics Ordnance and Tactical Systems" leaves "ordnance tactical",
     # which is a business line, not noise -- so it needs the explicit row it has.
-    ftoks = f.split()
-    for af, (cid, alias, _k) in _BY_FOLD.items():
-        atoks = af.split()
+    truncated = len(raw) >= _TRUNC
+    last = len(ftoks) - 1
+    for atoks, (cid, alias, _k) in _ALIAS_SEQ:
         # A one-token brand may carry a COUNTRY and nothing else: "Nammo Germany GmbH"
         # is Nammo's German arm, and refusing it lost a real record to the proposal
         # file. The remainder test below still does the work -- "Elbit Imaging" leaves
         # "imaging", "Adani Green Energy" leaves "green energy", and neither is a place,
         # so both stay refused. A brand plus a place is the same brand; a brand plus a
         # business line is a different company until someone says otherwise.
-        if len(atoks) == 1 and not all(t in _GEO for t in ftoks if t not in atoks):
+        if len(atoks) == 1 and not all(
+                t in _GEO or len(t) == 1 for t in ftoks if t not in atoks):
             continue
         if len(atoks) > len(ftoks):
             continue
         for i in range(len(ftoks) - len(atoks) + 1):
             if ftoks[i:i + len(atoks)] == atoks:
-                rest = ftoks[:i] + ftoks[i + len(atoks):]
-                if all(t in _GEO or t in _SUFFIX for t in rest):
+                rest = [(j, t) for j, t in enumerate(ftoks)
+                        if not i <= j < i + len(atoks)]
+                if all(_noise(t, truncated and j == last) for j, t in rest):
                     return cid, alias
     return None, None
 
@@ -293,7 +393,16 @@ _GEO = {
     "norge", "finland", "suomi", "poland", "polska", "turkiye", "turkey", "russia",
     "canada", "australia", "south", "north", "africa", "europe", "european",
     "international", "global", "worldwide", "of", "the", "and", "for",
+    # Saab files from both: "SAAB BOFORS DYNAMICS SWITZERLAND LTD" and
+    # "SAAB CZECH S.R.O." are Saab's Swiss and Czech arms and were refused because
+    # the list of places did not name their places.
+    "switzerland", "swiss", "czech", "czechia", "suisse", "schweiz",
 }
+
+# Words a truncated tail is allowed to be a prefix of. Places and legal forms only --
+# never a brand or a business line, so a cut-off string can lose its suffix but can
+# never acquire an owner.
+_NOISE_WORDS = _GEO | _SUFFIX
 
 
 # --------------------------------------------------------------------------
@@ -423,10 +532,58 @@ CTR_RX = re.compile(r'ctr-pubdate">\s*<span[^>]*>([A-Z]{2})</span>.*?'
 APP_RX = re.compile(r'Applicant\s*</span>\s*<span[^>]*>(.*?)</span>\s*</span>', re.S)
 IPCLINK_RX = re.compile(r'symbol=([A-H]\d{2}[A-Z]\d{6,})')
 TAG_RX = re.compile(r"<[^>]+>")
+# The record's stable id, in the href of the number the parser already reads:
+#   <a href="detail.jsf;jsessionid=...?docId=PH290880599&amp;_cid=...">
+# It is the only durable handle PATENTSCOPE prints. Without it the module could
+# neither link to a record nor ask the registry anything further about one.
+DOCID_RX = re.compile(r'href="(detail\.jsf[^"]*?docId=([A-Za-z0-9_]+)[^"]*)"')
+ABSTRACT_RX = re.compile(r'ps-patent-result--abstract"[^>]*>(.*?)</div>', re.S)
+# HOW MANY THERE ACTUALLY ARE. PATENTSCOPE prints the true total on the page and the
+# harvest never read it, so ten rows per query looked like the whole answer:
+# PA:(Poongsan) AND IC:(F42B) says "60 results" and returned 10.
+TOTAL_RX = re.compile(r'results-count">\s*([\d,  ]+?)\s*results?\s*<', re.I)
+PAGENO_RX = re.compile(r'pageNumber">(\d+)</span>')
+VIEWSTATE_RX = re.compile(r'name="javax\.faces\.ViewState"[^>]*value="([^"]+)"')
+# The paginator's next link is an <a> while it is live and a <span> once it is
+# disabled on the last page, so requiring the <a> is also the stop condition.
+NEXTLINK_RX = re.compile(r'<a id="([A-Za-z0-9_:]+)"[^>]*js-paginator-next')
+# detail.jsf's bibliographic block. Labelled fields, one label span then one value
+# span, which is where Application Date, Publication Kind, Grant Number and Grant
+# Date live -- none of which the result row prints.
+BIBLIO_RX = re.compile(
+    r'ps-biblio-field--label"><span[^>]*>([^<]+)</span>\s*</span>\s*'
+    r'<span class="ps-field--value ps-biblio-field--value">([^<]*)<', re.S)
+# The detail page answers a cold request with a shell that reloads itself. That is
+# not the record, and storing what it parses out of one would be storing nothing.
+SHELL_RX = re.compile(r"setTimeout\(function\(\)\{location\.reload\(\);\}")
 
 
 def _text(s):
     return re.sub(r"\s+", " ", TAG_RX.sub(" ", s or "")).strip()
+
+
+def ipc_symbol(sym):
+    """WIPO's fixed-width symbol -> the printed form. F42B0033020700 -> F42B 33/0207.
+
+    The subgroup is SIX digits, not two. Reading sym[8:10] turned F42B 1/032 into
+    F42B 1/03 -- a real subgroup, a different one, and one the area rules could
+    therefore read as something the record is not.
+    """
+    sub = sym[8:14].rstrip("0")
+    if not sub:
+        sub = "00"
+    elif len(sub) < 2:
+        sub += "0"
+    return "%s %d/%s" % (sym[:4], int(sym[4:8]), sub)
+
+
+def parse_total(html):
+    """-> the registry's own count of matching records, or None if it did not print one."""
+    m = TOTAL_RX.search(html or "")
+    if not m:
+        return None
+    digits = re.sub(r"[^\d]", "", m.group(1))
+    return int(digits) if digits else None
 
 
 def parse_results(html):
@@ -437,10 +594,11 @@ def parse_results(html):
         app = APP_RX.search(blob)
         ctr = CTR_RX.search(blob)
         ttl = TITLE_RX.search(blob)
+        did = DOCID_RX.search(blob)
+        abst = ABSTRACT_RX.search(blob)
         codes = [ipc_attr] if ipc_attr else []
         for sym in IPCLINK_RX.findall(blob):
-            # F42B0005000000 -> F42B 5/00
-            codes.append("%s %d/%02d" % (sym[:4], int(sym[4:8]), int(sym[8:10])))
+            codes.append(ipc_symbol(sym))
         out.append({
             "no": _text(num.group(1)) if num else "",
             "title": _text(ttl.group(1)) if ttl else "",
@@ -448,21 +606,158 @@ def parse_results(html):
             "country": ctr.group(1) if ctr else "",
             "pub_date": ctr.group(2) if ctr else "",
             "ipc": sorted(set(c for c in codes if ipc_parts(c)[0])),
+            "doc_id": did.group(2) if did else "",
+            "detail_href": did.group(1).replace("&amp;", "&") if did else "",
+            # The abstract was on the result row all along and was thrown away:
+            # all 1,157 stored rows carry abstract=None.
+            "abstract": _text(abst.group(1)) if abst else "",
         })
     return out
 
 
-def fetch(query, timeout=60):
+def parse_detail(html):
+    """-> {label: value} from detail.jsf, or {} if this is the reload shell.
+
+    An empty dict means NOT MEASURED. It must never become "filed" or a zero.
+    """
+    if not html or SHELL_RX.search(html):
+        return {}
+    out = {}
+    for lab, val in BIBLIO_RX.findall(html):
+        out.setdefault(_text(lab), _text(val))
+    return out
+
+
+class Session(object):
+    """A cookie session. PATENTSCOPE is stateful and a stateless GET gets nothing.
+
+    result.jsf answers a cold GET, but detail.jsf answers it with a reload shell and
+    the paginator is a JSF postback against a ViewState that only exists inside a
+    session. Both were unreachable through urlopen(), which is why grant status was
+    "one request away" and never made.
+    """
+
+    def __init__(self, timeout=60, pause=3.0):
+        self.cj = http.cookiejar.CookieJar()
+        self.op = urllib.request.build_opener(
+            urllib.request.HTTPCookieProcessor(self.cj))
+        self.timeout = timeout
+        self.pause = pause
+        self.requests = 0
+
+    def get(self, url, referer=None):
+        hdrs = dict(UA)
+        if referer:
+            hdrs["Referer"] = referer
+        req = urllib.request.Request(url, headers=hdrs)
+        self.requests += 1
+        with self.op.open(req, timeout=self.timeout) as r:
+            return r.geturl(), r.read().decode("utf-8", "replace")
+
+    def post_ajax(self, url, source, viewstate, form="resultListForm", referer=None):
+        data = [("javax.faces.partial.ajax", "true"),
+                ("javax.faces.source", source),
+                ("javax.faces.partial.execute", source),
+                ("javax.faces.partial.render", "results-container"),
+                (source, source), (form, form),
+                ("javax.faces.ViewState", viewstate)]
+        hdrs = dict(UA)
+        hdrs["Content-Type"] = "application/x-www-form-urlencoded; charset=UTF-8"
+        hdrs["Faces-Request"] = "partial/ajax"
+        hdrs["X-Requested-With"] = "XMLHttpRequest"
+        hdrs["Referer"] = referer or url
+        req = urllib.request.Request(
+            url, data=urllib.parse.urlencode(data).encode(), headers=hdrs,
+            method="POST")
+        self.requests += 1
+        with self.op.open(req, timeout=self.timeout) as r:
+            return r.read().decode("utf-8", "replace")
+
+
+def fetch(query, timeout=60, session=None):
+    """One result page. Kept for callers that only want the first ten rows."""
     url = BASE + urllib.parse.quote(query, safe="")
+    if session is not None:
+        return session.get(url)[1]
     req = urllib.request.Request(url, headers=UA)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read().decode("utf-8", "replace")
 
 
-# One query per (company, classification block). Ten rows come back per query without
-# paging, so this spreads the harvest across the areas instead of taking the first ten
-# of one huge result set -- which on Rheinmetall would be ten fuze patents and nothing
-# else.
+def fetch_pages(query, session, max_pages=1, pause=3.0, log=None):
+    """-> (rows, total, pages_read). Follows the paginator when asked to.
+
+    PAGING IS OFF BY DEFAULT (max_pages=1) because it changes harvest volume by a
+    large multiple -- PA:(Poongsan) AND IC:(F42B) is 60 records where the harvest
+    stored 10 -- and that is an operator's decision, not a silent one. What is NOT
+    optional is reporting `total`, so a truncated query is visible either way.
+    """
+    url = BASE + urllib.parse.quote(query, safe="")
+    cur, html = session.get(url)
+    total = parse_total(html)
+    rows, seen_ids, pages = [], set(), 0
+    while True:
+        pages += 1
+        for r in parse_results(html):
+            key = r.get("doc_id") or r.get("no")
+            if key in seen_ids:
+                continue
+            seen_ids.add(key)
+            r["result_url"] = cur
+            rows.append(r)
+        if pages >= max_pages:
+            break
+        vs = VIEWSTATE_RX.search(html)
+        nxt = NEXTLINK_RX.search(html)
+        if not (vs and nxt):
+            break                       # last page: the next link is a disabled span
+        time.sleep(pause)
+        try:
+            reply = session.post_ajax(cur, nxt.group(1), vs.group(1), referer=cur)
+        except Exception as e:
+            if log:
+                log("      ! paging stopped at page %d: %s" % (pages, str(e)[:50]))
+            break
+        red = re.search(r'<redirect url="([^"]+)"', reply)
+        if red:
+            # The first postback of a session syncs the view and answers with a
+            # redirect rather than the rows; the rows are on the URL it names.
+            time.sleep(pause)
+            cur, html = session.get(
+                "https://patentscope.wipo.int" + red.group(1).replace("&amp;", "&"),
+                referer=cur)
+        else:
+            html = reply                # later postbacks answer with the rows inline
+        if not parse_results(html):
+            break
+    return rows, total, pages
+
+
+def fetch_detail(row, session, pause=3.0):
+    """-> (fields, error). Fields come from detail.jsf; {} means not measured.
+
+    The link is followed EXACTLY as the result row printed it -- jsessionid, _cid and
+    a Referer -- because detail.jsf served a bare docId= a reload shell and then, on
+    the retry, a captcha. This is also why the fetch is per-record and paced.
+    """
+    href = row.get("detail_href")
+    if not href:
+        return {}, "no detail link on the result row"
+    url = "https://patentscope.wipo.int/search/en/" + href
+    try:
+        _, html = session.get(url, referer=row.get("result_url"))
+    except Exception as e:
+        return {}, str(e)[:80]
+    fields = parse_detail(html)
+    if not fields:
+        return {}, "registry served no bibliographic block (shell or challenge)"
+    return fields, None
+
+
+# One query per (company, classification block). This spreads the harvest across the
+# areas instead of taking the first page of one huge result set -- which on
+# Rheinmetall would be ten fuze patents and nothing else. It is a sampling strategy,
+# not a census: see fetch_pages and the `truncated` tally that harvest() reports.
 BLOCKS = ["F41A", "F41C", "F41F", "F41G", "F41H", "F42B", "F42C", "C06B", "B64U"]
 
 
@@ -472,19 +767,39 @@ def iso(d):
     return "%s-%s-%s" % (m.group(3), m.group(2), m.group(1)) if m else None
 
 
-def harvest(companies, pause=3.0, log=print):
+def harvest(companies, pause=3.0, log=print, max_pages=1, session=None,
+            detail=True):
+    """-> (rows, unresolved, stats).
+
+    stats carries what the run cannot honestly leave unsaid: how many queries were
+    issued, how many FAILED, and how many were truncated by the page limit. A run
+    whose every query errored used to be indistinguishable from a run that found
+    nothing, and the caller then deleted the tab with it.
+    """
+    sess = session or Session(pause=pause)
     seen, rows, unresolved = set(), [], {}
+    stats = {"queries": 0, "ok": 0, "failed": 0, "truncated": 0,
+             "seen_total": 0, "read": 0, "detail_ok": 0, "detail_missing": 0,
+             "detail_stopped": False}
     for alias, cid in companies:
         for blk in BLOCKS:
             q = "PA:(%s) AND IC:(%s)" % (alias, blk)
+            stats["queries"] += 1
             try:
-                html = fetch(q)
+                got, total, pages = fetch_pages(q, sess, max_pages=max_pages,
+                                                pause=pause, log=log)
             except Exception as e:
+                stats["failed"] += 1
                 log("   ! %-34s %-6s %s" % (alias[:33], blk, str(e)[:44]))
                 time.sleep(pause * 2)
                 continue
-            got = parse_results(html)
-            kept = 0
+            stats["ok"] += 1
+            stats["read"] += len(got)
+            if total is not None:
+                stats["seen_total"] += total
+                if total > len(got):
+                    stats["truncated"] += 1
+            kept, fresh = 0, []
             for r in got:
                 who, matched = resolve(r["applicant"])
                 if not who:
@@ -496,11 +811,65 @@ def harvest(companies, pause=3.0, log=print):
                 if r["no"] in seen:
                     continue
                 seen.add(r["no"])
-                rows.append(dict(r, comp_id=who, matched_alias=matched, query=q))
+                row = dict(r, comp_id=who, matched_alias=matched, query=q)
+                rows.append(row)
+                fresh.append(row)
                 kept += 1
-            log("   %-34s %-6s %2d rows, %2d attributed" % (alias[:33], blk, len(got), kept))
+            log("   %-34s %-6s %2d of %-5s rows (%d pg), %2d attributed"
+                % (alias[:33], blk, len(got),
+                   "?" if total is None else total, pages, kept))
+            # ENRICH NOW, WHILE THIS RESULT PAGE IS STILL THE SESSION'S CURRENT VIEW.
+            # The detail link the row printed carries a jsessionid and a per-page
+            # conversation id (_cid); following it after eighty more queries is
+            # following a link into a conversation the server has moved on from.
+            #
+            # The cost is that a detail fetch moves the session off the result view,
+            # so with --pages > 1 a later query may find no paginator and read one
+            # page. That degrades to reading LESS, never to reading wrong, and it is
+            # visible: the log prints "N of TOTAL rows (P pg)" and stats["truncated"]
+            # counts it. If a full census is what is wanted, run --no-detail with
+            # --pages, then a second pass for status.
+            if detail and not stats["detail_stopped"]:
+                enrich(fresh, sess, pause=pause, log=log, stats=stats)
             time.sleep(pause)
-    return rows, unresolved
+    return rows, unresolved, stats
+
+
+# If the registry starts refusing detail pages -- it answers a cold or impatient
+# request with a reload shell and then a picture captcha -- stop asking. Every
+# remaining record then stores status='unknown', which is true, instead of spending
+# thousands of requests to learn nothing.
+DETAIL_GIVE_UP = 8
+
+
+def enrich(rows, session, pause=3.0, log=print, stats=None):
+    """Ask the registry what the result row does not print: is it GRANTED, and when
+    was it actually FILED.
+
+    Only rows that will survive the classification gate are asked about, so the extra
+    requests are bounded by what the run would store, not by what it read.
+    """
+    want = [r for r in rows if relevant(r.get("ipc") or [])[0]]
+    run = 0
+    for r in want:
+        fields, err = fetch_detail(r, session, pause=pause)
+        r["detail"] = fields or None
+        r["detail_error"] = err
+        if stats is not None:
+            stats["detail_ok" if fields else "detail_missing"] += 1
+        if fields:
+            run = 0
+        else:
+            run += 1
+            log("      ! detail %-14s %s" % ((r.get("doc_id") or "")[:14], err[:56]))
+            if run >= DETAIL_GIVE_UP and stats is not None:
+                stats["detail_stopped"] = True
+                log("      ! %d detail requests failed in a row: no longer asking. "
+                    "The rest of this run stores status=%r."
+                    % (run, ST_UNKNOWN))
+                break
+        time.sleep(pause)
+    return rows
 
 
 # --------------------------------------------------------------------------
@@ -511,6 +880,46 @@ def harvest(companies, pause=3.0, log=print):
 # archived 26 rows carried (22 of them, "IN-2024-EST01 (est)"), and it is the one
 # thing that must never render as a patent record.
 NUMBER_RX = re.compile(r"^(?:[A-Z]{2})?[\d][\dA-Z/\-.]{3,24}$")
+
+# THREE STATES, NOT TWO.
+#
+# Every one of the 1,157 stored rows says status="filed", granted=None, because the
+# gate wrote those two constants for every record it ever saw. That is not a
+# measurement, it is a default -- and it is wrong: of three records sampled from the
+# registry, all three were GRANTED (US 20180364015 -> grant 10254091, kind B2,
+# 09.04.2019). "granted = 0 patents" was an artefact of never asking.
+#
+# So a record is GRANTED when detail.jsf named a grant, FILED when detail.jsf was
+# read and named none, and UNKNOWN when detail.jsf was not read. Unknown is a real
+# answer and must render as one; it is not filed and it is not zero.
+ST_GRANTED, ST_FILED, ST_UNKNOWN = "granted", "filed", "unknown"
+DETAIL_URL = "https://patentscope.wipo.int/search/en/detail.jsf?docId=%s"
+
+
+def status_of(detail):
+    """-> (status, granted_date, grant_no, kind). detail is parse_detail's dict."""
+    if not detail:
+        return ST_UNKNOWN, None, None, None
+    gno = (detail.get("Grant Number") or "").strip() or None
+    gdate = iso(detail.get("Grant Date"))
+    kind = (detail.get("Publication Kind") or "").strip() or None
+    if gno or gdate:
+        return ST_GRANTED, gdate, gno, kind
+    return ST_FILED, None, None, kind
+
+
+def record_url(row):
+    """The registry record, not a full-text search for a number without a country.
+
+    result.jsf?query=FP:(2010239639) is a SEARCH for a bare number with no country
+    prefix and no kind code: of 14 stored links resolved live, 12 did not return the
+    record at all. detail.jsf?docId= is the record, and the docId was in the html the
+    parser already had in hand.
+    """
+    did = (row.get("doc_id") or "").strip()
+    if did:
+        return DETAIL_URL % urllib.parse.quote(did, safe="")
+    return None
 
 
 def gate(rows):
@@ -552,13 +961,28 @@ def gate(rows):
         if len(ctry) != 2:
             refuse("no jurisdiction", r)
             continue
+        # `d` IS THE PUBLICATION DATE AND WAS STORED AS THE FILING DATE.
+        #
+        # The result row prints one date and it is the publication date. It went into
+        # `filed`, which the UI renders as "Filed <date>", overstating the age of the
+        # invention by as much as two and a half years -- the Poongsan detonator was
+        # filed 05.10.2018 and published 09.03.2020. The two are now separate fields
+        # and `filed` is filled only by the registry's own "Application Date".
+        detail = r.get("detail") or {}
+        status, gdate, gno, kind = status_of(detail)
+        filed = iso(detail.get("Application Date"))
         kept.append({
             "no": no, "title": title, "assignee": r["applicant"],
-            "comp_id": r["comp_id"], "status": "filed", "filed": d, "granted": None,
-            "country": ctry, "ipc": r["ipc"], "abstract": None, "area": a,
+            "comp_id": r["comp_id"],
+            "status": status, "filed": filed, "granted": gdate,
+            "published": d, "grant_no": gno, "pub_kind": kind,
+            "doc_id": (r.get("doc_id") or "") or None,
+            "country": ctry, "ipc": r["ipc"],
+            "abstract": (r.get("abstract") or "").strip() or None, "area": a,
+            # threat is not measured here and stays null; relev records what the gate
+            # actually proved -- the record carries a core defence classification.
             "threat": None, "relev": "CORE",
-            "url": "https://patentscope.wipo.int/search/en/result.jsf?query="
-                   + urllib.parse.quote("FP:(%s)" % no, safe=""),
+            "url": record_url(r),
             "p": r.get("matched_alias"),
         })
 
@@ -577,8 +1001,13 @@ def gate(rows):
     # 2018 in the EPO and the USPTO and 2020 in the Philippines -- so bucketing by date
     # splits the family it is meant to join. The span is measured and reported instead,
     # so a title collision across a decade would be visible rather than assumed away.
-    # The keeper is the one whose number looks like a grant, else the earliest, and the
-    # count of collapsed publications is recorded on the row rather than discarded.
+    #
+    # THE KEEPER WAS ALWAYS THE WRONG ONE. The old test for a grant was a kind code on
+    # the publication number -- re.search("[AB]\\d?$", no) -- and no number the parser
+    # produces carries one: all 1,157 stored numbers have none, so the branch never
+    # fired and the keeper was always group[0], the EARLIEST publication, which is
+    # systematically the application rather than the grant. Grant status is now a
+    # measured field, so the keeper is the row the registry says is granted.
     fam, order = {}, []
     for r in kept:
         key = (r["comp_id"], fold(r["title"]))
@@ -588,10 +1017,10 @@ def gate(rows):
         fam[key].append(r)
     out = []
     for key in order:
-        group = sorted(fam[key], key=lambda x: x["filed"] or "")
+        group = sorted(fam[key], key=lambda x: x["published"] or "")
         keep = group[0]
         for g in group:
-            if re.search(r"[AB]\d?$", g["no"]):
+            if g["status"] == ST_GRANTED or re.search(r"[AB]\d?$", g["no"]):
                 keep = g
                 break
         kept_no = keep["no"]          # captured BEFORE the copy: dict(keep) is a new
@@ -642,11 +1071,33 @@ def merge_ledger(new):
     out = sorted(by.values(), key=lambda r: (r.get("comp_id") or "", r.get("no") or ""))
     if len(out) < len(old):
         raise SystemExit("refusing to shrink the ledger: %d -> %d" % (len(old), len(out)))
+    stale = sum(1 for r in out if "published" not in r)
+    if stale:
+        print("  WARNING: %d of %d ledger rows predate the grant-status fix. Their"
+              " `filed` is the PUBLICATION date and their status='filed' was never"
+              " measured. Run --repair-ledger, or re-harvest them, before --load."
+              % (stale, len(out)))
     json.dump(out, io.open(LEDGER, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     return out
 
 
+# Columns beyond the original seventeen. Each is written only if the database has it,
+# so this file runs against a schema that has had the migration and one that has not.
+OPTIONAL_COLS = ("comp_id", "published", "grant_no", "pub_kind", "doc_id")
+
+
 def write_db(rows):
+    # A TOTALLY FAILED RUN MUST NOT SPEAK FOR THE CORPUS.
+    #
+    # This function DELETEs the whole pipeline range before it inserts. write_db([])
+    # therefore deletes the entire Patents tab and inserts nothing -- and `kept` is []
+    # whenever every query errored, which is one network outage away. The caller's
+    # guard for this ran only when `kept` was non-empty, i.e. never in the case it was
+    # written for. The refusal belongs here, next to the DELETE.
+    if not rows:
+        raise SystemExit(
+            "refusing to write 0 rows: this would DELETE every pipeline patent and "
+            "insert nothing. An empty result is a failed run, not an empty registry.")
     import psycopg2
     conn = psycopg2.connect(DSN)
     cur = conn.cursor()
@@ -656,33 +1107,46 @@ def write_db(rows):
     if top >= PATENT_ORD0:
         raise SystemExit("reference rows reach ord=%d; this writer's range starts at %d"
                          % (top, PATENT_ORD0))
-    cur.execute("DELETE FROM serving.patent WHERE origin = 'pipeline' AND ord >= %s",
-                (PATENT_ORD0,))
     # THE ATTRIBUTION IS THE ANSWER; DO NOT MAKE THE DASHBOARD GUESS IT AGAIN.
     # Every row here reached this point by resolving its applicant of record against
     # the allow-list above -- Korean, Hebrew and German surfaces included. Dropping
     # comp_id left the frontend re-deriving it by matching Latin word tokens, which
-    # loses every Korean applicant and Krauss-Maffei Wegmann: 56 of 1,157.
-    cur.execute("SELECT column_name FROM information_schema.columns"
-                " WHERE table_schema='serving_live' AND table_name='patent'"
-                " AND column_name='comp_id'")
-    has_comp = cur.fetchone() is not None
-    if not has_comp:
-        print("  serving_live.patent has no comp_id; run"
-              " db/migrations/2026-09-06_patent_comp_id.sql to group patents by"
-              " competitor instead of by legal name")
-    cols = ("ord, assignee_ord, \"no\", title, assignee, status, filed, granted,"
-            " country, ipc, abstract, area, threat, relev, url, p, origin")
-    marks = "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pipeline'"
-    if has_comp:
-        cols += ", comp_id"
-        marks += ",%s"
+    # loses every Korean applicant and Krauss-Maffei Wegmann.
+    #
+    # THE PROBE READ THE WRONG RELATION. It asked information_schema about
+    # serving_live.patent -- the VIEW -- and then INSERTed into serving.patent, the
+    # TABLE. Run only the ALTER half of a migration and the column exists on the table
+    # while the probe says it does not, so every comp_id is silently dropped on the
+    # way in. What may be written is decided by the table; what the dashboard can read
+    # is decided by the view, and they are now reported separately.
+    cur.execute("SELECT table_schema, column_name FROM information_schema.columns"
+                " WHERE table_name = 'patent' AND table_schema IN"
+                " ('serving', 'serving_live') AND column_name = ANY(%s)",
+                (list(OPTIONAL_COLS),))
+    found = set(cur.fetchall())
+    have = [c for c in OPTIONAL_COLS if ("serving", c) in found]
+    missing = [c for c in OPTIONAL_COLS if c not in have]
+    if missing:
+        print("  serving.patent is missing %s; run db/migrations/"
+              "2026-09-06_patent_grant_status.sql (and _patent_comp_id.sql) or these"
+              " fields are dropped on the way in" % ", ".join(missing))
+    blind = [c for c in have if ("serving_live", c) not in found]
+    if blind:
+        print("  serving.patent HAS %s but the serving_live view does not expose it:"
+              " the value will be written and the dashboard will not see it. The view"
+              " enumerates its columns; CREATE OR REPLACE VIEW it." % ", ".join(blind))
+    cur.execute("DELETE FROM serving.patent WHERE origin = 'pipeline' AND ord >= %s",
+                (PATENT_ORD0,))
+    base = ["ord", "assignee_ord", '"no"', "title", "assignee", "status", "filed",
+            "granted", "country", "ipc", "abstract", "area", "threat", "relev",
+            "url", "p"]
+    cols = ", ".join(base + list(have) + ["origin"])
+    marks = ", ".join(["%s"] * (len(base) + len(have)) + ["'pipeline'"])
     for i, r in enumerate(rows):
         vals = [PATENT_ORD0 + i, i, r["no"], r["title"], r["assignee"], r["status"],
                 r["filed"], r["granted"], r["country"], json.dumps(r["ipc"]),
                 r["abstract"], r["area"], r["threat"], r["relev"], r["url"], r["p"]]
-        if has_comp:
-            vals.append(r.get("comp_id"))
+        vals += [r.get(c) for c in have]
         cur.execute("INSERT INTO serving.patent (%s) VALUES (%s)" % (cols, marks),
                     tuple(vals))
     conn.commit()
@@ -690,6 +1154,96 @@ def write_db(rows):
 
 
 # --------------------------------------------------------------------------
+# MARKUP THE REGISTRY REALLY SERVES.
+#
+# Both fixtures are cut from live PATENTSCOPE pages for PA:(Poongsan) AND IC:(F42B)
+# on 2026-09-06 -- the result list and the detail page for docId=PH290880599 -- with
+# the IPC tooltip tables and the unread middle of the row elided and nothing altered.
+# A parser test written against invented markup tests the invention.
+RESULT_ROW_FIXTURE = u'''\
+<span class="results-count">60 results</span>
+<td data-mt-ipc="F42B 5/00">
+<div class="ps-patent-result--first-row">
+<div class="ps-patent-result--title">
+<span class="notranslate ps-patent-result--title--record-number">1.</span>\
+<a href="detail.jsf;jsessionid=53BEAEEB3DBE20BDD5AE0F91EA55D0E9.wapp2nA?\
+docId=PH290880599&amp;_cid=P20-MTQ14K-26087-1" onclick="" target="_self">\
+<span class="notranslate ps-patent-result--title--patent-number">1/2018/000299\
+</span></a><span class="ps-patent-result--title--title content--text-wrap">\
+<span class="trans-section needTranslation-title" lang="en">\
+<span class="trans-control"></span>SYSTEM FOR ASSEMBLING DETONATOR OF PROJECTILE\
+</span></span>
+</div>
+<div class="ps-patent-result--title--ctr-pubdate"><span class="notranslate">PH</span>
+<span class="notranslate">-</span><span id="resultListForm:resultTable:0:\
+resultListTableColumnPubDate" class="notranslate">09.03.2020</span>
+</div>
+</div>
+<span class="ps-field--value ps-patent-result--ipc notranslate">\
+<a href="https://www.wipo.int/ipcpub/?symbol=F42B0005000000&amp;menulang=en&amp;\
+lang=en" target="_blank">F42B 5/00</a>\
+<a href="https://www.wipo.int/ipcpub/?symbol=F42B0033020700&amp;menulang=en&amp;\
+lang=en" target="_blank">F42B 33/0207</a></span>
+<span class="ps-field ps-field--is-layout--inline ">
+<span class="ps-field--label notranslate">
+Applicant
+</span>
+<span class="ps-field--value ps-patent-result--applicant notranslate">\
+POONGSAN CORPORATION
+</span>
+</span>
+<div id="resultListForm:resultTable:0:j_idt2422" class="ui-outputpanel ui-widget \
+ps-patent-result--abstract"><span class="trans-section needTranslation-biblio" \
+lang="en"><span class="trans-control"></span>The present invention relates to a \
+system for combining a detonator of a projectile.</span></div>
+'''
+
+DETAIL_FIXTURE = u'''\
+<div class="ps-field ps-biblio-field ">
+<span class="ps-field--label ps-biblio-field--label">\
+<span class="trans-nc-detail-label">Application Number</span>
+</span>
+<span class="ps-field--value ps-biblio-field--value">1/2018/000299
+</span>
+</div>
+<div class="ps-field ps-biblio-field ">
+<span class="ps-field--label ps-biblio-field--label">\
+<span class="trans-nc-detail-label">Application Date</span>
+</span>
+<span class="ps-field--value ps-biblio-field--value">05.10.2018
+</span>
+</div>
+<div class="ps-field ps-biblio-field ">
+<span class="ps-field--label ps-biblio-field--label">\
+<span class="trans-nc-detail-label">Publication Date</span>
+</span>
+<span class="ps-field--value ps-biblio-field--value">09.03.2020
+</span>
+</div>
+<div class="ps-field ps-biblio-field ">
+<span class="ps-field--label ps-biblio-field--label">\
+<span class="trans-nc-detail-label">Grant Number</span>
+</span>
+<span class="ps-field--value ps-biblio-field--value">1/2018/000299
+</span>
+</div>
+<div class="ps-field ps-biblio-field ">
+<span class="ps-field--label ps-biblio-field--label">\
+<span class="trans-nc-detail-label">Grant Date</span>
+</span>
+<span class="ps-field--value ps-biblio-field--value">28.04.2023
+</span>
+</div>
+<div class="ps-field ps-biblio-field ">
+<span class="ps-field--label ps-biblio-field--label">\
+<span class="trans-nc-detail-label">Publication Kind</span>
+</span>
+<span class="ps-field--value ps-biblio-field--value">B1
+</span>
+</div>
+'''
+
+
 def demo():
     """Hermetic self-check: the gates, on the failures they exist to stop."""
     f = 0
@@ -760,46 +1314,191 @@ def demo():
     ck("a class outside the vocabulary returns no area",
        area_of(["H04N 5/33"]) is None)
 
+    # THE FIXTURES ARE SHAPES THE PARSER PRODUCES.
+    #
+    # These rows used to carry "US9182199B2" -- a kind-coded number that no result row
+    # PATENTSCOPE serves ever contains: all 1,157 harvested numbers are bare. So the
+    # grant-preference branch below was being exercised on a shape that cannot occur,
+    # and the branch that actually ran in production (there is no kind code, so keep
+    # the earliest) was never tested at all. Every number here is copied from a real
+    # result page, and grant status now arrives where it really arrives: from detail.
     kept, ref = gate([
         {"comp_id": "nammo", "no": "IN-2024-EST01", "ipc": ["F42B 12/00"],
          "title": "Invented", "pub_date": "01.01.2024", "country": "IN",
-         "applicant": "Nammo"},
-        {"comp_id": None, "no": "US9182199B2", "ipc": ["F42B 12/00"],
-         "title": "Real but unowned", "pub_date": "10.11.2015", "country": "US",
-         "applicant": "Someone Else"},
-        {"comp_id": "nammo", "no": "US9182199B2", "ipc": ["F42B 12/20"],
-         "title": "Mine defeat system", "pub_date": "10.11.2015", "country": "US",
-         "applicant": "Nammo Talley, Inc.", "matched_alias": "Nammo Talley"},
+         "applicant": "Nammo", "doc_id": "IN000000001"},
+        {"comp_id": None, "no": "20180364015", "ipc": ["F42B 12/00"],
+         "title": "Real but unowned", "pub_date": "20.12.2018", "country": "US",
+         "applicant": "Someone Else", "doc_id": "US235210071"},
+        {"comp_id": "nammo", "no": "2010239639", "ipc": ["F42B 12/20"],
+         "title": "Mine defeat system", "pub_date": "08.09.2011", "country": "AU",
+         "applicant": "Nammo Talley, Inc.", "matched_alias": "Nammo Talley",
+         "doc_id": "AU215066611",
+         "detail": {"Application Date": "05.10.2010", "Publication Kind": "A1"}},
     ])
     ck("an invented identifier is refused", len(kept) == 1, sorted(ref))
     ck("an unattributable record is refused",
        "owner not on the roster" in ref)
     ck("the surviving row carries a real area",
        kept and kept[0]["area"] == A_SMALL)
-    ck("the surviving row's url points at the record, not a bare search",
-       kept and "US9182199B2" in urllib.parse.unquote(kept[0]["url"]))
+    ck("the surviving row's url is the RECORD, not a full-text search for a number",
+       kept and kept[0]["url"] == DETAIL_URL % "AU215066611", kept and kept[0]["url"])
+    ck("the publication date is stored as the publication date",
+       kept and kept[0]["published"] == "2011-09-08")
+    ck("`filed` is the registry's Application Date, not the publication date",
+       kept and kept[0]["filed"] == "2010-10-05", kept and kept[0]["filed"])
+    ck("a record the registry named no grant for is `filed`, and granted stays empty",
+       kept and kept[0]["status"] == ST_FILED and kept[0]["granted"] is None)
+
+    # THE HONEST UNKNOWN. A record whose detail page was never read has no filing date
+    # and no grant status, and must not be given the old defaults instead.
+    k3, _ = gate([
+        {"comp_id": "poongsan", "no": "1020180041275", "ipc": ["F42B 5/00"],
+         "title": "Unasked", "pub_date": "17.04.2018", "country": "KR",
+         "applicant": "POONGSAN CORPORATION", "doc_id": "KR217798612"}])
+    ck("a record never asked about is `unknown`, never `filed`",
+       k3 and k3[0]["status"] == ST_UNKNOWN, k3 and k3[0]["status"])
+    ck("and it carries NO filing date rather than a borrowed one",
+       k3 and k3[0]["filed"] is None and k3[0]["published"] == "2018-04-17")
+    ck("status_of distinguishes granted, filed and unknown",
+       status_of({"Grant Number": "10254091", "Grant Date": "09.04.2019",
+                  "Publication Kind": "B2"})[0] == ST_GRANTED and
+       status_of({"Publication Kind": "A1"})[0] == ST_FILED and
+       status_of({})[0] == ST_UNKNOWN)
+    ck("a granted record carries the grant DATE, not a bare flag",
+       status_of({"Grant Number": "10254091",
+                  "Grant Date": "09.04.2019"})[1] == "2019-04-09")
 
     ck("a cross-script applicant the registry itself returned resolves",
        resolve("주식회사 풍산")[0] == "poongsan")
     ck("an unlisted non-Latin applicant is still dropped",
        resolve("주식회사 삼성전자")[0] is None)
 
+    # ATTRIBUTION: the exact applicant strings PATENTSCOPE returned and the harvest
+    # dropped. Each one is a line of pipeline/fetch_patents_unresolved.json.
+    ck("an alias is not itself stripped down to a weaker alias",
+       resolve("DIEHL DEFENCE GMBH & CO KG")[0] == "rheinmetall",
+       resolve("DIEHL DEFENCE GMBH & CO KG"))
+    ck("'&' does not break the alias into two non-adjacent halves",
+       resolve("BAE Systems Land & Armaments L.P.")[0] == "bae-systems")
+    ck("an initialism leftover is noise, not a business line",
+       resolve("ISRAEL WEAPON INDUSTRIES (I.W.I.) LTD.")[0] == "iwi")
+    ck("a 30-character truncated applicant still resolves",
+       resolve("KRAUSS MAFFEI WEGMANN GMBH & C")[0] == "knds" and
+       resolve("SAAB BOFORS DYNAMICS SWITZERLA")[0] == "saab")
+    ck("but truncation does not become a licence to guess",
+       resolve("KRAUSS MAFFEI WEGMANN GMBH & CATERPILLAR")[0] is None and
+       resolve("HUTA STALOWA WOLA SPOLKA AKCYJNA")[0] is None)
+    ck("a spelled-out legal form is still a legal form",
+       resolve("SAAB DYNAMICS AKTIEBOLAG")[0] == "saab")
+    ck("a business line is still not the parent",
+       resolve("General Dynamics , Pomona Division")[0] is None and
+       resolve("ELBIT SYSTEMS C4I AND CYBER LTD.")[0] is None)
+    ck("a state institute is not the group it is named after",
+       resolve("NO.213 INSTITUTE OF CHINA NORTH INDUSTRIES GROUP CORPORATION")[0]
+       is None)
+
+    # PARSING, on markup lifted from a live result page and a live detail page.
+    got = parse_results(RESULT_ROW_FIXTURE)
+    ck("the parser reads one row out of a result page", len(got) == 1, len(got))
+    ck("and takes the docId the row has always carried",
+       got and got[0]["doc_id"] == "PH290880599", got and got[0].get("doc_id"))
+    ck("and the abstract it used to throw away",
+       got and got[0]["abstract"].startswith("The present invention relates"),
+       got and (got[0]["abstract"] or "")[:30])
+    ck("and the number, applicant, jurisdiction and date",
+       got and got[0]["no"] == "1/2018/000299" and got[0]["country"] == "PH"
+       and got[0]["pub_date"] == "09.03.2020"
+       and got[0]["applicant"] == "POONGSAN CORPORATION", got and got[0])
+    ck("the registry's own result total is read, so truncation is visible",
+       parse_total(RESULT_ROW_FIXTURE) == 60, parse_total(RESULT_ROW_FIXTURE))
+    ck("a six-digit IPC subgroup is not cut down to a different real subgroup",
+       ipc_symbol("F42B0001032000") == "F42B 1/032" and
+       ipc_symbol("F42B0033020700") == "F42B 33/0207" and
+       ipc_symbol("F42B0005000000") == "F42B 5/00" and
+       ipc_symbol("F41A0009100000") == "F41A 9/10", ipc_symbol("F42B0001032000"))
+
+    d = parse_detail(DETAIL_FIXTURE)
+    ck("the detail page yields the four fields the result row never prints",
+       d.get("Application Date") == "05.10.2018" and
+       d.get("Grant Number") == "1/2018/000299" and
+       d.get("Grant Date") == "28.04.2023" and
+       d.get("Publication Kind") == "B1", d)
+    ck("the reload shell is not mistaken for a record",
+       parse_detail("<html><script>setTimeout(function(){location.reload();}, 0);"
+                    "</script></html>") == {})
+    ck("and an empty detail is `unknown`, which is the point of having the state",
+       status_of(parse_detail(""))[0] == ST_UNKNOWN)
+
     many = [{"comp_id": "poongsan", "no": n, "ipc": ["F42B 5/00"],
              "title": "System for assembling detonator of projectile",
-             "pub_date": d, "country": c, "applicant": "POONGSAN CORPORATION"}
-            for n, d, c in [("1/2018/000299", "09.03.2020", "PH"),
-                            ("12018000299", "09.03.2020", "PH"),
-                            ("3312545B1", "25.04.2018", "EP"),
-                            ("20180364015", "20.12.2018", "US")]]
+             "pub_date": d, "country": c, "applicant": "POONGSAN CORPORATION",
+             "doc_id": "X" + n.replace("/", ""), "detail": det}
+            for n, d, c, det in [
+                ("1/2018/000299", "09.03.2020", "PH", None),
+                ("12018000299", "09.03.2020", "PH", None),
+                ("3312545", "25.04.2018", "EP", None),
+                ("20180364015", "20.12.2018", "US",
+                 {"Grant Number": "10254091", "Grant Date": "09.04.2019",
+                  "Publication Kind": "B2", "Application Date": "21.08.2018"})]]
     k2, r2 = gate(many)
     ck("one invention published in four offices stores once", len(k2) == 1, len(k2))
     ck("the collapsed publications are counted, not silently dropped",
        "same invention, another office" in r2 and len(r2["same invention, another office"]) == 3)
     ck("the surviving row says how many publications it stands for",
        k2 and "1 of 4 publications" in (k2[0]["p"] or ""), k2 and k2[0]["p"])
+    ck("the keeper is the GRANT, not the earliest publication",
+       k2 and k2[0]["no"] == "20180364015" and k2[0]["status"] == ST_GRANTED,
+       k2 and (k2[0]["no"], k2[0]["status"]))
+
+    # A LEDGER WRITTEN BEFORE ANY OF THIS MUST STOP ASSERTING WHAT IT NEVER MEASURED.
+    old = [{"no": "2010239639", "filed": "2011-09-08", "status": "filed",
+            "granted": None, "url": "https://patentscope.wipo.int/search/en/"
+                                    "result.jsf?query=FP%3A%282010239639%29"}]
+    fixed, changed = repair_ledger(old)
+    ck("an old row's publication date moves to `published` and is not lost",
+       changed == 1 and fixed[0]["published"] == "2011-09-08")
+    ck("its unmeasured `filed` and `status` become empty and unknown",
+       fixed[0]["filed"] is None and fixed[0]["status"] == ST_UNKNOWN)
+    ck("its FP:() search link, which mostly does not resolve, is dropped",
+       fixed[0]["url"] is None)
+    ck("repairing an already-repaired ledger changes nothing",
+       repair_ledger(fixed)[1] == 0)
 
     print("\n%s" % ("all checks passed" if not f else "%d FAILED" % f))
     return 1 if f else 0
+
+
+def repair_ledger(rows):
+    """-> (rows, changed). Undo the two false constants on rows harvested before the
+    registry was ever asked about them.
+
+    Every row in a ledger written by the old gate says filed=<the PUBLICATION date>
+    and status="filed", and neither was measured. The publication date is not lost --
+    it moves to `published`, where it was always true -- and `filed` and `status`
+    become empty and "unknown", which is what they actually are. The url is dropped
+    where it is the old FP:(number) full-text search, because that link mostly does
+    not resolve to the record and there is no docId on an old row to replace it with.
+
+    This does not invent anything and does not guess. It is the only way a row
+    harvested before the fix can stop asserting something the registry never said.
+    """
+    changed = 0
+    out = []
+    for r in rows:
+        r = dict(r)
+        if "published" not in r:
+            r["published"] = r.get("filed")
+            r["filed"] = None
+            r["status"] = ST_UNKNOWN
+            r["granted"] = None
+            r.setdefault("grant_no", None)
+            r.setdefault("pub_kind", None)
+            r.setdefault("doc_id", None)
+            if "result.jsf?query=FP" in (r.get("url") or ""):
+                r["url"] = None
+            changed += 1
+        out.append(r)
+    return out, changed
 
 
 def main():
@@ -814,11 +1513,49 @@ def main():
     ap.add_argument("--load", action="store_true",
                     help="write the existing ledger to serving.patent, no network")
     ap.add_argument("--pause", type=float, default=3.0)
+    # PAGING CHANGES HARVEST VOLUME BY A LARGE MULTIPLE, so it is opt-in and capped.
+    # One query, PA:(Poongsan) AND IC:(F42B), is 60 records against the 10 a single
+    # page returns; the whole grid is 82 names x 9 blocks.
+    ap.add_argument("--pages", type=int, default=1,
+                    help="result pages per query (default 1 = the old behaviour; "
+                         "the registry's own total is reported either way)")
+    ap.add_argument("--no-detail", dest="detail", action="store_false",
+                    help="skip detail.jsf; every record then stores status=unknown "
+                         "with no filing date, which is honest but much less useful")
+    ap.add_argument("--repair-ledger", action="store_true",
+                    help="report what repair_ledger() would change in the ledger")
+    ap.add_argument("--write", action="store_true",
+                    help="with --repair-ledger, actually rewrite the ledger file")
     a = ap.parse_args()
     if a.demo:
         return demo()
+    if a.repair_ledger:
+        rows = json.load(io.open(LEDGER, encoding="utf-8"))
+        fixed, changed = repair_ledger(rows)
+        print("%d of %d ledger rows were written by the old gate" % (changed, len(rows)))
+        print("  filed  -> published, and filed becomes empty (it was never measured)")
+        print("  status -> %r (it was the constant %r)" % (ST_UNKNOWN, ST_FILED))
+        print("  url    -> empty where it is the FP:() search that does not resolve")
+        if not a.write:
+            print("\nnothing written. Re-run with --repair-ledger --write to apply.")
+            print("NOTE: after applying, --load will publish empty Filed dates and")
+            print("status='unknown' for every un-re-harvested row. The frontend must")
+            print("be able to render that before this reaches the tab.")
+            return 0
+        json.dump(fixed, io.open(LEDGER, "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=1)
+        print("\nrewrote %s" % LEDGER.name)
+        return 0
     if a.load:
         rows = json.load(io.open(LEDGER, encoding="utf-8"))
+        if not rows:
+            raise SystemExit("the ledger is empty; refusing to publish it")
+        stale = sum(1 for r in rows if "published" not in r)
+        if stale:
+            print("  WARNING: %d of %d rows predate the grant-status fix: their"
+                  " `filed` is the publication date and their status='filed' was a"
+                  " constant, not a measurement. --repair-ledger reports the fix."
+                  % (stale, len(rows)))
         # THE ALLOW-LIST IS APPLIED AGAIN ON THE WAY OUT, not only on the way in.
         # A row harvested under an ART entry that has since been found wrong is still
         # in the ledger -- the union merge has no way to know it is now inadmissible.
@@ -838,10 +1575,36 @@ def main():
     companies = [(alias, cid) for alias, cid, kind, _ in ART
                  if kind in ("self", "subsidiary", "former_name", "legal_variant", "jv")
                  and (not want or cid in want)]
-    print("querying %d applicant names x %d classification blocks"
-          % (len(companies), len(BLOCKS)))
-    rows, unresolved = harvest(companies, pause=a.pause)
+    print("querying %d applicant names x %d classification blocks, %d page(s) each"
+          % (len(companies), len(BLOCKS), a.pages))
+    rows, unresolved, stats = harvest(companies, pause=a.pause, max_pages=a.pages,
+                                      detail=a.detail)
     print("\n%d attributed records" % len(rows))
+
+    # A RUN THAT FAILED IS NOT A RUN THAT FOUND NOTHING.
+    #
+    # harvest() swallows a failed query so one dead host does not end the harvest,
+    # which means a total outage looked exactly like an empty registry -- and the
+    # empty result then went on to DELETE the tab. Say so, and stop.
+    print("queries: %d issued, %d ok, %d failed" %
+          (stats["queries"], stats["ok"], stats["failed"]))
+    if stats["ok"] == 0:
+        raise SystemExit("every query failed; this run knows nothing about the "
+                         "registry and must not be allowed to speak for it")
+    if stats["failed"]:
+        print("   %d queries errored; their companies are UNDER-counted in this run"
+              % stats["failed"])
+    # THE REGISTRY'S OWN TOTAL vs WHAT WE READ. A per-rival count on the tab is a
+    # count of what this grid sampled, not of the register.
+    print("registry reported %d matching records across the ok queries; %d rows read"
+          % (stats["seen_total"], stats["read"]))
+    if stats["truncated"]:
+        print("   %d of %d queries were TRUNCATED by --pages %d. Per-company patent"
+              " counts on the tab are a floor, not a total."
+              % (stats["truncated"], stats["ok"], a.pages))
+    if a.detail:
+        print("detail.jsf: %d records answered, %d did not (those store status=%r)"
+              % (stats["detail_ok"], stats["detail_missing"], ST_UNKNOWN))
 
     kept, refusals = gate(rows)
     print("%d stored, %d refused" % (len(kept), sum(len(v) for v in refusals.values())))
@@ -879,7 +1642,11 @@ def main():
         print("ledger: %s (%d rows, %d companies)"
               % (LEDGER.name, len(ledger),
                  len(set(r.get("comp_id") for r in ledger))))
+        st = collections.Counter(r.get("status") for r in ledger)
+        print("   status: %s" % ", ".join("%s=%d" % kv for kv in st.most_common()))
     if a.apply:
+        if not kept:
+            raise SystemExit("this run stored 0 records; refusing to --apply")
         n = write_db(ledger)
         print("wrote %d rows to serving.patent (ord >= %d)" % (n, PATENT_ORD0))
     return 0

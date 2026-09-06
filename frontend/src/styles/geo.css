@@ -29,6 +29,9 @@
   .geo-pick .pk-dot.ovl{background:#e8483a;box-shadow:0 0 0 2px rgba(232,72,58,.22)}
   .geo-pick .pk-dot.ovl-cat{background:transparent;border:1.5px solid #e8483a}
   .geo-pick .pk-dot.noovl{background:transparent;border:1px solid var(--d-txt-4);opacity:.5}
+  /* 'not assessed' is not 'no overlap': a dashed ring, so a rival nobody could test
+     never wears the dot a rival earns by being tested and cleared. */
+  .geo-pick .pk-dot.ovl-unk{background:transparent;border:1px dashed var(--d-txt-4);opacity:.75}
   .geo-pick .pk-dot.bf{background:var(--fav)}
   .geo-content{flex:1;display:grid;grid-template-columns:1fr clamp(300px, 25vw, 380px);overflow:hidden;min-height:0;height:100%}
   .geo-content.empty{display:flex;align-items:center;justify-content:center}

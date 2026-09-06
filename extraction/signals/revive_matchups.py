@@ -15,14 +15,27 @@ So each row is rebuilt rather than copied:
     is deliberately a proximity rule and not a document-level one: "40" occurs in
     every artillery article ever written, and "the document mentions CAESAR and
     also contains 40" is not evidence that CAESAR's range is 40 km.
-  * an ADVANTAGE bullet survives only if its own content words are stated.
+  * an ADVANTAGE bullet survives only if its own content words -- and its own
+    NUMBERS -- are stated as whole words within reach of a mention of the product.
+    All three of those were broken at once: the row's category was never consulted,
+    so an artillery blurb was published on a UAV matchup; `spans` was computed and
+    then never used, so "near the product" was a whole-document scan; and `t in
+    text` matched "base" inside "database" and "arms" inside "disarmament".
+    A bullet that states a VERDICT ("Leads on Weight (3.15 kg)") is refused outright
+    -- see the next point, which is the rule it was exempted from.
   * `edge` and `verdict` are RECOMPUTED from what survived. Copying a verdict
     that was written about ten specs onto the two that could be grounded would
     be the worst outcome of the three.
+  * `hi` -- which way is better -- is stamped from spec_direction.DIRECTION, a table
+    keyed by FIELD. It used to be copied from the archive, where it had been typed
+    row by row, so the same field decided a lead on one dossier and nothing at all
+    on the next: Rate of fire is directional on 1 of the 35 live rows that hold it.
   * `srcs` is written from the documents actually used, so every surviving number
     has a URL behind it.
 
-A row whose pairing itself cannot be grounded is not written at all.
+A row whose pairing itself cannot be grounded is not written at all. Nor is one whose
+two products are not the same KIND of thing (positioning_gate), nor one whose maker is
+off the roster or whose KSSL side the client does not publish (pairing).
 """
 import argparse
 import collections
@@ -46,6 +59,8 @@ sys.path.insert(0, str(HERE))
 # (found 2026-09-05; the served matchups dated from before that file existed).
 import client_portfolio  # noqa: E402
 import pairing  # noqa: E402
+import positioning_gate  # noqa: E402
+import spec_direction  # noqa: E402
 
 publishable, st_domain = client_portfolio.publishable, client_portfolio.st_domain
 
@@ -654,19 +669,102 @@ def ground_value(docs, ds, value, unit="", label="", max_domains=5, name=None,
     return hits
 
 
-def ground_phrase(docs, ds, phrase, name=None, maker=None):
+# A bullet that states a VERDICT is never republished. The module's own rule is that
+# edge and verdict are RECOMPUTED, precisely so a verdict written about ten specs is
+# not printed over the two that could be grounded -- and then 468 archive bullets
+# reading "Leads on Weight (3.15 kg)" were carried through this function on the
+# strength of two generic tokens, verdict, number and all. They are the same claim in
+# a different field. "leading" is deliberately absent: "Europe's leading land-systems
+# consolidator" is a credential, not a claim about this pairing.
+ADV_VERDICT = re.compile(
+    r"\b(leads?|ahead of|behind|outperforms?|outclasses?|beats?|superior to|"
+    r"inferior to|better than|worse than|advantage over|edges out)\b", re.I)
+ADV_REFUSED = collections.Counter()
+# "4x4", "6x6", "8x8": a drive configuration is part of a NAME, not a measurement.
+# Requiring a bare "4" to be written beside the product would have refused most of the
+# list for nothing -- and "on 4x4" asserts no magnitude to get wrong.
+_CONFIG_TOKEN = re.compile(r"\b\d+\s*[x×]\s*\d+\b", re.I)
+
+
+def bullet_numbers(phrase):
+    """The magnitudes a bullet asserts. "155/39 on 4x4" asserts 155 and 39."""
+    return numbers(_CONFIG_TOKEN.sub(" ", str(phrase or "")))
+
+
+def _stated_near(text, term, spans):
+    """Is this word WRITTEN, as a whole word, within reach of a mention of the product?
+
+    Two bugs in one line. The docstring said the words had to be stated "near the
+    product" and the code computed `spans` and then never used them -- `t in text`
+    scanned the whole document, so any page that mentioned the product anywhere and
+    contained the word anywhere counted. And `in` is a substring test: "base" is
+    inside "database", "arms" inside "disarmament", "range" inside "arrangement"."""
+    i = text.find(term)
+    while i != -1:
+        if _word_at(text, term, i) and _near(text, i, spans):
+            return True
+        i = text.find(term, i + 1)
+    return False
+
+
+def _number_near(text, n, spans):
+    """The same test for a number, with the guard that stops "41" matching "341"."""
+    j = text.find(n)
+    while j != -1:
+        if _number_at(text, n, j) and _near(text, j, spans):
+            return True
+        j = text.find(n, j + 1)
+    return False
+
+
+def _wrong_domain(phrase, cat=None, catkey=None, label=None):
+    """-> why this bullet is not about this row's kind of product, or ''.
+
+    The row's `cat` and `catKey` were never consulted, so an artillery blurb
+    ("ATHOS/ATMOS 52-cal guns") was published on a UAV matchup and an Adani small-arms
+    line on a loitering-munition row. Both name a product from another domain, and the
+    row says which domain it is in. A row whose domain cannot be read, or a bullet that
+    names no kind at all, refuses nothing -- refusing needs evidence too."""
+    dom = positioning_gate.domain_for_row(cat, catkey, label)
+    if not dom:
+        return ""
+    bd = positioning_gate.domain_of(positioning_gate.kind_in_text(norm(phrase)))
+    if bd and bd != dom:
+        return "the bullet is about %s; this pairing is %s" % (bd, dom)
+    return ""
+
+
+def ground_phrase(docs, ds, phrase, name=None, maker=None, cat=None, catkey=None,
+                  label=None):
     """An advantage bullet survives if its content words are stated near the product."""
+    if ADV_VERDICT.search(str(phrase or "")):
+        ADV_REFUSED["a copied verdict; edge and verdict are recomputed, not carried"] += 1
+        return None
+    why = _wrong_domain(phrase, cat, catkey, label)
+    if why:
+        ADV_REFUSED[why] += 1
+        return None
     toks = [t for t in re.split(r"[^a-z0-9]+", norm(phrase))
             if t and t not in STOPWORDS and t not in GENERIC and len(t) > 3]
     if len(toks) < 2:
+        ADV_REFUSED["fewer than two content words to check"] += 1
         return None
+    # A NUMBER IN A BULLET IS A CLAIM TOO. The token filter drops anything of three
+    # characters or fewer, so "3.15" split to "3" and "15" and was never looked for:
+    # a figure could be published beside a citation that says nothing about it. Held
+    # to the same standard as a spec value -- written, whole, near the product.
+    nums = bullet_numbers(phrase)
+    need = max(2, len(toks) // 2)
     for did, url, text in docs:
         spans = mention_spans(text, ds, name, maker)
         if not spans:
             continue
-        hit = [t for t in toks if t in text]
-        if len(hit) >= max(2, len(toks) // 2):
-            return (did, url, 0)
+        if sum(1 for t in toks if _stated_near(text, t, spans)) < need:
+            continue
+        if any(not _number_near(text, n, spans) for n in nums):
+            continue
+        return (did, url, 0)
+    ADV_REFUSED["content words or figures not stated near the product"] += 1
     return None
 
 
@@ -714,6 +812,91 @@ def _wins(s):
         return 0
     k_better = (k > c) if s.get("hi") else (k < c)
     return 1 if k_better else -1
+
+
+def comparable(specs):
+    """The specs that can decide a lead: a number on BOTH sides, and a direction.
+
+    Only a DIRECTIONAL field can decide one. 155 mm is not "better" than 105 mm, it
+    is a different class of gun -- and counting calibre as a win was most of what the
+    old edge measured. Direction matters too: hi=False on combat weight, weight and
+    crew means LOWER is the stronger figure, so treating bigger as better had the
+    heaviest vehicle winning.
+
+    A spec class_axis.py has stamped `classAxis` is excluded: the number stays
+    visible, it just stops counting as a lead."""
+    return [s for s in specs or []
+            if s.get("cn") is not None and s.get("kn") is not None
+            and s.get("hi") is not None and not s.get("classAxis")]
+
+
+def edge_of(specs):
+    """-> the stored 0-100 edge, or None when nothing separated the two.
+
+    ONE DEFINITION. This formula was written out twice -- here and in
+    class_axis.re_edge -- and spec_direction needed it a third time; a formula copied
+    three times is a number with three definitions, and the last time that happened
+    the front end silently overwrote the served value and a 1-0 winner was scored as
+    behind.
+
+    An edge of 0 would render as "the rival leads on nothing", which is not the same
+    statement as "there is nothing to compare". Only assert one when a comparison
+    actually separated the two.
+
+    The stored scale is the one every consumer documents: 0-100 where 50 is parity and
+    BELOW 50 means the CLIENT is behind. Storing the share the COMPETITOR leads on
+    inverted it -- a row where KSSL led every field was stored as 0, which reads as
+    "KSSL behind on everything".
+
+    One comparable field is not a verdict. Shrink towards parity by n/(n+1), the same
+    confidence factor the front end's own index documents: a single decided field can
+    move the number at most halfway to the rail, instead of printing maximum severity
+    on the thinnest possible evidence.
+
+    The share is over the DECIDED fields, not every comparable one. Dividing by all of
+    them let ties vote: one field led by the client and three matched came out 25/100
+    -- the client behind, on a comparison it wins and never loses. A field both
+    machines match on separates nobody. The front end's index uses this same formula,
+    so the stored number and the drawn number are one number."""
+    both = comparable(specs)
+    lead_c = sum(1 for s in both if _wins(s) < 0)
+    lead_k = sum(1 for s in both if _wins(s) > 0)
+    dec = lead_c + lead_k
+    if not dec:
+        return None
+    raw = 100.0 * lead_k / dec
+    return int(round(50 + (raw - 50) * dec / (dec + 1.0)))
+
+
+def verdict_of(specs, who_c, who_k):
+    """-> the verdict sentence, recomputed from what survived.
+
+    Copying the archive's verdict -- written about ten specs -- onto the two that could
+    be grounded would be the worst outcome available, so the text is built here from
+    `specs` and nowhere else. Two different counts matter and must not be conflated:
+    how many values we SOURCED, and how many are sourced on BOTH sides with a
+    direction (only those can be compared at all)."""
+    both = comparable(specs)
+    lead_c = sum(1 for s in both if _wins(s) < 0)
+    lead_k = sum(1 for s in both if _wins(s) > 0)
+    tied = len(both) - lead_c - lead_k
+    if not both:
+        return ("<b>%d value(s) sourced, none comparable on both sides.</b> A gap needs "
+                "the same field published for both products, and the field has to have "
+                "a better and a worse direction -- 155 mm is not better than 105 mm. "
+                "So none is asserted here." % len(specs or []))
+    if lead_c == 0 and lead_k == 0:
+        return ("<b>Level on every comparable field.</b> %d field(s) sourced for both "
+                "products; the values match." % len(both))
+    # Name the leader first: "X leads on 0 of 1, Y on 1" makes the reader do the
+    # arithmetic to find out who is ahead.
+    (a, na), (b_, nb) = (((who_c, lead_c), (who_k, lead_k)) if lead_c >= lead_k
+                         else ((who_k, lead_k), (who_c, lead_c)))
+    return ("<b>%s leads on %d of %d comparable field(s)%s.</b> "
+            "Based only on values sourced for both products."
+            % (a, na, len(both),
+               ("; %s on %d" % (b_, nb)) if nb else
+               ("; %d level" % tied if tied else "")))
 
 
 def rebuild(row, docs, prows=()):
@@ -774,6 +957,15 @@ def rebuild(row, docs, prows=()):
                 rep["specs_weak"] += 1        # found, but not well enough sourced
             continue
         e = dict(s)
+        # DIRECTION IS A PROPERTY OF THE FIELD, NOT OF THE ROW. `e = dict(s)` used to
+        # carry `hi` across from the archive, where it had been hand-typed row by row:
+        # Rate of fire came out directional on 1 of the 35 published rows that hold it
+        # and blank on the other 34, so the same field decided a lead on one dossier
+        # and nothing at all on the next. It is stamped from the one table now --
+        # spec_direction.DIRECTION -- which is also what refuses "Crew / pax", a crew
+        # count added to a troop count that the archive marks higher-is-better on 205
+        # rows. Anything the table has never seen gets no direction and is counted.
+        e["hi"] = spec_direction.direction_of(lab)
         # Values whose own side failed the bar are blanked rather than shown with
         # a weak citation -- a half-sourced comparison is a misleading one.
         if not ok_c:
@@ -843,6 +1035,10 @@ def rebuild(row, docs, prows=()):
     rep["specs_kept"] = len(kept_specs)
 
     kc, kb = [], []
+    # The row's own side is passed to the bullet grounder now: `cat`/`catKey` say what
+    # this pairing is about, and the product label says which kind of thing the bullet
+    # has to be talking about. Neither was consulted before, which is how an artillery
+    # blurb came to be published on a UAV matchup.
     for lst, ds, out, nm, mk in ((adv_c or [], cds, kc, product_of(comp), compby),
                                  (adv_b or [], kds, kb, product_of(bf), bfby)):
         if fit and out is kb:
@@ -855,7 +1051,8 @@ def rebuild(row, docs, prows=()):
                 used.setdefault(u_, None)
             continue
         for a in lst:
-            g = ground_phrase(docs, ds, a, nm, mk)
+            g = ground_phrase(docs, ds, a, nm, mk, cat=cat, catkey=catkey,
+                              label=(comp if out is kc else bf))
             if g:
                 out.append(a)
                 used[g[1]] = g[0]
@@ -881,59 +1078,13 @@ def rebuild(row, docs, prows=()):
         rep["drop"] = "no rival value could be sourced: nothing to position against"
         return None, rep
 
-    # edge and verdict are recomputed from what survived. Two different counts
-    # matter and must not be conflated: how many values we SOURCED, and how many
-    # are sourced on BOTH sides (only those can be compared at all).
-    # Only a DIRECTIONAL field can decide a lead. 155 mm is not "better" than
-    # 105 mm, it is a different class of gun -- and counting calibre as a win was
-    # most of what the old edge measured. Direction matters too: hi=False on
-    # combat weight, weight and crew means LOWER is the stronger figure, so
-    # treating bigger as better had the heaviest vehicle winning.
-    both = [s for s in kept_specs if s.get("cn") is not None
-            and s.get("kn") is not None and s.get("hi") is not None]
-    lead_c = sum(1 for s in both if _wins(s) < 0)
-    lead_k = sum(1 for s in both if _wins(s) > 0)
-    tied = len(both) - lead_c - lead_k
-    # An edge of 0 would render as "the rival leads on nothing", which is not the
-    # same statement as "there is nothing to compare". Only assert one when a
-    # comparison actually separated the two.
-    # The stored scale is the one every consumer documents: 0-100 where 50 is
-    # parity and BELOW 50 means the CLIENT is behind. Storing the share the
-    # COMPETITOR leads on inverted it -- a row where KSSL led every field was
-    # stored as 0, which reads as "KSSL behind on everything".
-    # One comparable field is not a verdict. Shrink towards parity by n/(n+1), the
-    # same confidence factor the front end's own index documents: a single decided
-    # field can move the number at most halfway to the rail, instead of printing
-    # maximum severity on the thinnest possible evidence.
-    # The share is over the DECIDED fields, not every comparable one. Dividing by
-    # all of them let ties vote: one field led by the client and three matched came
-    # out 25/100 -- the client behind, on a comparison it wins and never loses. A
-    # field both machines match on separates nobody. The front end's index uses this
-    # same formula, so the stored number and the drawn number are one number.
-    dec = lead_c + lead_k
-    if dec:
-        raw = 100.0 * lead_k / dec
-        edge = int(round(50 + (raw - 50) * dec / (dec + 1.0)))
-    else:
-        edge = None
+    # edge and verdict are RECOMPUTED from what survived, through the one definition
+    # of each (edge_of / verdict_of above). Copying the archive's verdict -- written
+    # about ten specs -- onto the two that could be grounded would be the worst
+    # outcome of the three.
+    edge = edge_of(kept_specs)
     who_c, who_k = (compby or comp), (bfby or bf)
-    if not both:
-        verdict = ("<b>%d value(s) sourced, none comparable on both sides.</b> A gap needs "
-                   "the same field published for both products, and the field has to have "
-                   "a better and a worse direction -- 155 mm is not better than 105 mm. "
-                   "So none is asserted here." % len(kept_specs))
-    elif lead_c == 0 and lead_k == 0:
-        verdict = ("<b>Level on every comparable field.</b> %d field(s) sourced for both "
-                   "products; the values match." % len(both))
-    else:
-        # Name the leader first: "X leads on 0 of 1, Y on 1" makes the reader do the
-        # arithmetic to find out who is ahead.
-        (a, na), (b_, nb) = ((who_c, lead_c), (who_k, lead_k)) if lead_c >= lead_k             else ((who_k, lead_k), (who_c, lead_c))
-        verdict = ("<b>%s leads on %d of %d comparable field(s)%s.</b> "
-                   "Based only on values sourced for both products."
-                   % (a, na, len(both),
-                      ("; %s on %d" % (b_, nb)) if nb else
-                      ("; %d level" % tied if tied else "")))
+    verdict = verdict_of(kept_specs, who_c, who_k)
     srcs = [{"url": u, "label": u.split("//")[-1].split("/")[0]} for u in sorted(used)]
     rep["srcs"] = [s["url"] for s in srcs]
     # The reason states plainly what was and was not carried over, so a reader is
@@ -1025,8 +1176,19 @@ def main(apply=False, limit=None, portfolio_json=None):
     # once, as a lug on the Protective Carbine -- so the archive's UAV pairings
     # compared a rival against a name with no product behind it.
     client_names = [pr.get("name") for pr in (prows or []) if pr.get("name")]
+    # Both lists are now a PRECONDITION, not an optional refinement: pairing.refuse
+    # treats an empty one as a refusal rather than a skipped check. Say so here, before
+    # a run spends an hour producing nothing and looks like a corpus problem.
+    if not roster_names or not client_names:
+        print("  ** %s is empty. Every pairing will be refused, because a check that\n"
+              "  ** cannot run has not passed. Load it, or set %s=1 to publish\n"
+              "  ** unchecked (which is what put HESA and 'KSSL - Bayonet' on screen)."
+              % ("the competitor roster" if not roster_names else "the client portfolio",
+                 pairing.ALLOW_EMPTY), flush=True)
 
     built, reports, ungated = [], [], collections.Counter()
+    kinds = collections.Counter()
+    strict_kind = positioning_gate.strict()
     for r in rows:
         new, rep = rebuild(r, docs, prows)
         reports.append(rep)
@@ -1043,6 +1205,24 @@ def main(apply=False, limit=None, portfolio_json=None):
                 ungated[why] += 1
                 rep["drop"] = "not comparable: " + why
                 continue
+            # AND THE TWO PRODUCTS MUST BE THE SAME KIND OF THING. pairing.refuse
+            # asks whether the maker is tracked, the KSSL side is real and a field is
+            # shared; none of that stops "Shell forgings vs Excalibur (precision)" or
+            # "CQB Carbine vs MTMG tank machine gun", both of which were published.
+            # positioning_gate answers that question and had never been called: it
+            # existed only under pipeline/, which is not what the containers run.
+            verdict_k, kind, note = positioning_gate.gate(new["bf"], new["comp"])
+            kinds[verdict_k] += 1
+            rep["kind"] = kind or note
+            if verdict_k == "refuse" or (verdict_k == "unresolved" and strict_kind):
+                ungated["not like-for-like: " + note[:60]] += 1
+                rep["drop"] = "not like-for-like: " + note
+                continue
+            if note:
+                # Published across two kinds of ONE family, with the difference NAMED.
+                # Hiding it would show a towed gun losing on mobility to a
+                # self-propelled one and call it a gap.
+                new["reason"] = new["reason"] + " Note: " + note + "."
             built.append(new)
         if len(reports) % 50 == 0:
             print("  %d/%d examined, %d revivable" % (len(reports), len(rows), len(built)),
@@ -1067,6 +1247,31 @@ def main(apply=False, limit=None, portfolio_json=None):
     else:
         print("\n  WARNING: the comparability gate refused nothing. A gate that never"
               " refuses is not running.")
+
+    # THE LIKE-FOR-LIKE LEDGER. Three states, reported as three numbers: a REFUSE is a
+    # finding, an UNRESOLVED is a gap in our sourcing for that maker, and collapsing
+    # them into one number reads as "the pairings are wrong" when most of it is only
+    # "this name means nothing to a keyword table".
+    print("\n  like-for-like (positioning_gate), strict=%s:" % ("on" if strict_kind else "off"))
+    for state in ("pass", "unresolved", "refuse"):
+        print("    %-12s %d" % (state, kinds.get(state, 0)))
+    if not strict_kind and kinds.get("unresolved"):
+        print("    %d unresolved pairing(s) were PUBLISHED: their kind could not be"
+              " read from either name." % kinds["unresolved"])
+        print("    Set KSSL_POSITIONING_STRICT=1 to refuse those too, or add the kind"
+              " from that maker's data sheet.")
+
+    # The advantage-bullet ledger. A bullet is a published claim like any other, and
+    # until now the only one with no refusal count behind it.
+    if ADV_REFUSED:
+        print("\n  advantage bullets refused, by reason (%d):" % sum(ADV_REFUSED.values()))
+        for why, n in ADV_REFUSED.most_common():
+            print("    %5d  %s" % (n, why))
+    if spec_direction.UNKNOWN:
+        print("\n  spec labels with no entry in the direction table (no direction"
+              " asserted, %d):" % sum(spec_direction.UNKNOWN.values()))
+        for lab, n in spec_direction.UNKNOWN.most_common(20):
+            print("    %5d  %s" % (n, lab))
 
     if prows:
         # The portfolio's own ledger. "gained" counts the SERVED rows whose KSSL side
@@ -1390,6 +1595,57 @@ def _demo():
     row2 = row[:4] + ("KSSL · Bayonet", row[5], [row[6][0]], [], ["x"], "France", "hold", "uav", "Bayonet")
     new2, rep2 = rebuild(row2, [], prows)
     assert new2 is None and rep2["portfolio"].startswith("refused"), rep2
+
+    # DIRECTION COMES FROM THE FIELD TABLE, NOT FROM THE ROW. The archive typed
+    # hi=None onto this row's Rate of fire (it did so on 34 of the 35 live rows that
+    # carry the field); the rebuilt spec carries the table's answer instead.
+    assert rof["hi"] is True, rof
+    assert cal["hi"] is None and w["hi"] is False, (cal, w)
+
+    # ---- the advantage-bullet grounder ----
+    ADV_REFUSED.clear()
+    # (c) a raw substring test published "base" out of "database" and "arms" out of
+    # "disarmament". The word has to be a word.
+    sub = [("dh", "http://x/h", norm("the atags database lists disarmament records "
+                                     "and a range of arrangements"))]
+    assert ground_phrase(sub, ["atags"], "wide base for arms exports", "ATAGS") is None
+    # (b) the words must be stated NEAR the product, not merely somewhere on a page
+    # that happens to mention it. `spans` was computed and then never used.
+    near_ok = [("di", "http://x/i", norm("the atags gun offers indigenous barrels and "
+                                         "forged components throughout"))]
+    assert ground_phrase(near_ok, ["atags"], "indigenous forged components", "ATAGS")
+    far = [("dj", "http://x/j", norm("atags. " + ("filler word " * 200)
+                                     + " indigenous forged components"))]
+    assert ground_phrase(far, ["atags"], "indigenous forged components", "ATAGS") is None
+    # (a) the row says what it is about; an artillery blurb is not a UAV's advantage
+    uav_doc = [("dk", "http://x/k", norm("the bharat 150 uses athos atmos 52-cal guns "
+                                         "with longer barrels"))]
+    assert ground_phrase(uav_doc, ["bharat"], "ATHOS/ATMOS 52-cal guns, longer barrels",
+                         "Bharat 150", catkey="uav") is None
+    # ...and the same words on the row they belong to are not refused
+    assert ground_phrase(uav_doc, ["bharat"], "ATHOS/ATMOS 52-cal guns, longer barrels",
+                         "Bharat 150", catkey="art")
+    # a copied verdict is never republished -- edge and verdict are recomputed
+    assert ground_phrase(near_ok, ["atags"], "Leads on Weight (3.15 kg)", "ATAGS") is None
+    # ...and a bullet's NUMBER is a claim, held to the same standard as a spec value
+    numdoc = [("dl", "http://x/l", norm("the atags gun holds 40 percent of the "
+                                        "indigenous artillery orders placed"))]
+    assert ground_phrase(numdoc, ["atags"], "40 percent of indigenous orders", "ATAGS")
+    assert ground_phrase(numdoc, ["atags"], "70 percent of indigenous orders",
+                         "ATAGS") is None
+    assert sum(ADV_REFUSED.values()) >= 5, ADV_REFUSED
+    ADV_REFUSED.clear()
+
+    # ---- the edge and the verdict have ONE definition each ----
+    lead = [{"l": "Max range", "cn": 30000, "kn": 41000, "hi": True}]
+    assert edge_of(lead) == 75, edge_of(lead)
+    assert "leads on 1 of 1" in verdict_of(lead, "KNDS", "KSSL")
+    assert "KSSL" in verdict_of(lead, "KNDS", "KSSL")
+    # a field class_axis has marked is still shown and no longer counts as a lead
+    marked = [dict(lead[0], classAxis="different platform class")]
+    assert edge_of(marked) is None and comparable(marked) == []
+    assert "none comparable on both sides" in verdict_of(marked, "KNDS", "KSSL")
+    assert edge_of([]) is None
     print("ok")
 
 

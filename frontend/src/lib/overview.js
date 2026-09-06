@@ -315,9 +315,46 @@ export function bucketTenders(tenders) {
    Every pillar computes its tiles — the config carries labels and phrasing only;
    a number the service didn't back is never rendered. */
 export function metricsFor(cfg, pillar, d) {
-  const metrics = (cfg.metrics || []).map((m) => ({ ...m }));
+  /* EVERY TILE STARTS AT "NOT MEASURED".
+
+     The binding at the bottom of this function is by LABEL STRING, and a label no
+     branch computes used to keep whatever `v` the config shipped -- the sample
+     constants baked into overviewConfig ("13", "73,895", "6") -- which CountUp then
+     animated up exactly like a measured figure. Two ways that happened with nothing
+     on screen to show it: a served label renamed on the backend, and the catch below
+     firing part-way through the block (that is how "Open opportunities 7" once sat
+     over 89 open tenders). Blanking the values FIRST means both cases render "—",
+     and the unbound branch at the end names the tile that missed, loudly. */
+  const metrics = (cfg.metrics || []).map((m) => ({ ...m, v: "—" }));
   try {
     const cards = cfg.cards || [];
+    /* A DIRECTION TILE COUNTS SOMETHING ITS FEED MAY NOT CARRY AT ALL.
+
+       serving_fill.py assigns dir='threat' only where pillar=='competitive', so the
+       technology feed's "Capability threats" counted a value that cannot exist and
+       printed a measured-looking 0 under the served subtitle "rivals ahead /
+       closing". A 0 there reads as "no rival is ahead" -- a finding nobody made.
+       When NO card in the pillar carries the direction, the tile says so instead of
+       counting to zero; when one does, it counts normally, so the day the backend
+       starts assigning threats on technology this tile starts working by itself. */
+    const dirCount = (dir) => {
+      const n = cards.filter((c) => c.dir === dir).length;
+      return n || "—";
+    };
+    const dirSub = (dir, word) =>
+      cards.some((c) => c.dir === dir)
+        ? null
+        : `no served ${pillar} signal is assigned a ${word} direction — not assessed`;
+    /* Two tiles showing one number is one tile. Every served technology card carries
+       dir='watch', so "Watch signals" and "All signals" sit side by side reading the
+       same count -- and a reader has no way to tell that from two measurements that
+       happen to agree. The subtitle says which it is. */
+    const dirIsAll = (dir) => {
+      const n = cards.filter((c) => c.dir === dir).length;
+      return n > 0 && n === cards.length
+        ? `every one of the ${cards.length} served signals — no other direction is assigned`
+        : null;
+    };
     const lensSet = new Set();
     cards.forEach((c) => {
       if (c.lens) lensSet.add(c.lens);
@@ -333,11 +370,15 @@ export function metricsFor(cfg, pillar, d) {
     if (pillar === "competitive") {
       byLabel = {
         ...byLabel,
-        "Competitive threats": cards.filter((c) => c.dir === "threat").length,
-        "Watch signals": cards.filter((c) => c.dir === "watch").length,
+        "Competitive threats": dirCount("threat"),
+        "Watch signals": dirCount("watch"),
         "Companies tracked": new Set(cards.map((c) => c.company).filter(Boolean)).size,
         "Analytical lenses": lensSet.size,
       };
+      const tSub = dirSub("threat", "threat");
+      if (tSub) subByLabel["Competitive threats"] = tSub;
+      const wSub = dirSub("watch", "watch") || dirIsAll("watch");
+      if (wSub) subByLabel["Watch signals"] = wSub;
     } else if (pillar === "market") {
       const tenders = (d && d.tenders) || [];
       const { open, awarded, closed } = bucketTenders(tenders);
@@ -381,11 +422,15 @@ export function metricsFor(cfg, pillar, d) {
       const domains = Object.keys(innovations).filter((k) => (innovations[k] || []).length);
       byLabel = {
         ...byLabel,
-        "Capability threats": cards.filter((c) => c.dir === "threat").length,
-        "Watch signals": cards.filter((c) => c.dir === "watch").length,
+        "Capability threats": dirCount("threat"),
+        "Watch signals": dirCount("watch"),
         "Domains tracked": domains.length,
         "Analytical lenses": lensSet.size,
       };
+      const tSub = dirSub("threat", "capability threat");
+      if (tSub) subByLabel["Capability threats"] = tSub;
+      const wSub = dirSub("watch", "watch") || dirIsAll("watch");
+      if (wSub) subByLabel["Watch signals"] = wSub;
       const nameOf = (id) => {
         const c = ((d && d.techCats) || []).find((x) => x.id === id);
         return c ? c.name : id;
@@ -395,12 +440,24 @@ export function metricsFor(cfg, pillar, d) {
         : "no domains served yet";
     }
     metrics.forEach((m) => {
-      if (byLabel[m.l] != null) m.v = String(byLabel[m.l]);
+      if (byLabel[m.l] == null) {
+        /* LOUD, NOT SILENT. Nothing above computed a value for this label, so there
+           is no measurement to show: the tile keeps its "—" and says why, and the
+           served subtitle goes with it -- "rivals ahead / closing" over an unbound
+           tile is a claim about a number that was never taken. */
+        m.sub = `not wired — no measurement is computed for "${m.l}"`;
+        if (typeof console !== "undefined" && console.warn)
+          console.warn(`metricsFor(${pillar}): no measurement bound to tile label "${m.l}"`);
+        return;
+      }
+      m.v = String(byLabel[m.l]);
       if (subByLabel[m.l] != null) m.sub = subByLabel[m.l];
       if (actByLabel[m.l] != null) m.act = actByLabel[m.l];
     });
   } catch (e) {
-    /* the strip is cosmetic; a missing field must never blank the feed */
+    /* The strip is cosmetic; a missing field must never blank the feed. Values were
+       blanked before the try, so what survives a throw is "—", never a served demo
+       number wearing the authority of a measurement. */
   }
   return metrics;
 }

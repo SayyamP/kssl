@@ -98,21 +98,49 @@ export function patStateHtml(state, label) {
   return "";
 }
 
-export function patRecCard(r, showAssignee) {
+/* `meta` is PATENTS._meta, which dataset.js measures over the whole corpus (see
+   grantStatusKnown / relevDiscriminates there). Two of this card's three badges are
+   only findings when the corpus carries the field:
+
+     - the status badge. 'filed' is also the normaliser's fall-through, so on a corpus
+       where no row has a grant date every card wore a blue "FILED" that reads as a
+       registry answer. Where nothing was captured the badge says so instead.
+     - the relevance badge. Every harvested row is relev='CORE'; a grade every record
+       shares grades nothing, so it renders only where the corpus uses more than one.
+
+   Both come back automatically once the harvester lands the real values. */
+export function patRecCard(r, showAssignee, meta) {
   const esc = (s) => (s || "").replace(/</g, "&lt;");
+  const m = meta || {};
   const st = r.status || "filed";
-  const dateLine =
-    st === "granted"
+  /* PER-RECORD, NOT PER-CORPUS. `grantStatusKnown` says the corpus as a whole carries
+     grant status; it cannot say this record does. A mixed corpus is the normal end
+     state of a harvest that reads the registry per record and gives up on some, so a
+     row whose own status is 'unknown' must say so even while its neighbours show real
+     grants. */
+  const unknown = st === "unknown" || !m.grantStatusKnown;
+  const badge = unknown
+    ? '<span class="pat-badge unknown" title="No grant or publication status was captured for this record. It is not being reported as ungranted -- it is unknown.">status not captured</span>'
+    : `<span class="pat-badge ${st}">${st}</span>`;
+  /* `filed` is the application date and is NULL where the registry was not read;
+     `published` is the publication date and is always known. Printing "Filed —" for a
+     record we do have a publication date for states the wrong absence. */
+  const dateLine = unknown
+    ? r.published
+      ? `Published ${r.published}`
+      : `Filed ${r.filed || r.published || "—"}`
+    : st === "granted"
       ? `Filed ${r.filed || "—"} · Granted ${r.granted || "—"}`
-      : `Filed ${r.filed || "—"}${r.status === "pending" ? " · Pending" : ""}`;
+      : `Filed ${r.filed || "—"}${st === "pending" ? " · Pending" : ""}`;
   const ipc = (r.ipc || []).map((c) => `<span>${esc(c)}</span>`).join("");
-  const relev = r.koel_relevance
-    ? `<span class="pat-relev ${r.koel_relevance}">${r.koel_relevance}</span>`
-    : "";
+  const relev =
+    m.relevDiscriminates && r.koel_relevance
+      ? `<span class="pat-relev ${r.koel_relevance}">${r.koel_relevance}</span>`
+      : "";
   const assignee = showAssignee && r.assignee ? `<b>${esc(r.assignee)}</b> · ` : "";
   return (
     `<div class="pat-rec" data-cat="${attr(r.techArea || "")}">` +
-    `<div class="pat-rec-h"><div class="pat-rec-t">${esc(r.title)}</div>${relev}<span class="pat-badge ${st}">${st}</span></div>` +
+    `<div class="pat-rec-h"><div class="pat-rec-t">${esc(r.title)}</div>${relev}${badge}</div>` +
     `<div class="pat-rec-meta"><span>${assignee}${esc(r.id || "")}</span><span>${esc(r.jurisdiction || "")}</span><span>${dateLine}</span></div>` +
     (ipc ? `<div class="pat-ipc">${ipc}</div>` : "") +
     `<div class="pat-abs">${esc(r.abstract || "")}</div>` +
@@ -143,6 +171,11 @@ export function patApiNote(d) {
   );
 }
 
+/* Arithmetic only, and correct on its own terms -- but note what it CANNOT say: every
+   record whose status was never captured normalises to 'filed', so on a corpus with no
+   grant data this returns granted 0 / pending 0 / filed N without anything having been
+   looked up. Callers must gate the three-tile presentation on _meta.grantStatusKnown;
+   a bare 0 under "Granted" is a registry claim this function never made. */
 export function deriveStats(recs) {
   const s = { granted: 0, filed: 0, pending: 0 };
   (recs || []).forEach((r) => {
@@ -156,21 +189,41 @@ export function deriveStats(recs) {
 /* The by-rival canvas: portfolio stats then every filing. */
 export function patCompBody(d, cid, res) {
   const recs = res.results || [];
+  const meta = (d.PATENTS && d.PATENTS._meta) || {};
   const pd = d.PATENTS ? (d.PATENTS.byCompetitor || {})[cid] : null;
   const s = (pd && pd.stats) || deriveStats(recs);
   const name = (d.competitors[cid] || {}).name || cid;
-  let h =
-    '<div class="pat-stats">' +
-    `<div class="pat-stat granted"><div class="pv">${s.granted || 0}</div><div class="pl">Granted</div></div>` +
-    `<div class="pat-stat filed"><div class="pv">${s.filed || 0}</div><div class="pl">Filed</div></div>` +
-    `<div class="pat-stat pending"><div class="pv">${s.pending || 0}</div><div class="pl">Pending</div></div>` +
-    "</div>";
+  /* GRANTED 0 / PENDING 0 IS NOT A PORTFOLIO READ. With no grant status in the corpus
+     these two tiles counted the absence of a field and printed it as a measurement --
+     a rival with granted patents would have shown "Granted 0" just the same. The
+     count that IS backed (how many filings are on record) keeps its tile; the two
+     that are not read "—" and the line underneath says why. Restores itself to the
+     three-way split the moment any row carries a grant date or status. */
+  let h;
+  if (meta.grantStatusKnown) {
+    h =
+      '<div class="pat-stats">' +
+      `<div class="pat-stat granted"><div class="pv">${s.granted || 0}</div><div class="pl">Granted</div></div>` +
+      `<div class="pat-stat filed"><div class="pv">${s.filed || 0}</div><div class="pl">Filed</div></div>` +
+      `<div class="pat-stat pending"><div class="pv">${s.pending || 0}</div><div class="pl">Pending</div></div>` +
+      "</div>";
+  } else {
+    const total = (s.granted || 0) + (s.filed || 0) + (s.pending || 0);
+    h =
+      '<div class="pat-stats">' +
+      `<div class="pat-stat filed"><div class="pv">${total}</div><div class="pl">Filings on record</div></div>` +
+      '<div class="pat-stat unknown"><div class="pv">—</div><div class="pl">Granted</div></div>' +
+      '<div class="pat-stat unknown"><div class="pv">—</div><div class="pl">Pending</div></div>' +
+      "</div>" +
+      '<div class="pat-nograde">Grant status was not captured for this corpus — no record carries a grant date, ' +
+      "so granted and pending cannot be counted and are not being reported as zero.</div>";
+  }
   if (res.status === "awaiting_backend") h += patStateHtml("awaiting_backend", name);
   else if (res.status === "error") h += patStateHtml("error", name);
   else if (!recs.length) h += patStateHtml("empty", name);
   if (recs.length) {
     h += `<div class="ws-sec-l" style="margin-top:6px">▸ ${recs.length} filing${recs.length !== 1 ? "s" : ""}</div>`;
-    h += recs.map((r) => patRecCard(r, false)).join("");
+    h += recs.map((r) => patRecCard(r, false, meta)).join("");
   }
   h += patApiNote(d);
   return h;
@@ -180,9 +233,13 @@ export function patCompBody(d, cid, res) {
 export function patTechBody(d, area, res) {
   const td = (d.PATENTS && d.PATENTS.byTechnology) ? d.PATENTS.byTechnology[area] : null;
   const esc = escAll;
+  const meta = (d.PATENTS && d.PATENTS._meta) || {};
   if (!td) {
+    /* The white-space promise came out of this copy: nothing upstream computes
+       sparsely-patented areas (dataset.js sets whitespace to null and says so), and
+       a page must not promise a section it has no source for. */
     return (
-      `<div class="pat-empty"><div class="pe-ic">⊡</div><div class="pe-t">No filings recorded in this field</div><div class="pe-s">No patents are indexed for <b>${esc(area)}</b> yet. Once the patent research pass lands, this view shows filing volume, the crowding trend, who leads the field, and the white space KSSL can still claim.</div></div>` +
+      `<div class="pat-empty"><div class="pe-ic">⊡</div><div class="pe-t">No filings recorded in this field</div><div class="pe-s">No patents are indexed for <b>${esc(area)}</b> yet. Once the patent research pass lands, this view shows filing volume, the crowding trend and who leads the field.</div></div>` +
       patApiNote(d)
     );
   }
@@ -218,37 +275,76 @@ export function patTechBody(d, area, res) {
         koelHere.length
           ? `<b>KSSL holds ${koelFilings} filing${koelFilings !== 1 ? "s" : ""} in this field.</b> ` +
             `It is contested by ${rivals.length} other holder${rivals.length !== 1 ? "s" : ""}.`
-          : "<b>KSSL holds no filings in this field.</b> " +
+          : /* "recorded", not "holds": this corpus is a harvest of RIVAL filings, so
+               the absence of a KSSL row means none was indexed here, which is not the
+               same finding as KSSL owning nothing in the field. The enforceability
+               clause is conditional and stays that way -- with no grant status
+               captured it simply does not appear, rather than reading "0 enforceable". */
+            "<b>No KSSL filing is recorded in this field.</b> " +
             `${rivals.length} rival${rivals.length !== 1 ? "s have" : " has"} staked it` +
             (grantedRivals.length
               ? `, ${grantedRivals.length} with a granted patent already enforceable`
               : "") +
             "."
       }</div></div>`;
+    /* THE CAPTION NAMES THE KEYS THAT ACTUALLY SORT. dataset.js orders holders by
+       granted, then threat, then recency, then name -- but two of those are NULL on
+       every harvested row, so the caption described a ranking that was really just
+       recency-then-name. It now lists only the keys the corpus supplies, and says
+       which ones are missing rather than implying they were weighed. */
+    const anyThreat = L.some((l) => l.threat);
+    const sortKeys = [
+      meta.grantStatusKnown ? "granted patents" : null,
+      anyThreat ? "assessed threat" : null,
+      "most recent filing",
+      "name",
+    ].filter(Boolean);
+    const notRanked = [
+      meta.grantStatusKnown ? null : "grant status",
+      anyThreat ? null : "threat assessment",
+    ].filter(Boolean);
     h +=
-      '<div class="ws-sec-l">▸ Who holds filings here <span class="ws-sec-note">ranked by granted patents, then assessed threat, then recency</span></div>';
+      '<div class="ws-sec-l">▸ Who holds filings here <span class="ws-sec-note">ranked by ' +
+      `${sortKeys.join(", then ")}` +
+      (notRanked.length
+        ? ` · ${notRanked.join(" and ")} not captured for this corpus, so ${notRanked.length === 1 ? "it does" : "they do"} not rank anything`
+        : "") +
+      "</span></div>";
     h += '<div class="ws-holders">';
     L.forEach((l) => {
       const geo = (l.countries || []).join(" · ");
       h +=
-        `<div class="ws-holder${l.isClient ? " client" : ""} th-${esc(l.threat || "low")}">` +
+        /* th-* is the row accent. An unassessed holder gets no threat class at all --
+           it used to fall back to th-low, which paints "assessed and harmless". */
+        `<div class="ws-holder${l.isClient ? " client" : ""}${l.threat ? ` th-${esc(l.threat)}` : ""}">` +
         `<div class="wh-l"><span class="wh-name">${esc(l.name)}${l.isClient ? ' <i class="wh-you">KSSL</i>' : ""}</span>` +
         `<span class="wh-meta">${l.filings || 0} filing${l.filings !== 1 ? "s" : ""}` +
         `${geo ? ` · ${esc(geo)}` : ""}${l.latest ? ` · latest ${l.latest}` : ""}</span></div>` +
         '<div class="wh-r">' +
-        (l.granted
-          ? `<span class="wh-chip granted" title="Granted — enforceable now">${l.granted} granted</span>`
-          : "") +
-        (l.pending
-          ? `<span class="wh-chip pending" title="Published, not yet granted">${l.pending} published</span>`
-          : "") +
-        (l.isClient
+        /* The grant chips are claims about a registry. "N published" titled "Published,
+           not yet granted" asserted NON-grant for every record in a corpus that never
+           checked -- 1,157 of them -- so with no grant status captured neither chip is
+           drawn and one neutral marker says why. */
+        (meta.grantStatusKnown
+          ? (l.granted
+              ? `<span class="wh-chip granted" title="Granted — enforceable now">${l.granted} granted</span>`
+              : "") +
+            (l.pending
+              ? `<span class="wh-chip pending" title="Published, not yet granted">${l.pending} published</span>`
+              : "")
+          : '<span class="wh-chip unknown" title="No grant or publication status was captured for this corpus — these filings are not being reported as ungranted">grant status not captured</span>') +
+        // a threat chip only where a threat was assessed; absence is not "low"
+        (l.isClient || !l.threat
           ? ""
-          : `<span class="wh-chip th ${esc(l.threat || "low")}" title="Assessed threat to KSSL">${esc(l.threat || "low")}</span>`) +
+          : `<span class="wh-chip th ${esc(l.threat)}" title="Assessed threat to KSSL">${esc(l.threat)}</span>`) +
         "</div></div>";
     });
     h += "</div>";
   }
+  /* Sparsely-patented areas: rendered when a white-space pass has produced them,
+     stated as not computed when it has not. `whitespace` is null (never []) precisely
+     so those two cases can be told apart -- an empty list would read as "we looked and
+     the field is fully staked", which is the opposite of the truth. */
   if (td.whitespace && td.whitespace.length) {
     h += '<div class="ws-sec-l open">▸ Sparsely-patented areas</div><div class="ws-gaps">';
     td.whitespace.forEach((w) => {
@@ -257,6 +353,10 @@ export function patTechBody(d, area, res) {
         `<div class="ws-gap-note">${esc(w.note)}</div></div>`;
     });
     h += "</div>";
+  } else if (td.whitespace == null) {
+    h +=
+      '<div class="ws-sec-l open">▸ Sparsely-patented areas <span class="ws-sec-note">not computed — ' +
+      "no white-space pass runs over this corpus, so no area is being claimed as open</span></div>";
   }
   if (td.koel) {
     h +=
@@ -270,7 +370,7 @@ export function patTechBody(d, area, res) {
   if (res.status === "awaiting_backend") h += patStateHtml("awaiting_backend", area);
   else if (res.status === "error") h += patStateHtml("error", area);
   else if (!recs.length) h += patStateHtml("empty", area);
-  if (recs.length) h += recs.map((r) => patRecCard(r, true)).join("");
+  if (recs.length) h += recs.map((r) => patRecCard(r, true, meta)).join("");
   h += patApiNote(d);
   return h;
 }

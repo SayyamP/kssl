@@ -39,6 +39,7 @@
   .wh-chip{font-family:var(--mono);font-size:9px;padding:2px 7px;border-radius:3px;white-space:nowrap;border:1px solid}
   .wh-chip.granted{background:rgba(181,52,31,.14);border-color:rgba(181,52,31,.45);color:#e08a76}
   .wh-chip.pending{background:var(--d-bg-2);border-color:var(--d-line-2);color:var(--d-txt-3)}
+  .wh-chip.unknown{background:transparent;border-color:var(--d-line-2);border-style:dashed;color:var(--d-txt-4)}
   .wh-chip.th{text-transform:uppercase;letter-spacing:.05em}
   .wh-chip.th.high{background:rgba(181,52,31,.1);border-color:rgba(181,52,31,.4);color:#d1705a}
   .wh-chip.th.medium{background:rgba(154,106,8,.1);border-color:rgba(154,106,8,.4);color:#c9a23f}
@@ -71,6 +72,13 @@
   .v-patents-comp .pat-canvas .pat-head .pat-sub{color:#475569}
   .v-patents-comp .pat-canvas .pat-stat{background:#f8fafc;border:1px solid #e2e8f0}
   .v-patents-comp .pat-canvas .pat-stat .pl{color:#64748b}
+  /* the light pane paints .pat-stat solid, which would hide the dashed 'not measured'
+     treatment above -- restate it at the same specificity */
+  .v-patents-comp .pat-canvas .pat-stat.unknown{background:transparent;border:1px dashed #cbd5e1}
+  .v-patents-comp .pat-canvas .pat-stat.unknown .pv{color:#94a3b8;font-weight:400}
+  .v-patents-comp .pat-canvas .pat-nograde{color:#64748b}
+  .v-patents-comp .pat-canvas .pat-badge.unknown{background:transparent;border:1px dashed #cbd5e1;color:#94a3b8}
+  .v-patents-comp .pat-canvas .wh-chip.unknown{background:transparent;border-color:#cbd5e1;color:#94a3b8}
   .v-patents-comp .pat-canvas .pat-rec{background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
   .v-patents-comp .pat-canvas .pat-rec-t{color:#0f172a}
   .v-patents-comp .pat-canvas .pat-rec-meta{color:#64748b}
@@ -100,6 +108,11 @@
   .pat-stat .pv{font-size:21px;font-weight:700;line-height:1.05}
   .pat-stat .pl{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--d-txt-3);margin-top:3px}
   .pat-stat.granted .pv{color:#1f6e45}.pat-stat.filed .pv{color:#3a6ea5}.pat-stat.pending .pv{color:#8a5a0a}
+  /* NOT MEASURED must not look like a measured zero: no colour, no weight, and a
+     line underneath that says why. Used where the corpus carries no grant status. */
+  .pat-stat.unknown{background:transparent;border:1px dashed var(--d-line-2)}
+  .pat-stat.unknown .pv{color:var(--d-txt-4);font-weight:400}
+  .pat-nograde{font-size:11.5px;line-height:1.5;color:var(--d-txt-3);font-style:italic;margin:-10px 0 16px}
   .pat-rec{border:1px solid var(--d-bg-2);border-radius:9px;padding:13px 15px;margin-bottom:11px}
   .pat-rec-h{display:flex;align-items:flex-start;gap:10px;margin-bottom:7px}
   .pat-rec-t{font-size:13px;font-weight:600;line-height:1.4;color:var(--d-txt);flex:1}
@@ -107,6 +120,8 @@
   .pat-badge.granted{background:#e6f3ec;color:#1f6e45}
   .pat-badge.filed{background:#e8f0f8;color:#3a6ea5}
   .pat-badge.pending{background:#f8efdc;color:#8a5a0a}
+  /* the unknown state is deliberately colourless -- the three above are verdicts */
+  .pat-badge.unknown{background:transparent;border:1px dashed var(--d-line-2);color:var(--d-txt-4);text-transform:none;font-weight:600;letter-spacing:0}
   .pat-rec-meta{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--d-txt-3);margin-bottom:8px}
   .pat-rec-meta b{color:var(--d-txt-2);font-weight:600}
   .pat-ipc{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}

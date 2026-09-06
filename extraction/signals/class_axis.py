@@ -4,6 +4,11 @@
     python class_axis.py --apply
     python class_axis.py --demo
 
+PORTED FROM pipeline/, which is not what the containers run (see
+pipeline/_superseded.py; deploy/selfcheck.sh does `cd extraction/signals`). It sat
+beside positioning_gate.py in a tree nothing executes, so a pass written to stop
+"K9 Thunder 47 t vs ATAGS 18 t -- KSSL AHEAD 75/100" had never marked a served row.
+
 Positioning reads "K9 Thunder 47 t vs ATAGS 18 t -- KSSL AHEAD 75/100". The K9 is
 a tracked self-propelled howitzer and ATAGS is a towed gun; one carries its own
 engine, hull and armour and the other is pulled behind a truck. The weight
@@ -19,12 +24,12 @@ unclassified pairing is left alone -- refusing a comparison needs evidence too.
 Where the two sides are different classes, the mass dimensions are stamped
 `classAxis` with the reason. Nothing is deleted: the number stays visible, it just
 stops counting as a lead.
+
+THIS IS A SECOND PASS, NOT A SECOND OPINION. positioning_gate refuses a pairing whose
+two products are different KINDS by name; this one marks a DIMENSION as uninformative
+where the corpus says the two platforms are differently mounted. They answer different
+questions and both run.
 """
-import os as _os, sys as _sys
-_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
-from _superseded import refuse_if_superseded  # noqa: E402
-refuse_if_superseded(__file__)   # ported to extraction/signals/, which is what the
-                                 # containers run; this copy is now the older one.
 import argparse
 import json
 import os
@@ -37,7 +42,8 @@ import psycopg2
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 from revive_matchups import (load_docs, norm, product_of,          # noqa: E402
-                             mention_spans, designators, index_df, _wins)
+                             mention_spans, designators, index_df, _wins,
+                             edge_of, comparable)
 
 DSN = os.environ.get("KSSL_DSN", "postgresql://postgres:kssl@127.0.0.1:5460/kssl")
 NEAR = 40               # the classifying word has to be talking about THIS product
@@ -103,22 +109,14 @@ def classify(docs, product, maker=None):
 def re_edge(specs):
     """The 0-100 edge, recomputed with the class axes taken out.
 
-    Leaving the stored number alone would have kept "KSSL AHEAD 75/100" printed
-    over a comparison whose only decided dimension has just been marked as not a
-    comparison. Same formula as the matchup reviver, including the n/(n+1) shrink
-    that stops one field from asserting a maximum."""
-    both = [s for s in specs
-            if s.get("cn") is not None and s.get("kn") is not None
-            and s.get("hi") is not None and not s.get("classAxis")]
-    lead_c = sum(1 for s in both if _wins(s) < 0)
-    lead_k = sum(1 for s in both if _wins(s) > 0)
-    dec = lead_c + lead_k
-    if not dec:
-        return None
-    # over the DECIDED fields -- see revive_matchups: a matched field votes for
-    # nobody, and dividing by it reported a winner as behind
-    raw = 100.0 * lead_k / dec
-    return int(round(50 + (raw - 50) * dec / (dec + 1.0)))
+    Leaving the stored number alone would have kept "KSSL AHEAD 75/100" printed over a
+    comparison whose only decided dimension has just been marked as not a comparison.
+
+    ONE DEFINITION. This used to be a private copy of the matchup reviver's formula,
+    kept in step by hand; it is revive_matchups.edge_of now, which already excludes a
+    spec carrying `classAxis` for exactly this reason. A number computed in two places
+    is a number with two definitions."""
+    return edge_of(specs)
 
 
 def main(apply=False):
@@ -237,6 +235,10 @@ def _demo():
     # a matched field does not dilute the side that leads the decided one
     with_tie = real + [{"l": "Rate of fire", "cn": 6, "kn": 6, "hi": True}]
     assert re_edge(with_tie) == re_edge(real), (re_edge(with_tie), re_edge(real))
+    # and the marked dimension is excluded by the ONE definition of comparable, not
+    # by a filter copied into this file
+    assert comparable(mass_only) == []
+    assert re_edge is not None and re_edge(real) == edge_of(real)
     print("ok")
 
 
