@@ -17,7 +17,18 @@ import { advantageText, SHOW_POSITIONING_SOURCES } from "./src/lib/specs.js";
 import { srcKvRow } from "./src/lib/html.js";
 
 const path = process.argv[2] || "../caesar.json";
-const m = JSON.parse(readFileSync(path, "utf8"));
+/* SKIP, DON'T CRASH, WHEN THE PAYLOAD IS NOT HERE -- the same rule test_feed_pagination
+   follows, and for the same reason: CI loops over every test_*.mjs, so a file that reads
+   a live export and THROWS fails the whole frontend job. It did exactly that on the run
+   that shipped it. The payload is a matchup pulled from /api/dataset and is not tracked;
+   pass a path to run this against any row you have exported. */
+let m;
+try {
+  m = JSON.parse(readFileSync(path, "utf8"));
+} catch {
+  console.log(`SKIP ${path} not present -- export a matchup from /api/dataset to run this`);
+  process.exit(0);
+}
 
 let fails = 0;
 const ck = (name, ok, detail) => {
