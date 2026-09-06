@@ -590,13 +590,12 @@ export default function Partnerships() {
               html={drawerBody()}
               id="pg-r-body"
             />
-            {/* moved here from under the graph: the canvas states the relation, the side
-                states what it means. Renders nothing when this rival shares no partner. */}
-            <HtmlBlock
-              className="pg-ov-side"
-              html={c ? partners.overlapDefsHtml(c, cid, clientName) : ""}
-              id="pg-ov-side"
-            />
+            {/* REMOVED ON REQUEST: the "What an overlapping <kind> partner costs KSSL"
+                explainer that used to sit under the drawer. It was generic interpretation
+                keyed off the overlap kind -- the same two paragraphs for every rival that
+                shared a partner of that kind -- and it said nothing the drawer above does
+                not already state about THIS rival. partners.overlapDefsHtml and OV_DEF are
+                left intact, so restoring it is putting this element back. */}
           </div>
         </div>
       </div>
