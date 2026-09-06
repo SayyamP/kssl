@@ -407,9 +407,16 @@ def plan_profiles(cur, profiles):
             set_["sales"] = {"text": p["sales"], "fy": p["financial_year"],
                              "srcs": p["sources"][:3]}
         if p["global_locations"]:
+            # SEMICOLONS ONLY. The cell is a list separated by semicolons, and its items
+            # are prose that contains commas: "40+ countries; major markets/operations in
+            # UK, US, Europe, Saudi Arabia and Australia". Splitting on a comma before a
+            # capital cut that second item into four, so the Profile listed "US" and
+            # "Europe" as if they were separate locations. Measured over the 50-company
+            # workbook, the comma rule turned 107 real items into 239, of which 92 were
+            # one- or two-word fragments of a sentence.
             set_["global_locations"] = [x.strip() for x in
-                                        re.split(r"[;\n]|,(?=\s*[A-Z])",
-                                                 p["global_locations"]) if x.strip()]
+                                        re.split(r"[;\n]", p["global_locations"])
+                                        if x.strip()]
         if set_:
             updates.append((cid, p["company"], set_))
     return updates, unmatched, have
@@ -498,6 +505,17 @@ def demo():
                "Aerospace segment revenue NOK 25.32 billion"), \
         "a group total does not stop being one because a segment is mentioned after it"
     assert _ok("\u20b95,051.20 crore turnover"), "Tata Advanced Systems"
+
+    # GLOBAL LOCATIONS ARE SEMICOLON-SEPARATED, and their items contain commas. Real
+    # cell, and the one that showed "US" and "Europe" on the Profile as if each were a
+    # location of its own.
+    bae = ("40+ countries; major markets/operations in UK, US, Europe, Saudi Arabia "
+           "and Australia")
+    got = [x.strip() for x in re.split(r"[;\n]", bae) if x.strip()]
+    assert got == ["40+ countries",
+                   "major markets/operations in UK, US, Europe, Saudi Arabia and "
+                   "Australia"], got
+    assert len(got) == 2, "a comma inside an item is not a separator"
     assert _ok("\u00a369.06 million turnover"), "Supacat"
 
     # 1. the maker is official about its OWN product and a news mention about a
