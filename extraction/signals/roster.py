@@ -229,5 +229,25 @@ def _demo():
           "empty allowlist is a no-op")
 
 
+def head_org(label):
+    """The organisation the label is ABOUT.
+
+    Archive labels are compound: "IndianOil & ReNew Power", "GE Aviation (CFM
+    International)". Matching on any token of those published an L&T-IndianOil tie
+    on the word "renew" and a TASL-GE tie on the string "cfm". Only the first
+    organisation named counts -- plus its own acronym, when the bracket holds one
+    word ("(IAI)") rather than a second company ("(CFM International)")."""
+    # A SPACED ampersand joins two companies; an unspaced one is inside a name
+    # ("R&D", "M&M"), and splitting on it turned DRDO into "Defence R".
+    txt = re.split(r"\s+[&/,]\s+|\s*/\s*|\s*,\s*", (label or "").strip())[0]
+    m = re.match(r"\s*([^(]+?)\s*(?:\(([^)]*)\))?\s*$", txt)
+    if not m:
+        return txt
+    head, paren = m.group(1) or "", (m.group(2) or "").strip()
+    if paren and not re.search(r"[\s&/]", paren):
+        head = head + " (" + paren + ")"
+    return head
+
+
 if __name__ == "__main__":
     _demo()
