@@ -243,6 +243,56 @@ def verdict(src, out):
     return True, "ok"
 
 
+# Words that survive a translation still wearing their source language. Softer than
+# looks_translated() on purpose: ONE is enough to be worth a second ask, where the gate
+# needs two before it will call a whole line foreign.
+def foreign_residue(text, src=None):
+    """-> the tokens that still look untranslated. Empty means the line reads clean.
+
+    MEASURED IN PRODUCTION, not imagined: 6 of 174 translated lead-ins kept a single
+    source-language noun -- "41 mln dolarow will be used...", "armasuisse will procure
+    32 Serienfahrzeugen", "BrahMos ... e una joint venture". Only one of the six trips
+    looks_translated(), because Serienfahrzeugen and Prototyp carry no diacritic at all
+    and one accented word in twelve is under every threshold the gate has.
+
+    This CANNOT be fixed by tightening the gate. verdict() uses the gate to accept or
+    refuse, and a refused translation falls back to the untranslated source -- so a
+    stricter gate would replace "41 mln dolarow will be used for the modernization of
+    production facilities" with the whole Polish sentence. Strictly worse. The residue
+    needs a second ASK, not a rejection."""
+    out = []
+    # A WORD CARRIED VERBATIM OUT OF THE SOURCE IS A WORD THAT WAS NOT TRANSLATED, and
+    # it is the only dictionary-free way to see "Serienfahrzeugen", which has no
+    # diacritic and is in no function-word list. Restricted to LOWERCASE words of five
+    # letters or more, because proper nouns -- the things that are supposed to survive
+    # verbatim -- are capitalised, and short words collide with English constantly
+    # ("is", "in", "der" as a surname fragment). German nouns are capitalised too, so
+    # this still misses Serienfahrzeugen; it catches the Turkish and Polish cases.
+    carried = set()
+    if src:
+        low = {w.lower() for w in re.findall(r"[^\W\d_]+", str(src), re.UNICODE)}
+        carried = {w for w in re.findall(r"[a-z][a-z\-]{4,}", str(text or ""))
+                   if w in low}
+    for w in re.findall(r"[^\W\d_]+", str(text or ""), re.UNICODE):
+        if any(ord(c) > 127 for c in w) or w.lower() in _FOREIGN_FUNC \
+                or _fold(w.lower()) in _FOREIGN_FUNC or w in carried:
+            out.append(w)
+    return out
+
+
+_POLISH = """Each line below is in English except for a few words left in another
+language. Rewrite each line so that EVERY word is English.
+
+- Output exactly one line per input line, numbered the same way. Nothing else.
+- Change ONLY the words that are not English. Leave the rest of the line exactly as it is.
+- Do NOT translate names of people, companies, agencies, places, programmes or products.
+  Those stay as they are even when they are not English words.
+- Keep every number, date, unit, calibre and designator exactly as written.
+- These are product names and must not change: %s
+
+%s"""
+
+
 def needs_english(text, source_language=None):
     """Should this string be sent to the model at all? Two arms, and both are needed.
 
@@ -386,6 +436,49 @@ def translate_lines(lines, source_language=None, keep=(), stats=None):
             else:
                 bump("retry_no_better")
                 bump("retry_no_better_" + (why.split(":")[0] if not ok else "unchanged"))
+
+    # THE POLISH PASS. Everything above decides between a translation and the original;
+    # this decides between a translation and a BETTER translation, and can never return
+    # anything worse. Production put 6 of 174 lead-ins out with a single source-language
+    # noun still in them -- under every threshold the accept/refuse gate has, and
+    # unfixable by raising those thresholds, because a refusal falls back to the wholly
+    # untranslated source.
+    #
+    # One batched call for the whole card. The result is taken ONLY if it still passes
+    # verdict and carries strictly less residue than what we already had, so a model
+    # that mangles the line, or that dutifully leaves a place name alone, changes
+    # nothing and costs one call.
+    ragged = [i for i in idx
+              if out[i] != lines[i] and foreign_residue(out[i], lines[i])]
+    if ragged:
+        bump("polished_attempted", len(ragged))
+        body3 = "\n".join("%d. %s" % (n + 1, out[i].replace("\n", " "))
+                           for n, i in enumerate(ragged))
+        try:
+            raw3, via3 = _ask(_POLISH % (", ".join(_keep_list(keep)) or "(none)", body3))
+        except Exception:                                             # noqa: BLE001
+            bump("polish_failed")
+            return out
+        if FARM_ONLY and via3 != "farm":
+            bump("polish_refused_backend")
+            return out
+        got3 = {}
+        for line in (raw3 or "").splitlines():
+            m = re.match(r"\s*[-*]?\s*\**(\d+)\**[.)]\s*(.+?)\s*$", line)
+            if m:
+                got3[int(m.group(1))] = m.group(2)
+        for n, i in enumerate(ragged):
+            cand = got3.get(n + 1)
+            if not cand:
+                continue
+            ok, _why = verdict(lines[i], cand)
+            before = len(foreign_residue(out[i], lines[i]))
+            after = len(foreign_residue(cand, lines[i]))
+            if ok and after < before:
+                out[i] = cand
+                bump("polished")
+            else:
+                bump("polish_no_better")
     return out
 
 

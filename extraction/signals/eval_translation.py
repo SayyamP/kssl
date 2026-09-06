@@ -21,7 +21,6 @@ sys.path.insert(0, str(HERE))
 import translate as T                                                  # noqa: E402
 
 DSN = os.environ.get("KSSL_DSN", "postgresql://postgres:kssl@127.0.0.1:5460/kssl")
-CAPS_RX = re.compile(r"\b[A-Z][A-Za-z]{2,}\b")
 # Han, hiragana, katakana, Hangul: scripts where one character carries a word.
 CJK_RX = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]")
 
