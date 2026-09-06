@@ -194,6 +194,15 @@ case "${1:-worker}" in
         python3 serving_fill.py --regate || log "regate report failed (continuing)"
       fi
       python3 serving_fill.py --limit "${KSSL_SIGNALS_LIMIT:-1000}" || log "signal fill failed (continuing)"
+      # AND THE SAME PROBLEM THE REGATE ABOVE SOLVES, FOR LANGUAGE. fill() only visits
+      # documents with no card, so the English lead-ins it now writes reach tomorrow's
+      # cards and none of the 311 already served off a non-English source. This rebuilds
+      # those in place. It costs one model call per non-English card and nothing at all
+      # for an English one -- measured on staging, 186 of 210 statements never reach the
+      # model -- so it is cheap to run every cycle and is what keeps the tab in English
+      # as the corpus grows.
+      python3 serving_fill.py --retranslate --apply \
+              --limit "${KSSL_RETRANSLATE_LIMIT:-200}" || log "retranslate failed (continuing)"
       sleep "${SIGNALS_EVERY_S:-120}"
     done
     ;;

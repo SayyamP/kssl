@@ -321,7 +321,15 @@ RULES for spans:
   evidence   = the EXACT sentence fragment from the text that states this
 
 Write gloss and in_article in English even when the text is not.
-Copy "text" and "evidence" verbatim from the text — do not translate, correct or reformat them."""
+Copy "text" and "evidence" verbatim from the text — do not translate, correct or reformat them.
+Write subject, predicate and object in THE TEXT'S OWN LANGUAGE, all three the same. These
+three fell under neither rule above, so the model chose per triple and often per word, and
+the served rows read "sette veicoli ruotati 8x8 Centauro II are forniti" -- an English verb
+welded to an Italian subject and object. Source language, not English: prop_arg.method
+'exact' requires arg_text to match a span verbatim, and glance._anchor_prop ties a span to
+a card by matching the company name inside subject/object, so an English "Italian Army"
+would ground against nothing on a document that says "Esercito Italiano". The serving layer
+translates the lead-in for display (signals/translate.py); the grounding stays anchored."""
 
 
 def _salvage(raw):

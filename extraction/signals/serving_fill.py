@@ -41,6 +41,7 @@ import corpus  # noqa: E402  (the article's stored markup, one fetch per card)
 from article_date import pick_date as pick_html_date  # noqa: E402
 from article_image import resolve_image  # noqa: E402
 import glance  # noqa: E402  ("At a glance" rows from typed spans, each with its quote)
+import translate  # noqa: E402  (source-language lead-ins -> English; never the quote)
 
 DSN = os.environ.get("KSSL_DSN", "host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl")
 # NOT used by this module any more -- every model call here goes through the LLM API.
@@ -1638,11 +1639,21 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         facts = [["Company", esc(card["company"])], ["Category", card["category"]],
                  ["Date", date_label(ymd)]]
         facts += glance_rows(cur, did, card["company"], card["title"], stats)
+        # THE LEAD-IN IS TRANSLATED; THE QUOTE NEVER IS. `ev_quote` is located in the
+        # article by offset, so it is provably the publisher's sentence -- translating
+        # it would put words inside quotation marks that nobody wrote. subject /
+        # predicate / object are not located at all: comprehend asks for "a SHORT
+        # phrase" and caps them, so they are the extraction model's own paraphrase, and
+        # its language is unspecified by that prompt. That is why the served rows read
+        # "sette veicoli ruotati 8x8 Centauro II are forniti" -- an English verb welded
+        # to an Italian subject. Translating a paraphrase invents nothing.
+        lead = ["%s %s %s" % (s, p, o) for s, p, o, _m, q in props[:6]]
+        lead = translate.translate_lines(lead, lang, keep=product_names(cur, did),
+                                         stats=stats)
         s0, p0, o0 = props[0][0], props[0][1], props[0][2]
-        what = esc(card["what"] or "%s %s %s." % (s0, p0, o0))
-        lens = [["STATEMENT", "%s — <i>&ldquo;%s&rdquo;</i>"
-                 % (esc("%s %s %s" % (s, p, o)), esc(q or ""))]
-                for s, p, o, _m, q in props[:6]]
+        what = esc(card["what"] or (lead[0] + "." if lead else "%s %s %s." % (s0, p0, o0)))
+        lens = [["STATEMENT", "%s — %s" % (esc(lead[i]), quote_html(q, lang))]
+                for i, (s, p, o, _m, q) in enumerate(props[:6])]
         cur.execute("""INSERT INTO serving.signal_detail
                          (id, ord, rank, dir, title, facts, what, why, lens, actions, url,
                           suggest, image, origin)
@@ -1678,6 +1689,34 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
     return stats
 
 
+def quote_html(q, language=None):
+    """The publisher's own sentence, marked with the language it is in.
+
+    `lang=` is the semantically correct marker -- screen readers switch voice on it,
+    the browser hyphenates by it, and the font stack falls back by it -- and it costs
+    the frontend nothing: statementRows passes the string through unchanged."""
+    lang = (language or "").strip().lower()[:5]
+    tag = ' lang="%s"' % esc(lang) if lang and lang != "en" else ""
+    return "<i%s>&ldquo;%s&rdquo;</i>" % (tag, esc(q or ""))
+
+
+def product_names(cur, did):
+    """This document's own product and platform spans, for the translator's keep-list.
+
+    Polish armoured vehicles are animals almost as a rule -- Rosomak is a wolverine,
+    Borsuk a badger -- and so are the German and Hebrew ones. A translator that does
+    not know Rosomak is a vehicle turns an armoured column into a zoo. These spans are
+    offset-exact, so they are the document's own evidence of what its product names
+    are, not a guess."""
+    try:
+        cur.execute("""SELECT DISTINCT text FROM extracted.span
+                        WHERE document_id=%s AND type IN ('Product','WeaponSystem','Platform')
+                          AND length(text) BETWEEN 3 AND 40""", (did,))
+        return [r[0] for r in cur.fetchall()]
+    except Exception:                                              # noqa: BLE001
+        return []
+
+
 def glance_rows(cur, did, company, title, stats=None):
     """The typed-span rows of "At a glance" for one document: [[label, value, quote], ...].
 
@@ -1704,6 +1743,147 @@ def glance_rows(cur, did, company, title, stats=None):
         stats["glance_rows"] = stats.get("glance_rows", 0) + len(rows)
         stats["glance_refused"] = stats.get("glance_refused", 0) + sum(refused.values())
     return rows
+
+
+def retranslate(dsn=DSN, limit=None, verbose=True, only=None, apply=False):
+    """English lead-ins for cards ALREADY served. The forward path only reaches tomorrow's.
+
+    fill() selects documents with NO signal_card and NO signal_seen row, so a card is
+    written once and never revisited -- exactly the reason `reglance` exists, and this
+    is shaped like it. Without this pass, integrating the translator changes nothing a
+    reader can see: 311 of 949 served cards come from a non-English document (192 with
+    a language recorded, 119 whose document row has since been pruned).
+
+    Rebuilds `lens` in place from the stored propositions. The quote is re-emitted from
+    the same source, so a card that needs no translation is rewritten byte-identically
+    and reports as unchanged."""
+    import psycopg2
+    con = psycopg2.connect(dsn)
+    cur = con.cursor()
+    # THE WINDOW HAS TO ADVANCE. This selected `ORDER BY d.id LIMIT 200` with nothing
+    # recording what it had already done, and the entrypoint runs it every signals
+    # cycle -- so the same first 200 of 949 cards were re-asked forever and cards
+    # 201..949 were never reached at all. Roughly 17 minutes of farm time per cycle
+    # per replica, for no change, while two thirds of the corpus stayed foreign.
+    #
+    # `translated` holds the prompt version the row was last done under, so a row is
+    # selected only when it has never been translated or was translated under an older
+    # prompt. Oldest first, so a re-run continues rather than restarts. Bumping
+    # translate.PROMPT_VERSION re-queues the corpus for exactly one pass.
+    #
+    # FOR UPDATE SKIP LOCKED because the signals role runs three replicas: without it
+    # they pick the same rows and the last writer wins non-deterministically between a
+    # refused and a translated line.
+    cur.execute("""SELECT d.id, doc.language::text
+                     FROM serving.signal_detail d
+                     LEFT JOIN extracted.document doc
+                            ON doc.document_id = substring(d.id from 4)
+                    WHERE d.origin='pipeline' AND d.id LIKE 'pl\\_%%'
+                      AND (%s IS NULL OR d.id = %s)
+                      AND (%s OR d.translated IS DISTINCT FROM %s)
+                    ORDER BY d.translated NULLS FIRST, d.updated_at
+                    LIMIT %s
+                      FOR UPDATE OF d SKIP LOCKED""",
+                (only, only, bool(only), translate.PROMPT_VERSION, limit or 10 ** 9))
+    cards = cur.fetchall()
+    stats = {"cards": len(cards), "changed": 0}
+    for cid, lang in cards:
+        did = cid[3:]
+        cur.execute("""SELECT subject, predicate, object, ev_quote
+                         FROM extracted.proposition WHERE document_id=%s
+                        ORDER BY i LIMIT 6""", (did,))
+        props = cur.fetchall()
+        if not props:
+            continue
+        lead = translate.translate_lines(["%s %s %s" % (s, p, o) for s, p, o, _q in props],
+                                         lang, keep=product_names(cur, did), stats=stats)
+        lens = [["STATEMENT", "%s — %s" % (esc(lead[i]), quote_html(q, lang))]
+                for i, (_s, _p, _o, q) in enumerate(props)]
+        # AND THE PROSE, WHICH WAS ALREADY SUPPOSED TO BE ENGLISH. The card prompt says
+        # "Write title, what and sowhat in ENGLISH, whatever language the statements
+        # are in", and mostly the model obeys -- 0 of 949 titles are foreign. Mostly:
+        # 5 served rows are Dutch or German prose ("Defensie en Thales Nederland hebben
+        # een strategische samenwerking gesloten"). These are the model's own words,
+        # under no verbatim rule, so they are translated like the lead-in. Each field
+        # is judged on its own string, so an English one costs nothing.
+        cur.execute("""SELECT d.lens, d.what, d.why, c.sowhat
+                         FROM serving.signal_detail d
+                         LEFT JOIN serving.signal_card c ON c.id = d.id
+                        WHERE d.id=%s""", (cid,))
+        old_lens, old_what, old_why, old_sowhat = cur.fetchone()
+        old_lens = old_lens if isinstance(old_lens, list) else json.loads(old_lens or "[]")
+        # UNESCAPE ON THE WAY IN, ESCAPE ON THE WAY OUT. These columns were written
+        # through esc() by fill(), so they hold "&amp;" and "&lt;" -- sending that to
+        # the model asks it to translate HTML entities, and it duly carries them along
+        # or mangles them. Worse in the other direction: the result used to be written
+        # back with no esc() at all, so a model that emitted a bare "&" or "<" put raw
+        # markup into a column the frontend renders as HTML. reglance() already
+        # unescapes what it reads back (see its `_html.unescape(company)`); same here.
+        prose_in = [_html.unescape(x or "") for x in (old_what, old_why, old_sowhat)]
+        prose = translate.translate_lines(prose_in, lang, stats=stats)
+        what2, why2, sowhat2 = [esc(x) for x in prose]
+        if old_lens == lens and (what2, why2, sowhat2) == (esc(_html.unescape(old_what or "")),
+                                                           esc(_html.unescape(old_why or "")),
+                                                           esc(_html.unescape(old_sowhat or ""))):
+            # UNCHANGED STILL COUNTS AS DONE. Most cards are English and need nothing;
+            # if only the rewritten ones were stamped, every English card would be
+            # re-examined on every cycle and the window would never pass them.
+            if apply:
+                cur.execute("""UPDATE serving.signal_detail SET translated=%s
+                                WHERE id=%s""", (translate.PROMPT_VERSION, cid))
+                con.commit()
+            stats["already"] = stats.get("already", 0) + 1
+            continue
+        stats["changed"] += 1
+        if verbose:
+            print("  %s [%s]" % (cid, lang or "?"), flush=True)
+            for a, b in zip(old_lens, lens):
+                if a != b:
+                    print("    - %s" % str(a[1])[:110])
+                    print("    + %s" % str(b[1])[:110])
+            for nm, a, b in (("what", old_what, what2), ("why", old_why, why2),
+                             ("sowhat", old_sowhat, sowhat2)):
+                if (a or "") != b:
+                    print("    - %s: %s" % (nm, str(a)[:100]))
+                    print("    + %s: %s" % (nm, str(b)[:100]))
+        if apply:
+            cur.execute("""UPDATE serving.signal_detail
+                              SET lens=%s, what=%s, why=%s, translated=%s,
+                                  updated_at=now()
+                            WHERE id=%s""",
+                        (json.dumps(lens), what2, why2, translate.PROMPT_VERSION, cid))
+            if old_sowhat is not None and sowhat2 != old_sowhat:
+                cur.execute("""UPDATE serving.signal_card SET sowhat=%s, updated_at=now()
+                                WHERE id=%s""", (sowhat2, cid))
+            # COMMIT PER CARD. A single commit after the loop meant a pass that died --
+            # or was simply still running -- had written nothing at all: 104 cards and
+            # 25 minutes of model work sat in an open transaction, invisible, and a
+            # timeout would have discarded every one of them. This is the same shape
+            # step_partnerships was fixed for, reproduced here. The entrypoint runs this
+            # with --limit 200 every signals cycle, so the window was ~25 minutes of
+            # work per cycle riding on nothing going wrong. Each card is independent,
+            # so each card is its own unit of progress.
+            con.commit()
+    if apply:
+        con.commit()                      # anything the last card left open
+    print("retranslate: %d card(s) scanned, %d rewritten; lines %s%s"
+          % (stats["cards"], stats["changed"],
+             {k: v for k, v in sorted(stats.items()) if k not in ("cards", "changed")},
+             "" if apply else "  (dry run -- nothing written)"), flush=True)
+    con.close()
+    # A PASS THAT ASKED AND STORED NOTHING IS AN OUTAGE, NOT A QUIET SUCCESS. The
+    # farm-only guard compares meta["via"] to the string "farm"; a renamed alias, or
+    # routing through the Pune farm with a different via, refuses every answer for
+    # ever. Exiting 0 would leave the entrypoint's `|| log` silent and new cards going
+    # out untranslated with nothing in the log to say why.
+    if stats.get("asked") and not (stats.get("translated") or
+                                   stats.get("translated_on_retry")):
+        print("[ALERT] retranslate: asked for %d line(s) and stored none -- backend "
+              "refusals %d, failures %d. Check C_MODEL and that llmapi reports "
+              "via='farm'." % (stats["asked"], stats.get("refused_backend", 0),
+                               stats.get("failed", 0)), file=sys.stderr, flush=True)
+        return None
+    return stats
 
 
 # The rows every pipeline card already carried; everything after them is re-derived.
@@ -2036,6 +2216,9 @@ if __name__ == "__main__":
                     help="re-run the subject gate over the SERVED cards and report; "
                          "add --apply to delete the rows that fail it")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--retranslate", action="store_true",
+                    help="rebuild the served statements of stored cards with English "
+                         "lead-ins (the forward path only reaches new documents)")
     ap.add_argument("--recard", action="store_true",
                     help="with --regate --apply: also release the signal_seen claim "
                          "on the deleted documents so the pipeline judges them again")
@@ -2046,5 +2229,8 @@ if __name__ == "__main__":
         reglance(a.dsn, limit=a.limit, only=a.only)
     elif a.regate:
         regate(a.dsn, apply=a.apply, recard=a.recard)
+    elif a.retranslate:
+        if retranslate(a.dsn, limit=a.limit, only=a.only, apply=a.apply) is None:
+            sys.exit(1)
     else:
         fill(a.dsn, limit=a.limit, only=a.only)

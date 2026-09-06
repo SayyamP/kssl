@@ -120,10 +120,19 @@ export default function DetailPanel({ detail, onClose }) {
 
         {/* The statements the record already carried and nothing rendered: up to six
             propositions from the extraction layer, each shown WITH the article sentence
-            that proves it. They are the article's own words, in the article's own
-            language -- a signal off an Italian or Polish source reads in Italian or
-            Polish here, and translating it would be putting words the publisher never
-            wrote inside quotation marks. */}
+            that proves it.
+
+            HALF OF EACH ROW IS THE PUBLISHER'S WORDS AND HALF IS NOT, and this comment
+            used to claim both were. The quoted half is `ev_quote`, located in the
+            article by character offset (ev_start/ev_end are NOT NULL in the schema), so
+            it is provably the publisher's sentence: it stays in the article's own
+            language, carries a lang= tag, and is never translated -- doing so would put
+            words inside quotation marks that nobody wrote. The lead-in before the dash
+            is NOT located and never was: comprehend asks the model for "a SHORT phrase,
+            max 6 words" and caps it, so it is the extraction layer's paraphrase. It is
+            rendered in English, because translating a paraphrase invents nothing and
+            leaving it alone produced rows like "sette veicoli ruotati 8x8 Centauro II
+            are forniti" -- an English verb welded to an Italian subject and object. */}
         {!isTender && statements.length ? (
           <div className="ctx-sec">
             <span className="eyebrow">What the article says</span>
