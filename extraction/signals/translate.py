@@ -63,7 +63,9 @@ _PROMPT = """Translate each numbered line into English.
 
 RULES
 - Output exactly one line per input line, numbered the same way. Nothing else.
-- A line already in English is copied out unchanged.
+- A line copied out unchanged ONLY if EVERY word of it is already English. A line that
+  mixes languages is not an English line: "kokous gathered maanantaina" and "Bu
+  uçakların alımı is not correct" must come back fully in English.
 - Keep every number, date, quantity, calibre, unit and designator exactly as written.
 - Keep proper nouns as written: companies, agencies, people, places, programmes.
 - KEEP THESE EXACTLY AS WRITTEN, they are product names even where they are also
@@ -89,6 +91,15 @@ KEEP_ALWAYS = ("Rosomak", "Borsuk", "Krab", "Rak", "Kryl", "Piorun", "Grot", "Bo
                "Centauro", "Freccia", "Lince", "Ariete", "Dardo",
                "Griffon", "Jaguar", "Serval", "Caesar", "Rafale", "Mirage",
                "Piranha", "Eagle", "Cougar", "Panther", "Tiger", "Gepard")
+
+
+# Asked alone and told the line is NOT English, rather than given six at once with an
+# invitation to copy any of them out.
+_RETRY = """This line is NOT in English. Translate ALL of it into English, including
+any words that already look English. Keep every number, unit, designator and proper
+noun exactly as written. Output the translation and nothing else.
+
+%s"""
 
 
 def _keep_list(extra=()):
@@ -163,10 +174,20 @@ def looks_translated(text):
     letters = [c for c in t if c.isalpha()]
     if letters and sum(1 for c in letters if ord(c) > 127) / len(letters) > 0.12:
         return False                                  # Cyrillic, Hebrew, CJK, Arabic
-    hits = _foreign_hits(t)
     toks = re.findall(r"[^\W\d_]+", t, re.UNICODE)
     if not toks:
         return True
+    # A WORD CARRYING A DIACRITIC IS A FOREIGN WORD. The function-word test alone is
+    # blind to agglutinative languages: Finnish and Turkish pack their grammar into
+    # suffixes, so "kokous gathered maanantaina iltapaivalla" and "test programi
+    # includes inskah testleri" have almost no short function words and read as English
+    # to it. Both were served untranslated. Counting WORDS with a non-ASCII letter --
+    # rather than the letter ratio, which two umlauts in a long sentence never reach --
+    # catches them. Measured on the 600 real English lead-ins: 0 false positives.
+    dia = [w for w in toks if any(ord(c) > 127 for c in w)]
+    if len(dia) >= 2 or (dia and len(dia) / len(toks) >= 0.15):
+        return False
+    hits = _foreign_hits(t)
     # One hit is a loanword or a name ("Direction generale de l'armement", "von
     # Braun"); two or a tenth of the string is a sentence in another language.
     return len(hits) < 2 or len(hits) / len(toks) < 0.10
@@ -257,18 +278,44 @@ def translate_lines(lines, source_language=None, keep=(), stats=None):
         m = re.match(r"\s*(\d+)[.)]\s*(.+?)\s*$", line)
         if m:
             got[int(m.group(1))] = m.group(2)
+    stubborn = []
     for n, i in enumerate(idx):
         cand = got.get(n + 1)
         if cand is None:
             bump("no_line")
             continue
         ok, why = verdict(lines[i], cand)
+        if ok and why == "unchanged" and not looks_translated(lines[i]):
+            # THE MODEL DECLINED A LINE IT SHOULD HAVE TRANSLATED. Measured on Finnish
+            # and Turkish: given six lines at once, three or four come back byte-for-byte
+            # because a half-English line reads as an English line. Asked again, alone
+            # and explicitly, the same model translates it.
+            stubborn.append(i)
+            continue
         if ok:
             out[i] = cand
             bump("translated" if why != "unchanged" else "model_said_unchanged")
         else:
             bump("refused")
             bump("refused_" + why.split(":")[0])
+    for i in stubborn:
+        bump("retried")
+        try:
+            raw2, via2 = _ask(_RETRY % lines[i])
+        except Exception:                                             # noqa: BLE001
+            bump("retry_failed")
+            continue
+        if FARM_ONLY and via2 != "farm":
+            bump("refused_backend")
+            continue
+        cand = (raw2 or "").strip().splitlines()
+        cand = cand[0].strip() if cand else ""
+        ok, why = verdict(lines[i], cand)
+        if ok and why != "unchanged":
+            out[i] = cand
+            bump("translated_on_retry")
+        else:
+            bump("retry_no_better")
     return out
 
 
