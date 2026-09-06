@@ -24,6 +24,10 @@ So each row is rebuilt rather than copied:
 
 A row whose pairing itself cannot be grounded is not written at all.
 """
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from _superseded import refuse_if_superseded  # noqa: E402
+refuse_if_superseded(__file__)   # this copy is superseded; see the module
 import argparse
 import collections
 import io
@@ -1184,6 +1188,7 @@ def _demo():
 
 
 if __name__ == "__main__":
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--apply", action="store_true")
     ap.add_argument("--limit", type=int, default=None)

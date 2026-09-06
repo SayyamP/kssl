@@ -39,6 +39,10 @@ Known schema deviations from the natural keys one would pick (reported, not hidd
     source_registry (ord), company_source (company,ord), tender/matchup ids) get the
     pipeline range offset ORD0=1000 so reference rows are never collided with.
 """
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from _superseded import refuse_if_superseded  # noqa: E402
+refuse_if_superseded(__file__)   # this copy is superseded; see the module
 import argparse
 import json
 import re
@@ -1824,6 +1828,7 @@ def _demo():
 
 
 if __name__ == "__main__":
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--dsn", default=DSN)
     ap.add_argument("--only", choices=[s for s, _ in STEPS])

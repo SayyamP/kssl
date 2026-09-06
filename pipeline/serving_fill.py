@@ -33,6 +33,10 @@ WHAT KEEPS THIS HONEST
     never a half-written row.
   * Idempotent: cards are keyed pl_<document_id>, so re-running replaces rather than duplicates.
 """
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from _superseded import refuse_if_superseded  # noqa: E402
+refuse_if_superseded(__file__)   # this copy is superseded; see the module
 import argparse
 import html as _html
 import json
@@ -846,6 +850,7 @@ def _demo():
 
 
 if __name__ == "__main__":
+
     ap = argparse.ArgumentParser()
     ap.add_argument("--dsn", default=DSN)
     ap.add_argument("--limit", type=int, default=None)
