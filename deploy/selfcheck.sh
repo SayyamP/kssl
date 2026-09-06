@@ -22,6 +22,11 @@ C_TIERS_PATH=extraction/engine/source_tiers.py \
   python extraction/engine/route.py --demo
 # The audit regressions.
 (cd extraction && python test_fixes.py)
+# The gap loop: which serving column is empty on which competitor, and which corpus
+# documents answer it. Its judgement is one function -- does this document speak to
+# THIS field for THIS company -- and getting it wrong either floods the queue or
+# silently queues nothing, both of which look identical in a log line.
+(cd extraction && python backfill_gaps.py --demo)
 
 # The signals modules import each other by bare filename, so they run from their own
 # directory. The test_*.py loop is deliberate: a new regression test is picked up by
