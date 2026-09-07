@@ -61,7 +61,17 @@ permissions:
 
 jobs:
   resolve:
-    runs-on: ubuntu-latest
+    # RESOLVE CANNOT USE `needs.resolve.outputs.runner` -- it is the job that computes it.
+    # So the branch -> runner mapping is spelled out once more here, and only here. The
+    # two must agree; test_runner_paths.py asserts they do, because a drift would put
+    # this job on a GitHub runner while everything downstream waited on a self-hosted one.
+    #
+    # Same two variables, same default: unset (or anything but 'true') is ubuntu-latest,
+    # which is the ssh path and the state this repository is in today.
+    runs-on: ${{ fromJSON(
+      (github.ref_name == 'main'    && vars.SELF_HOSTED_PROD    == 'true' && '["self-hosted","prod"]')
+      || (github.ref_name == 'staging' && vars.SELF_HOSTED_STAGING == 'true' && '["self-hosted","staging"]')
+      || '["ubuntu-latest"]') }}
     outputs:
       sha: ${{ steps.pick.outputs.sha }}
       env: ${{ steps.pick.outputs.env }}
@@ -163,7 +173,10 @@ jobs:
   # `build` and `deploy` left the arbitrary code running anyway.
   selfcheck:
     needs: resolve
-    runs-on: ubuntu-latest
+    # Follows resolve, so the whole workflow lands on one environment's runner or none of
+    # it does. These checks are hermetic -- no database, no network beyond pip, no model
+    # call -- so running them on the deploy target costs it nothing but CPU.
+    runs-on: ${{ fromJSON(needs.resolve.outputs.runner) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -171,8 +184,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      # A SELF-HOSTED RUNNER'S TOOL CACHE OUTLIVES THE JOB, AND THIS JOB pip-INSTALLS.
+      #
+      # deploy/selfcheck.sh opens with `pip install -r extraction/requirements.txt`. On
+      # GitHub's disposable machines that lands in a Python thrown away minutes later. On
+      # a runner that persists, it lands in the tool cache and STAYS -- so a requirement
+      # deleted from requirements.txt would go on being importable, and the gate whose
+      # entire job is catching that would pass. A stale package masking a missing
+      # dependency is the exact failure this script exists to prevent.
+      #
+      # $RUNNER_TEMP is cleared between jobs on both kinds of runner, so a venv there is
+      # empty every run. Prepending it to $GITHUB_PATH makes the `python` and `pip` that
+      # selfcheck.sh calls resolve to it, with no change to the script -- which ci.yml
+      # also calls, and which should stay one script.
+      - name: Fresh venv, so a persistent runner cannot fake a passing gate
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
       - name: Extraction + serving self-checks
-        run: bash deploy/selfcheck.sh
+        run: |
+          echo "python: $(command -v python)  ($(python -V))"
+          bash deploy/selfcheck.sh
 
       - uses: actions/setup-node@v4
         with:
@@ -194,7 +226,10 @@ jobs:
 
   build:
     needs: resolve
-    runs-on: ubuntu-latest
+    # Builds on the machine that will run the images, which is also what keeps the two
+    # environments apart: a staging build never touches VPS-B. Both boxes are x86_64, the
+    # same architecture ubuntu-latest was producing, so the images are unchanged.
+    runs-on: ${{ fromJSON(needs.resolve.outputs.runner) }}
     strategy:
       fail-fast: false
       matrix:

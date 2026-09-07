@@ -5,8 +5,26 @@ and VPS-A picks the deploy job up, and the deploy becomes a local operation: an 
 between two directories on one disk, then `deploy/deploy.sh`. GitHub never opens a
 connection into either machine.
 
+**All four Deploy jobs** — `resolve`, `selfcheck`, `build`, `deploy` — run there, so a
+push to `main` or `staging` consumes no GitHub-hosted minutes at all. `build` producing
+the images on the box that will run them is also what keeps the environments apart: a
+staging build never touches VPS-B. Both boxes are `x86_64`, the architecture
+`ubuntu-latest` was already producing, so the images themselves are unchanged.
+
 `dev` has no runner and still deploys over ssh from a GitHub-hosted machine. Both paths
 live in `deploy.yml` side by side, selected by `runner.environment`.
+
+**`ci.yml` stays entirely on `ubuntu-latest` and is still billed.** It has a
+`pull_request` trigger, so it must. Arming an environment therefore removes the Deploy
+workflow's minutes, not the repository's whole bill.
+
+### One job at a time
+
+A runner process runs a single job. `selfcheck` and `build`'s three matrix legs, which
+used to run in parallel on four GitHub machines, now serialise on one box — a Deploy run
+goes from roughly 7 minutes to roughly 12. There is no deadlock: the jobs form a DAG and
+each finishes before the next starts. If that ever matters, install a second runner
+instance on the same box with the same labels; nothing in the workflow changes.
 
 ## Why
 
@@ -60,12 +78,25 @@ routed around, with no revert and no redeploy.
 
 The order that keeps a working path at every step:
 
-1. Install the runner on **VPS-A** and confirm it reads Idle.
-2. Set `SELF_HOSTED_STAGING=true`.
-3. Push to `staging`. Confirm the run's job header names the `kssl-staging` runner, that
-   the log shows `Sync source + recreate frontend/backend (local)` and **not** the ssh
-   step, and that the health gate passes.
-4. Only then install the **VPS-B** runner and set `SELF_HOSTED_PROD=true`.
+1. **Register VPS-A.** `RUNNER_TOKEN=… /root/install-runner.sh staging`, then confirm
+   `systemctl is-active` **and** `is-enabled` on the box, and that it reads **Idle** in
+   Settings → Actions → Runners with labels `self-hosted, staging`.
+2. **Arm staging only.** Set `SELF_HOSTED_STAGING=true`. Leave `SELF_HOSTED_PROD` unset.
+3. **Deploy staging** — push to `staging`, or dispatch it. Then prove from the log:
+   - all four jobs name the `kssl-staging` runner in their headers;
+   - `Sync source + recreate frontend/backend (local)` ran;
+   - the two ssh steps were **skipped**;
+   - the marker line reads `marker 'staging' — ok for a staging deploy`;
+   - the GHCR pull succeeded and the health gate passed;
+   - `docker inspect -f '{{.Config.Image}}' kssl-stg-{frontend,backend}` both end in the
+     deployed SHA.
+4. **Register VPS-B and arm prod** — only after step 3 passes. `DEPLOY_ENABLED` still
+   gates production independently; it is not replaced by these variables.
+5. **Deploy prod once, controlled.** Same six checks against `kssl-{frontend,backend}`,
+   plus `/` and `/ops/` still answering 200.
+
+Until step 2, nothing changes: with both variables unset every job resolves to
+`ubuntu-latest` and takes the ssh path, which is the state the repository is in today.
 
 ## Three guards against deploying to the wrong environment
 
