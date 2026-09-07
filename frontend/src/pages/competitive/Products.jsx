@@ -301,7 +301,12 @@ export default function Products() {
   // Get products for currently selected company
   const companyProducts = useMemo(() => {
     const isClient = selectedCid === clientCid;
-    const matchups = Object.values(data.matchups || {});
+    /* THE MATCHUP ID IS THE KEY, NOT A FIELD ON THE VALUE. This read
+       Object.values, so `m.id` below was always undefined and every product id fell
+       back to its NAME -- which is also why nothing here could offer a jump into
+       Positioning: the one thing that page needs to open a pairing was being thrown
+       away one line before it was wanted. */
+    const matchups = Object.entries(data.matchups || {}).map(([id, m]) => ({ ...m, id }));
     const prods = [];
     const seen = new Set();
 
@@ -340,6 +345,7 @@ export default function Products() {
             const specsObj = productSpecs(m.specs, "comp", formatCategoryTitle);
             prods.push({
               id: `comp-${m.id || name}`,
+              matchupId: m.id || null,
               name: formatProductName(name),
               company: selectedCompany.name,
               category: formatCategoryTitle(m.cat),
@@ -1246,8 +1252,37 @@ export default function Products() {
                               {p.category}
                             </span>
                             <span style={{ fontSize: "12px", color: "var(--fav-badge)", fontFamily: "var(--mono)", fontWeight: "600" }}>
-                              View Specs ↗
+                              View Specs
                             </span>
+                            {/* PRODUCT -> POSITIONING -> COMPARISON. "View Specs ↗" carried
+                                that arrow and went nowhere: it opened the panel below, on
+                                this same page. The jump it was promising needs the matchup
+                                id, which this page was discarding -- see the Object.entries
+                                note above. Only shown when the product is actually paired;
+                                an unpaired product has no comparison to open. */}
+                            {p.matchupId ? (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  jumpTo("competitive", "positioning", { matchupId: p.matchupId });
+                                }}
+                                title={`Compare ${p.name} against the KSSL model it is paired with`}
+                                style={{
+                                  background: "transparent",
+                                  border: "1px solid var(--d-line)",
+                                  borderRadius: "5px",
+                                  color: "var(--d-txt-2)",
+                                  cursor: "pointer",
+                                  fontFamily: "var(--mono)",
+                                  fontSize: "11px",
+                                  fontWeight: "600",
+                                  padding: "3px 8px",
+                                }}
+                              >
+                                Compare ↗
+                              </button>
+                            ) : null}
                           </div>
                         </div>
                       ))}

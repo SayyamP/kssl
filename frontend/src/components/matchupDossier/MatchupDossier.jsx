@@ -13,7 +13,7 @@ const TABS = [
 
 /* The right-hand dossier for one matchup: verdict, gap block, product identity,
    then three tabs. The CEO report is generated on demand into the third tab. */
-export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTender }) {
+export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTender, onOpenProduct }) {
   const [tab, setTab] = useState("adv");
   const [report, setReport] = useState(null);
   const [generating, setGenerating] = useState(false);
@@ -122,7 +122,28 @@ export default function MatchupDossier({ m, data, gapModel, onClose, onJumpToTen
         <div className="mu-sec pp2-sec">
           <div className="pp2">
             <div className="pp2-col comp">
-              <div className="pp2-name">{m.comp}</div>
+              {/* THE RIVAL PRODUCT OPENS ITS OWN PAGE. This was the pairing's headline
+                  and nothing else -- a reader looking at "BAE Systems Bofors · Archer"
+                  had no way from here to Archer's own specification sheet, and had to go
+                  back to Products and find it by name. The rail still selects the
+                  pairing; it is the NAME that navigates, so neither behaviour costs the
+                  other. Plain text when no handler is supplied, so this component still
+                  renders standalone. */}
+              {onOpenProduct ? (
+                <button
+                  type="button"
+                  className="pp2-name"
+                  onClick={() => onOpenProduct(m)}
+                  title={`Open ${m.comp} in Products`}
+                  style={{ background: "none", border: 0, padding: 0, font: "inherit",
+                           color: "inherit", cursor: "pointer", textAlign: "left",
+                           textDecoration: "underline" }}
+                >
+                  {m.comp}
+                </button>
+              ) : (
+                <div className="pp2-name">{m.comp}</div>
+              )}
               <div className="pp2-line comp" />
               {compDesc ? <div className="pp2-desc">{compDesc}</div> : null}
             </div>

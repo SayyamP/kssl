@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
-import { companyNews, feedSplit, FEED_N, collapseThreads } from "../../lib/news";
+import { companyNews, feedSplit, FEED_N, collapseThreads,
+         NEWS_MAX, NEWS_WINDOWS, NEWS_WINDOW_DEFAULT, windowDays, withinWindow, capNews } from "../../lib/news";
 import { facetOptionsByName, tidyHq } from "../../lib/countryFacet";
 import Thumb from "../../components/thumb/Thumb.jsx";
-import SourceLink from "../../components/sourceLink/SourceLink.jsx";
+import SourceLink, { SourceChip } from "../../components/sourceLink/SourceLink.jsx";
 import { detailLine, listLine } from "../../lib/companyNames";
 
 // Helper function to extract clean company short name without full form or legal suffixes
@@ -179,6 +180,9 @@ export default function Profile() {
 
   // News category filter pill & active open article state for White Detail Window
   const [newsFilter, setNewsFilter] = useState("All");
+  /* How far back counts as current. The reader's choice, not a constant -- see
+     lib/news.NEWS_WINDOWS. The 15-card cap below is the panel's and is not. */
+  const [newsWindow, setNewsWindow] = useState(NEWS_WINDOW_DEFAULT);
   const [activeArticle, setActiveArticle] = useState(null);
   /* How many feed cards are open. "View More News" had no handler and the stack
      already listed every article, so the button could not have done anything; the
@@ -223,7 +227,7 @@ export default function Profile() {
   }, [cid]);
   useEffect(() => {
     setNewsShown(NEWS_PAGE);
-  }, [newsFilter]);
+  }, [newsFilter, newsWindow]);
 
   /* Executive leadership.
    *
@@ -284,16 +288,24 @@ export default function Profile() {
     [data, p],
   );
 
+  /* WINDOW, THEN CATEGORY, THEN CAP -- in that order, and the order matters. Capping
+     before the category filter would show fewer than fifteen of a category that has
+     more, for no reason a reader could see. */
+  const windowedArticles = useMemo(
+    () => withinWindow(companyArticles, windowDays(newsWindow)),
+    [companyArticles, newsWindow],
+  );
+
   // Filter articles based on selected Category Pill
   const filteredArticles = useMemo(() => {
     if (!newsFilter || newsFilter === "All" || newsFilter.includes("Updates")) {
-      return companyArticles;
+      return capNews(windowedArticles, NEWS_MAX);
     }
     const f = newsFilter.toLowerCase();
-    return companyArticles.filter(
+    return capNews(windowedArticles.filter(
       (a) => a.category.toLowerCase().includes(f) || f.includes(a.category.toLowerCase())
-    );
-  }, [companyArticles, newsFilter]);
+    ), NEWS_MAX);
+  }, [windowedArticles, newsFilter]);
 
   const topStory = useMemo(() => {
     return filteredArticles.find((a) => a.isTopStory) || filteredArticles[0] || companyArticles[0];
@@ -671,7 +683,47 @@ export default function Profile() {
                         <div className="ln-sub">Real-time updates and intelligence on {displayName}</div>
                       </div>
                     </div>
+
+                    {/* HOW FAR BACK COUNTS AS CURRENT -- the reader's choice. The stack
+                        is capped at NEWS_MAX cards whatever is chosen, so the line below
+                        says how many of the company's articles that leaves: a filter
+                        that quietly drops rows is exactly what this panel must not do. */}
+                    <label style={{ display: "flex", alignItems: "center", gap: "8px", marginLeft: "auto" }}>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)" }}>
+                        Published
+                      </span>
+                      <select
+                        value={newsWindow}
+                        onChange={(e) => setNewsWindow(e.target.value)}
+                        aria-label="How far back to show news"
+                        style={{
+                          background: "var(--d-bg-2)",
+                          color: "var(--d-txt)",
+                          border: "1px solid var(--d-line)",
+                          borderRadius: "6px",
+                          padding: "5px 8px",
+                          fontSize: "12px",
+                          fontFamily: "var(--mono)",
+                        }}
+                      >
+                        {NEWS_WINDOWS.map((w) => (
+                          <option key={w.key} value={w.key}>{w.label}</option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
+
+                  {/* WHAT IS BEING SHOWN, AND OUT OF WHAT. Printed whenever the window or
+                      the cap is actually holding something back, so the reader is never
+                      looking at a subset that presents itself as the whole. */}
+                  {companyArticles.length > filteredArticles.length ? (
+                    <div style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)", marginBottom: "10px" }}>
+                      showing {filteredArticles.length} of {companyArticles.length} article
+                      {companyArticles.length === 1 ? "" : "s"}
+                      {windowDays(newsWindow) ? ` published in the ${NEWS_WINDOWS.find((w) => w.key === newsWindow).label.replace(/^Last /, "last ")}` : ""}
+                      {filteredArticles.length >= NEWS_MAX ? ` · ${NEWS_MAX}-card maximum` : ""}
+                    </div>
+                  ) : null}
 
                   {/* Category Filter Pills */}
                   <div className="ln-pills" style={{ marginBottom: "14px" }}>
@@ -717,7 +769,8 @@ export default function Profile() {
                           <p className="ln-story-desc">{topStory.excerpt}</p>
                           <div className="ln-story-foot">
                             <span style={{ fontSize: "11px", color: "var(--d-txt-2)", fontWeight: "600" }}>
-                              <span className="src-dot"></span>{topStory.source}
+                              <span className="src-dot"></span>
+                              <SourceChip url={topStory.url} source={topStory.source} />
                             </span>
                             <span style={{ fontSize: "12px", color: "#f0593c", fontWeight: "600" }}>
                               Read Full Article →
@@ -743,7 +796,7 @@ export default function Profile() {
                             <div className="ln-feed-meta">{item.category} · {item.ago}</div>
                             <div className="ln-feed-title">{item.title}</div>
                             <span style={{ fontSize: "11px", color: "var(--d-txt-3)", marginTop: "auto" }}>
-                              {item.source} ✓
+                              <SourceChip url={item.url} source={item.source} /> ✓
                               {item.alsoIn && item.alsoIn.length ? (
                                 <span style={{ color: "var(--d-txt-3)" }}>
                                   {" "}· also reported by {item.alsoIn.length} other outlet{item.alsoIn.length > 1 ? "s" : ""}
@@ -986,7 +1039,7 @@ export default function Profile() {
                         ) : null}
                       </span>
                       <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)", textAlign: "right" }}>
-                        {item.category} · {item.source}
+                        {item.category} · <SourceChip url={item.url} source={item.source} />
                       </span>
                     </div>
                   ))}
