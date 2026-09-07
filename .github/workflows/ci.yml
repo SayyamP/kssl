@@ -16,6 +16,25 @@ on:
   push:
     branches: [main, staging, dev]
 
+# A NEWER PUSH MAKES THE OLDER RUN'S ANSWER WORTHLESS, SO STOP PAYING FOR IT.
+#
+# ci.yml had no concurrency group at all: every push started a fresh run and every older
+# run on the same branch carried on to completion. Measured over 2026-09-01..07, 10 of
+# 172 CI runs were still going when their successor started -- pure waste, because a
+# green tick on a commit that is no longer the tip gates nothing.
+#
+# Safe here in a way it is NOT safe in deploy.yml: these jobs build images to a local
+# daemon, run tests and diff a schema snapshot. None of them writes to a machine, a
+# registry or a database, so a cancelled run leaves nothing half-done. The deploy
+# workflow makes the opposite call for main, and says why.
+#
+# Grouped by PULL REQUEST where there is one, and by ref otherwise: `pull_request` runs
+# carry the merge ref, so grouping on github.ref alone would let a push and its PR run
+# cancel each other.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
