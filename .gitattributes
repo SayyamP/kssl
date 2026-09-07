@@ -1,4 +1,13 @@
-# Shell scripts run on Linux. A CRLF here is not cosmetic: `set -euo pipefail`
-# is a syntax error, and an editor or a Python write_text() on Windows introduces it
-# silently into a file that was mixed to begin with.
+# Shell scripts run on Linux, and a CRLF is not cosmetic there: `set -euo pipefail`
+# is a syntax error that stops deploy.sh on its eleventh line.
+#
+# The committed blobs have always been LF. The CRs were added on the way OUT: `git
+# archive` on Windows honours core.autocrlf, which Git for Windows sets to true in its
+# system config, so a tree exported from this machine and unpacked on a box arrived with
+# every shell script converted. CI never saw it -- its runners are Linux, where the same
+# export is a no-op -- so this only appears when a deploy is driven from a workstation,
+# which is exactly what an unavailable CI forces you to do.
+#
+# Pinning eol=lf makes the attribute win over the platform default in both directions,
+# on checkout and on archive.
 *.sh text eol=lf
