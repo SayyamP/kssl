@@ -118,6 +118,36 @@ function specRow(s, compName) {
    the VALUES stay sourced (nothing about extraction changes, and srcs are still on the
    record and still shown in Competitor Detail), but the reader can no longer see WHICH
    publisher a given number came from without leaving the comparison. */
+/* WHOSE NUMBER IS THIS? One side of a matchup row, never the other.
+
+   A matchup spec row carries both products' values -- `cv` is the rival's, `kv` is
+   KSSL's -- and a product page shows ONE product. The competitor branch of the Products
+   page read `s.cv || s.kv`, so on every field the rival had not published it printed
+   KSSL's figure as the rival's, under the rival's name, with no mark of any kind.
+
+   BAE Systems' Archer showed 15 fields. Seven were Archer's. The rest were MArG 155's:
+   "9,391 x 2,650 x 3,160 mm" is a value that exists nowhere in the payload except as a
+   KSSL `kv`, and it was being read as a BAE dimension. Positioning had it right all
+   along -- it prints "not sourced" on that side, which is why the two pages disagreed.
+
+   A fallback is the wrong shape for this question. There is no sense in which KSSL's
+   weight is an estimate of the rival's, so an absent `cv` has exactly one honest
+   rendering: the field is not shown for that product. */
+const NOT_PUBLISHED = new Set(["no published figure", "not published"]);
+
+export function productSpecs(specs, side, labelOf) {
+  const key = side === "client" ? "kv" : "cv";
+  const label = labelOf || ((l) => l);
+  const out = {};
+  (specs || []).forEach((s) => {
+    if (!s || !s.l) return;
+    const v = s[key];
+    if (!v || NOT_PUBLISHED.has(String(v).trim().toLowerCase())) return;
+    out[label(s.l)] = specValueWithUnit(v, s.u);
+  });
+  return out;
+}
+
 export const SHOW_POSITIONING_SOURCES = false;
 /* Kept as the old name so the four call sites below read unchanged. */
 const SHOW_SPEC_SOURCES = SHOW_POSITIONING_SOURCES;

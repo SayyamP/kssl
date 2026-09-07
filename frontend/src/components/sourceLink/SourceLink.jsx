@@ -18,6 +18,35 @@ export function sourceHref(u) {
   return typeof u === "string" && /^https?:\/\//i.test(u) ? u : null;
 }
 
+/* THE SAME LINK, ON A CARD.
+
+   SourceLink is the drawer's line -- it prints "Source Publisher:" and a full label. A
+   news card has room for the publisher and nothing else, and the card itself is already
+   a button that opens the article drawer. So the publisher becomes a link in place, and
+   the click stops there rather than also opening the drawer behind the new tab.
+
+   Reported as: clicking news should open the original source in a new tab. It could,
+   but only from inside the drawer -- two clicks, and nothing on the card said so. The
+   href rule is sourceHref above, unchanged: only http(s), and an article with no url
+   stays plain text rather than becoming a link that goes nowhere. */
+export function SourceChip({ url, source, style }) {
+  const href = sourceHref(url);
+  const name = source || "Unattributed";
+  if (!href) return <span style={style}>{name}</span>;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      title={`Open the original article at ${name}`}
+      style={{ color: "inherit", textDecoration: "underline", ...(style || {}) }}
+    >
+      {name} ↗
+    </a>
+  );
+}
+
 export default function SourceLink({ url, source, color, label = "Source Publisher" }) {
   const href = sourceHref(url);
   const name = source || "Unattributed";

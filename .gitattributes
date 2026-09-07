@@ -1,0 +1,18 @@
+# EVERY TEXT FILE IN THIS REPOSITORY IS CONSUMED ON LINUX.
+#
+# The committed blobs have always been LF. The CRs are added on the way OUT: `git
+# archive` on Windows honours core.autocrlf, which Git for Windows sets to true in its
+# system config, so a tree exported from a workstation and unpacked on a box arrives
+# with every text file converted. CI never sees it -- its runners are Linux, where the
+# same export is a no-op -- so this appears only when a deploy is driven by hand, which
+# is exactly what an unavailable CI forces you to do.
+#
+# It does not announce itself. A trailing  is invisible in terminal output, so:
+#   deploy/deploy.sh        `set -euo pipefail`  -> "set: pipefail: invalid option name"
+#   deploy/envs/staging.env COMPOSE_OVERLAY=...yml -> "no such file or directory",
+#                           naming a file that is plainly there in `ls`.
+#
+# Pinning the whole tree rather than a list of extensions: the second failure above was
+# a file type the first fix had not thought to include, and there is no reason to
+# discover the third one the same way. text=auto still leaves detected binaries alone.
+* text=auto eol=lf

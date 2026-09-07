@@ -149,6 +149,15 @@ export default function Positioning() {
           m={m}
           onClose={() => setSelected(null)}
           onJumpToTender={(title) => jumpTo("market", "tender", { tenderTitle: title })}
+          /* The rival product's own page. `comp` is "Maker · Product"; Products resolves
+             the company from the roster the same way the search bar does, and opens the
+             named product once it is there. */
+          onOpenProduct={(mu) =>
+            jumpTo("competitive", "products", {
+              company: mu.compBy || mu.comp,
+              productName: String(mu.comp || "").split("·").pop().trim(),
+            })
+          }
         />
       ) : (
         <div className="mu-dossier">
