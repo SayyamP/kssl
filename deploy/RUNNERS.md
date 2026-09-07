@@ -111,6 +111,29 @@ cd /opt/actions-runner && ./svc.sh stop && ./svc.sh uninstall
 ./config.sh remove --token <a fresh removal token>
 ```
 
+## When a runner is unavailable
+
+Two different failures, and only one of them is bounded.
+
+**Runner never armed** — `SELF_HOSTED_*` unset. The job goes to `ubuntu-latest` over ssh.
+This is the default, and the reason the variable exists: nothing can queue for a runner
+the workflow was never told to ask for.
+
+**Runner armed but offline** (box down, service dead, mid-rebuild). The job **queues for
+up to 24 hours**. GitHub bounds queue time at 24h globally and offers no per-job setting
+to shorten it, so `timeout-minutes` does not help — that clock only starts when a runner
+picks the job up. There is no fix inside the workflow.
+
+The control is therefore operational, and it is one click:
+
+> Set `SELF_HOSTED_PROD` / `SELF_HOSTED_STAGING` to anything but `true`, then re-run.
+> The next run takes the ssh path immediately. Cancel the queued run.
+
+So the thing to watch is the runner's health, not the queue. Check
+`systemctl is-active actions.runner.*` on the box, or that it reads **Idle** in
+Settings → Actions → Runners. A runner offline for more than a few minutes should be
+un-armed rather than waited on.
+
 ## Operational notes
 
 - **A box that is down is a pipeline that is down** for its environment. It fails closed:
@@ -119,5 +142,9 @@ cd /opt/actions-runner && ./svc.sh stop && ./svc.sh uninstall
 - **The workspace persists** at `/opt/actions-runner/_work`. `actions/checkout` cleans it
   each run (`git clean -ffdx`), so a stale tree is not a failure mode, but it does hold a
   full checkout permanently.
+- **Survives reboot.** `svc.sh install` enables the unit, and the installer adds a
+  `Restart=always / RestartSec=10` drop-in. Verify BOTH after installing — "it started"
+  and "it comes back after a reboot" are different claims:
+  `systemctl is-enabled actions.runner.*` and `systemctl is-active actions.runner.*`.
 - **Two runners, one repository.** They are independent; neither can take the other's
   jobs, because the labels do not overlap.

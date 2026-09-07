@@ -241,6 +241,20 @@ jobs:
     # so it stays on GitHub's disposable machines where arbitrary code is meant to run.
     # Never add a pull_request trigger to this file.
     runs-on: ${{ fromJSON(needs.resolve.outputs.runner) }}
+    # A DEPLOY THAT HANGS IS STOPPED; A DEPLOY THAT CANNOT START IS NOT, AND THE
+    # DIFFERENCE MATTERS -- do not read this as a queue timeout, because it is not one.
+    #
+    # timeout-minutes is measured from the moment a runner picks the job up. It bounds a
+    # `compose pull` against a stalled registry or a health gate waiting on a container
+    # that never settles; the ssh path bounded neither. It does NOT bound the time spent
+    # WAITING for a runner: GitHub gives a queued job 24 hours and offers no per-job
+    # setting to shorten it. There is no workflow-level fix for that, so the control is
+    # upstream -- SELF_HOSTED_PROD / SELF_HOSTED_STAGING in `resolve`. An environment
+    # whose runner is gone is un-armed, and the very next run takes the ssh path with no
+    # revert and no redeploy. See deploy/RUNNERS.md.
+    #
+    # 30 minutes: the slowest real deploy in this repository's history is well under 10.
+    timeout-minutes: 30
     # Production stays gated behind DEPLOY_ENABLED. Staging and dev deploy on every push --
     # that is what they are for, and neither can reach production's data.
     if: needs.resolve.outputs.env != 'none' && (needs.resolve.outputs.env != 'prod' || vars.DEPLOY_ENABLED == 'true')
