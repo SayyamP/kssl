@@ -185,18 +185,18 @@ fi
 echo ">> pulling images @ $SHA"
 "${COMPOSE[@]}" pull frontend backend
 
+# WHAT IS RUNNING NOW, so a bad swap has somewhere to go back to. Captured BEFORE the
+# recreate: once `up -d` has replaced the container this is unknowable, and a rollback
+# that has to guess a tag is not a rollback. The overlay pins both services from a
+# single ${TAG}, so the tag off the running backend is the whole rollback target.
+PREV_BE_IMAGE=$(docker inspect -f '{{.Config.Image}}' "$KSSL_PREFIX-backend" 2>/dev/null || true)
+PREV_TAG="${PREV_BE_IMAGE##*:}"   # validity is judged in healthgate.sh
+
 echo ">> recreating frontend + backend (nothing else)"
 "${COMPOSE[@]}" up -d --no-build frontend backend
 
-# health gate — both containers must be running after the swap
-sleep 4
-for c in "$KSSL_PREFIX-frontend" "$KSSL_PREFIX-backend"; do
-  if [ "$(docker inspect -f '{{.State.Running}}' "$c" 2>/dev/null)" != "true" ]; then
-    echo "!! $c is not running after deploy — see 'docker compose logs $c'"
-    "${COMPOSE[@]}" ps frontend backend
-    exit 1
-  fi
-done
+# HEALTH GATE -- see deploy/healthgate.sh (extracted so it can be tested).
+. "$APP/deploy/healthgate.sh"
 
 # --- Extraction stack (its own compose project, network_mode: host) -------------
 # Rebuild the image from the just-synced source and recreate the roles. `up -d` only
