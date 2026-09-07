@@ -4,7 +4,7 @@ import { revenueOptions } from "../../lib/revenueFacet";
 import { useData } from "../../state/DataProvider";
 import { companyNews, productNews, feedSplit } from "../../lib/news";
 import { formatLabel, formatSectorName, formatProductName } from "../../lib/profile";
-import { specValueWithUnit } from "../../lib/specs";
+import { productSpecs, specValueWithUnit } from "../../lib/specs";
 import { unescapeEntities } from "../../lib/html";
 import { companyCountries, facetOptionsByName } from "../../lib/countryFacet";
 import Thumb from "../../components/thumb/Thumb.jsx";
@@ -315,12 +315,7 @@ export default function Products() {
         }
         if (name && name !== "KSSL present" && !seen.has(name.toLowerCase())) {
           seen.add(name.toLowerCase());
-          const specsObj = {};
-          (m.specs || []).forEach((s) => {
-            if (s && s.l && s.kv && s.kv !== "no published figure" && s.kv !== "not published") {
-              specsObj[formatCategoryTitle(s.l)] = specValueWithUnit(s.kv, s.u);
-            }
-          });
+          const specsObj = productSpecs(m.specs, "client", formatCategoryTitle);
           prods.push({
             id: `kssl-${name}`,
             name: formatProductName(name),
@@ -339,12 +334,10 @@ export default function Products() {
           let name = (m.comp || "").replace(/.*·\s*/, "").trim() || m.anchor || "System";
           if (name && !seen.has(name.toLowerCase())) {
             seen.add(name.toLowerCase());
-            const specsObj = {};
-            (m.specs || []).forEach((s) => {
-              if (s && s.l && (s.cv || s.kv)) {
-                specsObj[formatCategoryTitle(s.l)] = specValueWithUnit(s.cv || s.kv, s.u);
-              }
-            });
+            /* THE RIVAL'S OWN VALUES, never KSSL's. This read `s.cv || s.kv`, which
+               printed KSSL's figure under the rival's name on every field the rival had
+               not published -- see lib/specs.productSpecs. */
+            const specsObj = productSpecs(m.specs, "comp", formatCategoryTitle);
             prods.push({
               id: `comp-${m.id || name}`,
               name: formatProductName(name),
