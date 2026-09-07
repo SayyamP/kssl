@@ -137,6 +137,62 @@ export function partnerNews(data, compId, partnerLabel) {
  * which surface it is on -- is listed in full below, newest first. The split is a
  * pure function so it can be tested rather than eyeballed.
  */
+/* HOW FAR BACK, AND HOW MANY.
+
+   The panels showed every article a company had, unbounded, newest first. Measured on
+   the live store: 438 articles over 31 companies, the oldest from October 2022 and one
+   company carrying 83. A profile therefore opened with four-year-old items in the same
+   stack as this week's, and "latest news" meant whatever happened to be at the top.
+
+   Two separate limits, because they answer different questions:
+
+     the WINDOW is the reader's -- how recent must a story be to count as current. It is
+     a choice, not a constant, so it is offered rather than assumed.
+     the CAP is the panel's -- how many cards a person will actually read. Fifteen.
+
+   An article with no date cannot be shown to fall inside a window, so a window excludes
+   it. That is a real exclusion, not a rounding, which is why the callers print how many
+   of the total are being shown: a filter that quietly drops rows is the fault this
+   whole file was written to end. With no window set, undated articles are kept. */
+export const NEWS_MAX = 15;
+
+export const NEWS_WINDOWS = [
+  { key: "30d", label: "Last 30 days", days: 30 },
+  { key: "3m", label: "Last 3 months", days: 90 },
+  { key: "6m", label: "Last 6 months", days: 180 },
+  { key: "12m", label: "Last 12 months", days: 365 },
+  { key: "all", label: "All time", days: null },
+];
+
+export const NEWS_WINDOW_DEFAULT = "12m";
+
+export function windowDays(key) {
+  const w = NEWS_WINDOWS.find((x) => x.key === key);
+  return w ? w.days : null;
+}
+
+export function windowLabel(key) {
+  const w = NEWS_WINDOWS.find((x) => x.key === key);
+  return w ? w.label : "All time";
+}
+
+/* Articles published within `days` of `now`. days null/0 -> everything, undated kept. */
+export function withinWindow(articles, days, now = Date.now()) {
+  const all = Array.isArray(articles) ? articles : [];
+  if (!days) return all.slice();
+  const floor = now - days * 86400000;
+  return all.filter((a) => {
+    const t = a && a.date ? Date.parse(a.date) : NaN;
+    return Number.isNaN(t) ? false : t >= floor;
+  });
+}
+
+/* The most a panel shows. Never reorders -- the caller has already sorted. */
+export function capNews(articles, n = NEWS_MAX) {
+  const all = Array.isArray(articles) ? articles : [];
+  return all.slice(0, Math.max(0, n));
+}
+
 export const FEED_N = 6;
 
 export function feedSplit(articles, n = FEED_N) {
