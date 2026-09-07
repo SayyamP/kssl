@@ -548,3 +548,13 @@ def production_doc():
         return _J(status_code=404,
                   content={"error": "PRODUCTION.html has not been generated yet",
                            "how": "python docs/build_production_doc.py"})
+
+
+# ROLLBACK DRILL FIXTURE #2 -- TEMPORARY, reverted in the next commit.
+# Same 503 as the 2026-09-07 drill, re-run to prove the .DEPLOYED_SHA fix: the marker
+# must come out of this naming the RESTORED sha, not this one.
+@app.middleware("http")
+async def _rollback_drill_503(request: Request, call_next):
+    if request.url.path in ("/api/health", "/api/dataset"):
+        return JSONResponse(status_code=503, content={"drill": "marker-fix verification"})
+    return await call_next(request)
