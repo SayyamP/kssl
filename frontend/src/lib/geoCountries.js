@@ -145,6 +145,19 @@ export function geoPlotPlan(countries) {
   });
   return { plotted, regions, unlocated };
 }
+/* THE SPELLINGS THAT ARE THE SAME COUNTRY, keyed by one of them.
+
+   sameCountry answers the question for a PAIR. A filter needs the other direction:
+   given a name, which other spellings must be folded into it. Both read the same
+   coordinate rows, so neither can drift from the other. */
+export function countrySpellings(name) {
+  const c = geoCountryCoords(name);
+  if (!c) return [String(name == null ? "" : name).trim()].filter(Boolean);
+  return Object.keys(COUNTRY_COORDS).filter(
+    (k) => COUNTRY_COORDS[k][0] === c[0] && COUNTRY_COORDS[k][1] === c[1],
+  );
+}
+
 /* ARE THESE TWO NAMES THE SAME COUNTRY?
 
    "UK" and "United Kingdom" are one country under two spellings, and the map already

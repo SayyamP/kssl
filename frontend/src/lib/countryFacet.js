@@ -20,6 +20,8 @@
    "USA" and refuses "Virginia" and "Gujarat" without a hand-typed country list, which
    check_no_fabrication would rightly refuse. */
 
+import { countrySpellings } from "./geoCountries.js";
+
 const clean = (v) => String(v == null ? "" : v).trim();
 
 /* Every word the dataset uses AS a country. Built once per dataset object and cached
@@ -149,7 +151,7 @@ export function countriesNamedIn(text, vocab) {
   return out;
 }
 
-export function companyCountries(d, cid) {
+function rawCountries(d, cid) {
   const co = ((d && d.competitors) || {})[cid] || {};
   const vocab = countryVocabulary(d);
   const out = new Set();
@@ -185,6 +187,54 @@ export function companyCountries(d, cid) {
     .filter((part) => part && vocab.has(part))
     .forEach((part) => out.add(part));
   out.delete("");
+  return [...out].sort((a, b) => a.localeCompare(b));
+}
+
+/* ONE SPELLING PER COUNTRY.
+
+   The fixed filter offered 49 options over 44 rivals, and two pairs of them were one
+   country twice: "UK (8)" beside "United Kingdom (2)", "USA (13)" beside "United
+   States (8)". Picking one hid the companies filed under the other, and neither count
+   was the real one.
+
+   The dataset spells a country however its source did, and no spelling is wrong. So
+   the fold is decided by the data rather than by a preference typed here: the spelling
+   the most companies use wins, ties broken alphabetically so the choice is stable
+   across renders. Which spellings ARE one country is not a new judgement either --
+   geoCountries.countrySpellings reads the same coordinate rows sameCountry does, so
+   the filter and the map cannot disagree about the United Kingdom.
+
+   Built once per dataset and cached beside the vocabulary, for the same reason. */
+export function countryCanon(d) {
+  if (d && d.__countryCanon) return d.__countryCanon;
+  const uses = new Map();
+  Object.keys((d && d.competitors) || {}).forEach((cid) =>
+    rawCountries(d, cid).forEach((c) => uses.set(c, (uses.get(c) || 0) + 1)),
+  );
+  const canon = new Map();
+  [...uses.keys()].forEach((c) => {
+    if (canon.has(c)) return;
+    const group = countrySpellings(c).filter((s2) => uses.has(s2));
+    if (group.length < 2) return;                    // nothing to fold
+    const win = group.slice().sort(
+      (a, b) => (uses.get(b) || 0) - (uses.get(a) || 0) || a.localeCompare(b),
+    )[0];
+    group.forEach((s2) => canon.set(s2, win));
+  });
+  if (d && typeof d === "object") {
+    try {
+      Object.defineProperty(d, "__countryCanon", { value: canon, enumerable: false, writable: true });
+    } catch (e) {
+      /* a frozen dataset just recomputes */
+    }
+  }
+  return canon;
+}
+
+/* The countries one company is recorded in, one option per country. */
+export function companyCountries(d, cid) {
+  const canon = countryCanon(d);
+  const out = new Set(rawCountries(d, cid).map((c) => canon.get(c) || c));
   return [...out].sort((a, b) => a.localeCompare(b));
 }
 

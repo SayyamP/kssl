@@ -16,7 +16,8 @@
  * The fix reads those entries for the countries they NAME, against the same vocabulary.
  * These checks are about what must NOT get in.
  */
-import { companyCountries, countriesNamedIn, countryVocabulary } from "./src/lib/countryFacet.js";
+import { companyCountries, countriesNamedIn, countryVocabulary,
+         facetOptionsByName } from "./src/lib/countryFacet.js";
 
 let fails = 0;
 const ck = (name, ok, detail) => {
@@ -82,6 +83,33 @@ ck("a company with no locations is unaffected",
    typed by hand, which check_no_fabrication would refuse. */
 ck("the vocabulary is built from the dataset", countryVocabulary(d).has("India"));
 ck("...and does not contain a US state", !countryVocabulary(d).has("Alabama"));
+
+/* ---- one spelling per country -------------------------------------------------
+   The fixed filter still listed "UK (8)" beside "United Kingdom (2)" and "USA (13)"
+   beside "United States (8)" -- one country twice, so picking either hid the companies
+   filed under the other. The winner is the spelling more companies use, not one
+   chosen here. */
+const spell = {
+  geoData: { a: { UK: [{}] }, b: { UK: [{}] }, c: { "United Kingdom": [{}] },
+             d: { USA: [{}] }, e: { "United States": [{}] } },
+  geoCountries: ["UK", "United Kingdom", "USA", "United States"],
+  competitors: { a: {}, b: {}, c: {}, d: {}, e: {} },
+};
+const opts = facetOptionsByName(["a", "b", "c", "d", "e"], (k) => companyCountries(spell, k));
+ck("UK and United Kingdom are one option", opts.filter((o) => /kingdom|^UK$/i.test(o.v)).length === 1,
+   JSON.stringify(opts));
+ck("...and it is the spelling more companies use", opts.some((o) => o.v === "UK" && o.n === 3),
+   JSON.stringify(opts));
+ck("a 1-1 tie still folds, and breaks alphabetically rather than on which was seen first",
+   opts.filter((o) => /^(USA|United States)$/.test(o.v)).length === 1
+   && opts.some((o) => o.v === "United States" && o.n === 2), JSON.stringify(opts));
+ck("a company carrying BOTH spellings counts once",
+   companyCountries({ ...spell, competitors: { ...spell.competitors, z: {} },
+                      geoData: { ...spell.geoData, z: { UK: [{}], "United Kingdom": [{}] } } },
+                    "z").length === 1);
+ck("two countries the table does not know are never folded together",
+   companyCountries({ geoCountries: ["Xland", "Yland"],
+                      competitors: { q: { hq: "Xland" }, r: { hq: "Yland" } } }, "q")[0] === "Xland");
 
 console.log(fails ? `\n${fails} FAILED` : "\nok - the filter offers countries, and refuses prose, states and Indiana");
 process.exit(fails ? 1 : 0);
