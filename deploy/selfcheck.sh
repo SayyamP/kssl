@@ -54,6 +54,11 @@ C_TIERS_PATH=extraction/engine/source_tiers.py \
 # silently queues nothing, both of which look identical in a log line.
 (cd extraction && python backfill_gaps.py --demo)
 
+# The self-hosted deploy path's two invariants: no ssh on the local path, and no
+# pull_request trigger anywhere a self-hosted runner can be reached. Neither is visible
+# to actionlint, and both fail silently -- see deploy/RUNNERS.md.
+python deploy/test_runner_paths.py
+
 # The signals modules import each other by bare filename, so they run from their own
 # directory. The test_*.py loop is deliberate: a new regression test is picked up by
 # being written, without also having to remember to edit this file.
