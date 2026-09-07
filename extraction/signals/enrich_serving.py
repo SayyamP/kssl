@@ -946,6 +946,85 @@ def _archive_band_map():
     return out
 
 
+_WORKBOOK_BANDS = None
+
+
+def _workbook_key(name):
+    """Both spellings a workbook company answers to.
+
+    The workbook writes a company as "Huta Stalowa Wola (HSW)" and "Hanwha
+    (Aerospace/Group)", while the roster and the corpus write "Huta Stalowa Wola". A
+    parenthetical is an expansion, not a different company, so it is indexed both ways.
+    """
+    out = set()
+    for v in (name or "", re.sub(r"\s*\([^)]*\)", " ", name or "")):
+        f = fold_name(canon_name(v.strip()))
+        if f:
+            out.add(f)
+    return out
+
+
+def _workbook_band_map(cur=None):
+    """KSSL categories the CLIENT'S OWN audited workbook says a company competes in.
+
+    THE GATE COULD NOT SEE THE BEST EVIDENCE IT HAD. competes_with_kssl decides whether a
+    company makes anything in KSSL's nine categories from two sources: the products the
+    model read out of the CORPUS, and the client's reference archive. The corpus profile
+    is the weakest of the three for exactly the companies that matter most -- the comment
+    above SPREAD_STATEMENTS measured it: "Northrop 475 docs, 1,113 statements -> a torpedo
+    and a mine detector".
+
+    Meanwhile serving.competitor_product -- the client's own audited workbook, Tier-1
+    sourced, the thing they handed us to be authoritative -- lists Northrop Grumman with
+    four ammunition lines. Ammunition is one of the nine. The gate refused the company for
+    having nothing in KSSL's categories while the client's own catalogue said otherwise,
+    because nothing had ever taught it to look there.
+
+    This does not widen the roster on its own: the allowlist still decides who is
+    profiled at all, so a band can only ever admit a company the client already curated.
+    Measured on staging, of the eight curated companies with no row, six gain a band here
+    and two -- Huntington Ingalls and Thyssenkrupp Marine, both shipyards -- still do not.
+    That the shipyards stay out is the check that this is evidence and not a bypass.
+    """
+    out = {}
+
+    def _read(c):
+        c.execute("SELECT to_regclass('serving.competitor_product')")
+        if not c.fetchone()[0]:
+            return
+        c.execute("SELECT company, cat FROM serving.competitor_product "
+                  "WHERE company IS NOT NULL AND cat IS NOT NULL")
+        for name, cat in c.fetchall():
+            band = gate_band(cat)
+            if not band or not name or is_client(name):
+                continue
+            for k in _workbook_key(name):
+                out.setdefault(k, set()).add(band)
+
+    try:
+        if cur is not None:
+            _read(cur)
+        else:
+            import psycopg2
+            with psycopg2.connect(os.environ["KSSL_DSN"]) as con:
+                with con.cursor() as c:
+                    _read(c)
+    except Exception as e:                                   # noqa: BLE001
+        print("workbook bands unavailable (%s) -- archive only" % e, flush=True)
+    return out
+
+
+def workbook_bands(name, cur=None):
+    """The KSSL categories the client's audited workbook credits this company with."""
+    global _WORKBOOK_BANDS
+    if _WORKBOOK_BANDS is None:
+        _WORKBOOK_BANDS = _workbook_band_map(cur)
+    for k in _workbook_key(name):
+        if _WORKBOOK_BANDS.get(k):
+            return _WORKBOOK_BANDS[k]
+    return set()
+
+
 def archive_bands(name):
     """The KSSL categories the client's own archive says this company competes in."""
     global _ARCHIVE_BANDS
@@ -1062,7 +1141,7 @@ def competes_with_kssl(prof, name=""):
     # (Firestorm Labs' product is a 3D-printing factory, not an aircraft; MARSS and LBA are
     # a C-UAS and an unknown). A company whose evidence names no product in any KSSL
     # category has not shown it competes with KSSL.
-    bands = {gate_band(p) for p in prods} | archive_bands(name)
+    bands = {gate_band(p) for p in prods} | archive_bands(name) | workbook_bands(name)
     bands.discard(None)
     if not bands:
         if all(out_of_business(p) for p in prods):
