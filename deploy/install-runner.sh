@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Install and register a self-hosted GitHub Actions runner ON THE BOX IT DEPLOYS.
 #
-#   deploy/install-runner.sh <prod|staging>
+#   deploy/install-runner.sh <prod|staging> --prepare   # no token; everything but register
+#   RUNNER_TOKEN=AXXXX... deploy/install-runner.sh <prod|staging>
 #
-# The registration token comes from the environment, never from a file and never from
-# this repository:
+# TWO PHASES, BECAUSE ONLY ONE OF THEM NEEDS THE TOKEN. --prepare runs the environment
+# guard, installs the dependencies, downloads and unpacks the runner, and proves docker,
+# the workspace and outbound connectivity work -- none of which needs a credential, and
+# all of which is where an install actually goes wrong. `register` is then a few seconds
+# of ./config.sh, which matters: a registration token is valid for ONE HOUR, so the less
+# that happens between minting it and using it, the fewer expired-token retries.
 #
-#   RUNNER_TOKEN=AXXXX... deploy/install-runner.sh prod
+# The token comes from the environment, never from a file and never from this repository:
 #
 # Mint one at  Settings -> Actions -> Runners -> New self-hosted runner  (it is valid for
 # one hour and for one registration). It is NOT a PAT: it cannot read the repository and
@@ -20,7 +25,9 @@ set -euo pipefail
 
 REPO_URL="https://github.com/137mallory/kssl-deploy"
 RUNNER_DIR="/opt/actions-runner"
-LABEL="${1:?usage: install-runner.sh <prod|staging>}"
+LABEL="${1:?usage: install-runner.sh <prod|staging> [--prepare]}"
+PREPARE_ONLY=0
+[ "${2:-}" = "--prepare" ] && PREPARE_ONLY=1
 
 case "$LABEL" in
   prod|staging) ;;
@@ -52,10 +59,35 @@ if [ "$HOST_ENV" != "$LABEL" ]; then
 fi
 echo ">> machine marker '$HOST_ENV' matches the requested label"
 
-: "${RUNNER_TOKEN:?set RUNNER_TOKEN=<registration token from Settings -> Actions -> Runners>}"
+if [ "$PREPARE_ONLY" = 0 ]; then
+  : "${RUNNER_TOKEN:?set RUNNER_TOKEN=<registration token from Settings -> Actions -> Runners>}"
+fi
 
-command -v docker >/dev/null || { echo "!! docker is required (deploy.sh drives compose)"; exit 3; }
-command -v rsync  >/dev/null || { echo "!! rsync is required"; exit 3; }
+# PREREQUISITES, CHECKED BEFORE ANYTHING IS DOWNLOADED. Each one is something a deploy
+# job actually does, so a missing one is a deploy that fails halfway rather than an
+# install that fails cleanly.
+fail=0
+for c in docker rsync git curl tar; do
+  if command -v "$c" >/dev/null; then echo "   ok   $c $(command -v "$c")"
+  else echo "   !!   $c MISSING"; fail=1; fi
+done
+# The deploy runs `docker compose`, not just `docker` -- v1 and the v2 plugin are
+# different things and only one of them answers this.
+if docker compose version >/dev/null 2>&1; then echo "   ok   docker compose: $(docker compose version --short)"
+else echo "   !!   'docker compose' (v2 plugin) MISSING -- deploy.sh drives it"; fail=1; fi
+# Reading /opt/kssl/app/.env is what forces this to run as root; prove it now rather
+# than discovering it when compose cannot interpolate the file.
+if [ -r /opt/kssl/app/.env ]; then echo "   ok   /opt/kssl/app/.env readable"
+else echo "   !!   /opt/kssl/app/.env NOT readable -- compose cannot interpolate it"; fail=1; fi
+if [ -w /opt/kssl/app ]; then echo "   ok   /opt/kssl/app writable (the rsync target)"
+else echo "   !!   /opt/kssl/app NOT writable -- the local rsync step would fail"; fail=1; fi
+# Outbound only. The runner long-polls GitHub on 443; nothing listens for it.
+for u in https://api.github.com https://ghcr.io; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -m 10 "$u" || echo 000)
+  if [ "$code" != "000" ]; then echo "   ok   outbound $u -> HTTP $code"
+  else echo "   !!   outbound $u UNREACHABLE"; fail=1; fi
+done
+[ "$fail" = 0 ] || { echo "!! prerequisites failed; fix the above before registering"; exit 3; }
 
 if [ -d "$RUNNER_DIR" ] && [ -f "$RUNNER_DIR/.runner" ]; then
   echo "!! $RUNNER_DIR already holds a configured runner. Remove it first:"
@@ -74,6 +106,21 @@ curl -fsSL -o runner.tar.gz \
   "https://github.com/actions/runner/releases/download/v${VER}/actions-runner-linux-x64-${VER}.tar.gz"
 tar xzf runner.tar.gz && rm -f runner.tar.gz
 ./bin/installdependencies.sh
+
+# The workspace the checkout and the local rsync will use. Created here so a permission
+# problem surfaces now, under a command someone is watching, and not inside a deploy.
+mkdir -p "$RUNNER_DIR/_work"
+touch "$RUNNER_DIR/_work/.writable" && rm -f "$RUNNER_DIR/_work/.writable"
+echo ">> workspace $RUNNER_DIR/_work is writable"
+
+if [ "$PREPARE_ONLY" = 1 ]; then
+  echo
+  echo ">> PREPARED, NOT REGISTERED. Nothing is running and no service was installed."
+  echo "   Runner $VER is unpacked in $RUNNER_DIR and every prerequisite above passed."
+  echo "   To finish, with a token minted in the last hour:"
+  echo "     RUNNER_TOKEN=<token> $0 $LABEL"
+  exit 0
+fi
 
 # --unattended so it never blocks on a prompt; --replace so a re-register after a rebuild
 # does not need the old registration deleted by hand first.
@@ -94,23 +141,44 @@ RUNNER_ALLOW_RUNASROOT=1 ./config.sh \
   --unattended --replace
 
 ./svc.sh install root
-./svc.sh start
 
-# Restart-on-failure. svc.sh writes a unit with Restart=always but no backoff, so a
-# runner that cannot reach GitHub restarts in a tight loop. A 10s gap makes an outage
-# quiet in the journal instead of a wall of text.
+# THE DROP-IN IS WRITTEN BEFORE THE FIRST START, AND IT CARRIES TWO THINGS THE SHIPPED
+# UNIT DOES NOT HAVE. Both were found by reading bin/actions.runner.service.template on a
+# prepared box rather than by assuming.
+#
+#   Restart / RestartSec -- the template has NO Restart= line at all. It carries
+#   KillMode, KillSignal and TimeoutStopSec and nothing else, so a runner whose process
+#   dies stays dead until someone notices, and the environment it serves queues its next
+#   deploy for 24 hours. RestartSec=10 keeps an outage quiet in the journal instead of a
+#   tight loop.
+#
+#   RUNNER_ALLOW_RUNASROOT -- run-helper.sh.template line 5 refuses to start as root
+#   without it (`if [ $user_id -eq 0 -a -z "$RUNNER_ALLOW_RUNASROOT" ]`), and the
+#   generated unit sets no Environment= and no EnvironmentFile. Exporting it for
+#   config.sh alone is not enough: that shell is gone by the time systemd starts the
+#   service. Setting it here is harmless if the service path happens not to consult the
+#   helper, and is the difference between a working runner and one that will not start
+#   if it does.
 UNIT="$(systemctl list-units --type=service --all --no-legend 'actions.runner.*' | awk '{print $1}' | head -1)"
-if [ -n "$UNIT" ]; then
-  mkdir -p "/etc/systemd/system/${UNIT}.d"
-  cat > "/etc/systemd/system/${UNIT}.d/restart.conf" <<EOF
+[ -n "$UNIT" ] || { echo "!! svc.sh install did not create a unit"; exit 6; }
+mkdir -p "/etc/systemd/system/${UNIT}.d"
+cat > "/etc/systemd/system/${UNIT}.d/override.conf" <<EOF
 [Service]
 Restart=always
 RestartSec=10
+Environment=RUNNER_ALLOW_RUNASROOT=1
 EOF
-  systemctl daemon-reload
-  systemctl restart "$UNIT"
-  echo ">> $UNIT: Restart=always, RestartSec=10"
-fi
+systemctl daemon-reload
+./svc.sh start
+echo ">> $UNIT: Restart=always, RestartSec=10, RUNNER_ALLOW_RUNASROOT=1"
+
+# "It started" and "it comes back after a reboot" are different claims. svc.sh enables
+# the unit (the template carries WantedBy=multi-user.target), but check it rather than
+# trust it -- a runner that does not survive a reboot is the 2026-09-07 VPS-A outage
+# turned into a deploy outage.
+systemctl is-enabled "$UNIT" >/dev/null 2>&1 \
+  && echo ">> $UNIT is enabled (survives reboot)" \
+  || { echo "!! $UNIT is NOT enabled; it will not come back after a reboot"; exit 7; }
 
 echo
 echo ">> registered as 'kssl-$LABEL' with labels: self-hosted, $LABEL"

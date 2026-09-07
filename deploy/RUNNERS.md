@@ -45,17 +45,37 @@ One command per box, run **as root on that box**. Mint the token at
 `Settings → Actions → Runners → New self-hosted runner`; it is valid for one hour and one
 registration, and it is not a PAT — it cannot read the repository.
 
+Two phases, because only one of them needs the token:
+
 ```
-RUNNER_TOKEN=AXXXX... deploy/install-runner.sh prod      # on VPS-B
-RUNNER_TOKEN=AXXXX... deploy/install-runner.sh staging   # on VPS-A
+deploy/install-runner.sh staging --prepare               # no token; do this any time
+RUNNER_TOKEN=AXXXX... deploy/install-runner.sh staging   # seconds; token is live 1 hour
 ```
+
+`--prepare` runs the environment guard, checks every prerequisite a deploy actually uses
+(docker, `docker compose` v2, rsync, git, a readable `/opt/kssl/app/.env`, a writable
+`/opt/kssl/app`, outbound reachability to api.github.com and ghcr.io), installs the
+runner's dependencies, unpacks it and proves the workspace is writable. It registers
+nothing, starts nothing and installs no service. Registration then takes seconds, which
+matters: a registration token is valid for **one hour**.
 
 The token is passed in the environment and never written to a file, so it cannot reach
 git. The script refuses to register a machine whose `/opt/kssl/app/.KSSL_ENV` marker
 disagrees with the label you asked for — see the guards below.
 
 It installs under `/opt/actions-runner`, registers with labels `self-hosted,<env>`,
-installs the systemd service, and adds a `Restart=always / RestartSec=10` drop-in.
+installs the systemd service, then writes a drop-in **before the first start** carrying
+two things the shipped unit does not have:
+
+- `Restart=always` / `RestartSec=10` — `bin/actions.runner.service.template` has **no
+  `Restart=` line at all**, so without this a runner whose process dies stays dead, and
+  the environment it serves queues its next deploy for 24 hours.
+- `Environment=RUNNER_ALLOW_RUNASROOT=1` — `run-helper.sh` refuses to start as root
+  without it, and the generated unit sets no `Environment=`. Exporting it for `config.sh`
+  is not enough; that shell is gone by the time systemd starts the service.
+
+It then asserts `systemctl is-enabled`, because "it started" and "it survives a reboot"
+are different claims.
 
 Verify: the runner shows **Idle** at `…/settings/actions/runners`, and
 `systemctl status actions.runner.*` is active on the box.
