@@ -235,6 +235,17 @@
   .ctx-sec .eyebrow{display:block;margin-bottom:12px;color:var(--l-txt-3)}
   .cd-prose{font-size:13px;line-height:1.62;color:var(--l-txt-2);word-break:break-word;overflow-wrap:anywhere}
   .cd-prose b{color:var(--l-txt);font-weight:600}
+  /* The summary is the one block in this panel with internal structure: a paragraph,
+     then the specifics as a list. .cd-prose alone left the <p>/<ul> the writer emits
+     wearing the browser defaults -- 1em margins that fight .ctx-sec's own padding, and
+     a 40px list indent that pushed the facts out past the quotes below them. */
+  .cd-summary > p{margin:0 0 10px}
+  .cd-summary > p:last-child{margin-bottom:0}
+  .cd-summary ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:7px}
+  .cd-summary li{position:relative;padding-left:14px}
+  .cd-summary li::before{content:"";position:absolute;left:3px;top:.62em;
+    width:4px;height:4px;border-radius:50%;background:var(--l-txt-3)}
+  .cd-summary > p + ul{margin-top:11px}
   /* the extraction layer's statements, each with the sentence that proves it.
      A left rule instead of a bullet: these are quotations, not a list. */
   .cd-stmts{display:flex;flex-direction:column;gap:9px}

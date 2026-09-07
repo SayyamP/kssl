@@ -1,0 +1,18 @@
+-- The article, read for the reader.
+--
+-- serving.signal_detail.what is ONE SENTENCE written by a prompt that was never shown
+-- the article -- serving_fill's card prompt is fed the extracted propositions, so `what`
+-- is a summary of a summary. Beside it the panel listed six STATEMENT rows: a six-word
+-- paraphrase and the publisher's own sentence in the publisher's own language. The
+-- reader got fragments in two languages and still had to open the source.
+--
+-- `summary` holds the English write-up extraction/signals/summarize.py builds from
+-- extracted.document.text: a short paragraph, then the specifics (quantities, sums,
+-- dates, programme names, people). Escaped <p>/<ul> HTML, the same contract as `what`.
+--
+-- NULL means "not written yet" -- every row stored before this migration, and any row
+-- whose article yielded nothing worth showing. The panel falls back to `what` plus the
+-- statement rows on a NULL, so this is additive and no row is ever left blank.
+--
+-- serving_live.signal_detail is `SELECT *`, so it picks the column up with no re-create.
+ALTER TABLE serving.signal_detail ADD COLUMN IF NOT EXISTS summary text;

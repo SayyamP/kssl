@@ -100,8 +100,14 @@ CARD_OPT = frozenset(["company", "lens", "sec", "url", "image"])
 DETAIL_FIELDS = ["rank", "dir", "title", "facts", "what", "why", "lens",
                  "actions", "url", "suggest", "kind", "match", "pursue",
                  # the same picture the card carries; absent when the article had none
-                 "image"]
-DETAIL_OPT = frozenset(["lens", "url", "kind", "match", "pursue", "image"])
+                 "image",
+                 # 2026-09-07. The English write-up summarize.py builds from the
+                 # article BODY -- the panel's lead block. NULL on every row written
+                 # before the migration and on any article that yielded nothing worth
+                 # showing, and the panel falls back to `what` + the statement rows,
+                 # so absent here is a fallback and never a blank section.
+                 "summary"]
+DETAIL_OPT = frozenset(["lens", "url", "kind", "match", "pursue", "image", "summary"])
 MATCHUP_FIELDS = ["cat", "anchor", "global", "dir", "country", "comp", "compBy",
                   "bf", "bfBy", "ks_thin", "reason", "edge", "specs", "advComp",
                   "advBf", "det", "verdictH", "verdict", "catKey", "srcs", "gen",

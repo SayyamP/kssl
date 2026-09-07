@@ -80,6 +80,12 @@ cd extraction/signals
 # The card writer, and the enrichment step that decides who counts as a competitor.
 python serving_fill.py --demo
 python enrich_serving.py --demo
+# The panel's lead block, written from the article BODY rather than from the extracted
+# propositions. Its checks are on the parsing and the refusals, which is where it can go
+# wrong silently: a hard-wrapped paragraph split into three <p> fragments, the model's
+# closing commentary served as if it were the article's, and a summary that came back in
+# the source language being shown to a reader who cannot read it.
+python summarize.py
 # The overlap join behind the red line -- "this rival's partner is also KSSL's". Its two
 # queries filtered on origin='pipeline', which is right for a rival and wrong for the
 # client: KSSL's own rows are reference data by design, so the roster came back empty and

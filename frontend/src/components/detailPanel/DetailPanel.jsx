@@ -111,16 +111,38 @@ export default function DetailPanel({ detail, onClose }) {
           </div>
         </div>
 
-        {!isTender && (
-          <div className="ctx-sec">
-            <span className="eyebrow">What happened</span>
-            <div className="cd-prose" dangerouslySetInnerHTML={{ __html: detail.what }} />
-          </div>
-        )}
+        {/* THE ARTICLE, not a fragment of it. `summary` is written by
+            extraction/signals/summarize.py from extracted.document.text -- a short
+            paragraph and then the specifics (quantities, sums, dates, programme names,
+            people) -- and it is in English whatever the article was in, because it is
+            written, not located.
 
-        {/* The statements the record already carried and nothing rendered: up to six
-            propositions from the extraction layer, each shown WITH the article sentence
-            that proves it.
+            What it replaced: `what`, one sentence from a prompt that was never shown
+            the article (serving_fill feeds the card model the extracted propositions,
+            so `what` summarised a summary). On a row with no `summary` -- everything
+            stored before the migration, and any article that yielded nothing worth
+            showing -- `what` is still what there is, so it is the fallback rather than
+            a deletion. The section is deliberately not headed "Executive Summary": it
+            says what the article says, and that is what the heading says.  */}
+        {!isTender && (detail.summary || detail.what) ? (
+          <div className="ctx-sec">
+            <span className="eyebrow">What the article says</span>
+            <div
+              className="cd-prose cd-summary"
+              dangerouslySetInnerHTML={{ __html: detail.summary || detail.what }}
+            />
+          </div>
+        ) : null}
+
+        {/* KEPT, AND MOVED BELOW THE SUMMARY. These rows are no longer how the reader
+            finds out what happened -- `summary` above does that, in English and in
+            whole sentences. What they are for now is proof: each one shows the
+            publisher's own sentence, so a reader who doubts a line in the summary can
+            check it against the source without leaving the panel. That is worth a
+            section; it was never worth the top of the panel.
+
+            Up to six propositions from the extraction layer, each shown WITH the
+            article sentence that proves it.
 
             HALF OF EACH ROW IS THE PUBLISHER'S WORDS AND HALF IS NOT, and this comment
             used to claim both were. The quoted half is `ev_quote`, located in the
@@ -135,7 +157,7 @@ export default function DetailPanel({ detail, onClose }) {
             are forniti" -- an English verb welded to an Italian subject and object. */}
         {!isTender && statements.length ? (
           <div className="ctx-sec">
-            <span className="eyebrow">What the article says</span>
+            <span className="eyebrow">In the publisher’s words</span>
             <div className="cd-stmts">
               {statements.map((s, i) => (
                 <div

@@ -233,6 +233,7 @@ serving.signal_detail.source_doc_ids ARRAY
 serving.signal_detail.source_prop_ids ARRAY
 serving.signal_detail.source_run_id text
 serving.signal_detail.suggest jsonb
+serving.signal_detail.summary text
 serving.signal_detail.title text NOT NULL
 serving.signal_detail.updated_at timestamp with time zone NOT NULL DEFAULT now()
 serving.signal_detail.url text
