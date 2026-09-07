@@ -88,16 +88,37 @@ jobs:
           # will only hand this job to a runner registered with BOTH labels, so the
           # staging runner is not eligible for a prod job at all. The second guard is the
           # .KSSL_ENV marker check, which runs on the machine itself.
+          # EACH ENVIRONMENT IS ARMED SEPARATELY, and the default is the old ssh path.
+          #
+          # A job asking for `[self-hosted, prod]` when no runner carries those labels does
+          # not fail -- it QUEUES, for up to 24 hours, looking exactly like a slow deploy.
+          # So merging this file cannot be what switches production over: the runners have
+          # to exist first, and staging has to have proved the path before prod tries it.
+          #
+          # Same shape as DEPLOY_ENABLED, which this repository already uses for the
+          # production gate: flip a repo variable (Settings -> Variables -> Actions) once
+          # that environment's runner reads "Idle". Unset or anything but 'true' keeps the
+          # ssh path, so a runner that is uninstalled, unreachable or mid-rebuild is one
+          # variable away from being routed around.
           case "${{ github.ref_name }}" in
             main)    echo "env=prod"    >> "$GITHUB_OUTPUT"
-                     echo 'runner=["self-hosted","prod"]'    >> "$GITHUB_OUTPUT" ;;
+                     if [ "${{ vars.SELF_HOSTED_PROD }}" = "true" ]; then
+                       echo 'runner=["self-hosted","prod"]' >> "$GITHUB_OUTPUT"
+                     else
+                       echo 'runner=["ubuntu-latest"]'      >> "$GITHUB_OUTPUT"
+                     fi ;;
             staging) echo "env=staging" >> "$GITHUB_OUTPUT"
-                     echo 'runner=["self-hosted","staging"]' >> "$GITHUB_OUTPUT" ;;
+                     if [ "${{ vars.SELF_HOSTED_STAGING }}" = "true" ]; then
+                       echo 'runner=["self-hosted","staging"]' >> "$GITHUB_OUTPUT"
+                     else
+                       echo 'runner=["ubuntu-latest"]'         >> "$GITHUB_OUTPUT"
+                     fi ;;
             dev)     echo "env=dev"     >> "$GITHUB_OUTPUT"
                      echo 'runner=["ubuntu-latest"]'         >> "$GITHUB_OUTPUT" ;;
             *)       echo "env=none"    >> "$GITHUB_OUTPUT"
                      echo 'runner=["ubuntu-latest"]'         >> "$GITHUB_OUTPUT" ;;
           esac
+          echo "runner: $(grep '^runner=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
 
       # A DISPATCHED SHA MUST BE ON THE BRANCH IT DEPLOYS.
       #

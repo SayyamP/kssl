@@ -42,6 +42,31 @@ installs the systemd service, and adds a `Restart=always / RestartSec=10` drop-i
 Verify: the runner shows **Idle** at `…/settings/actions/runners`, and
 `systemctl status actions.runner.*` is active on the box.
 
+## Arming an environment (do this in order)
+
+Merging the workflow change does **not** switch anything over, on purpose. A job asking
+for `[self-hosted, prod]` when no such runner exists does not fail — it queues for up to
+24 hours, looking exactly like a slow deploy. So each environment is armed by its own repo
+variable, the same way `DEPLOY_ENABLED` gates production:
+
+| variable | when to set it to `true` |
+|---|---|
+| `SELF_HOSTED_STAGING` | after the VPS-A runner reads **Idle** |
+| `SELF_HOSTED_PROD` | after a staging deploy has actually completed on the runner |
+
+Unset — or anything other than `true` — keeps the ssh path. That is also the kill switch:
+a runner that is uninstalled, unreachable or mid-rebuild is one variable away from being
+routed around, with no revert and no redeploy.
+
+The order that keeps a working path at every step:
+
+1. Install the runner on **VPS-A** and confirm it reads Idle.
+2. Set `SELF_HOSTED_STAGING=true`.
+3. Push to `staging`. Confirm the run's job header names the `kssl-staging` runner, that
+   the log shows `Sync source + recreate frontend/backend (local)` and **not** the ssh
+   step, and that the health gate passes.
+4. Only then install the **VPS-B** runner and set `SELF_HOSTED_PROD=true`.
+
 ## Three guards against deploying to the wrong environment
 
 They are layered on purpose; each catches what the one before it cannot.
