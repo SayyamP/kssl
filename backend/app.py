@@ -548,3 +548,25 @@ def production_doc():
         return _J(status_code=404,
                   content={"error": "PRODUCTION.html has not been generated yet",
                            "how": "python docs/build_production_doc.py"})
+
+
+# ============================================================================
+# ROLLBACK DRILL FIXTURE -- TEMPORARY. Reverted in the commit immediately after.
+#
+# The health gate's rollback has only ever been proven against stubs
+# (deploy/test_healthgate.sh). This makes one real deploy unhealthy so the gate
+# on VPS-A has something genuine to catch and revert.
+#
+# A 503 rather than a crash, deliberately. Crashing at import would put the
+# container into a restart loop, which the gate also catches -- but a loop
+# churns RestartCount, leaves a dead container behind if anything goes wrong,
+# and is harder to reason about. This keeps the process up and healthy and
+# fails only the one thing the gate actually measures: _be_answers(), which
+# has no /api/health route to fall back to and so lands on /api/dataset.
+# Blast radius is one endpoint, for the ~60s the gate takes to give up.
+@app.middleware("http")
+async def _rollback_drill_503(request: Request, call_next):
+    if request.url.path in ("/api/health", "/api/dataset"):
+        return JSONResponse(status_code=503,
+                            content={"drill": "deliberate health-gate failure"})
+    return await call_next(request)
