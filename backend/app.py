@@ -679,7 +679,7 @@ _KNOWN_GAPS = [
 ]
 
 
-def _stage(stage, status, component, **kw):
+def _lstep(stage, status, component, **kw):
     """One lineage step. status is recorded | reconstructed | provenance_unavailable."""
     out = {"stage": stage, "status": status, "component": component}
     out.update({k: v for k, v in kw.items() if v is not None})
@@ -736,7 +736,7 @@ def build_lineage(cur, document_id):
     doc_url = raw.get("url") if raw else None
     if raw:
         found_any = True
-        stages.append(_stage(
+        stages.append(_lstep(
             "raw_corpus", "recorded",
             "public.documents (crawler sync: select_worklist.py / sync_documents.py)",
             identifier=did, timestamp=raw.get("fetched_at"),
@@ -745,7 +745,7 @@ def build_lineage(cur, document_id):
             note="Crawler discovery history is OFF-BOX; only url/source_id/published_at/"
                  "fetched_at survive here."))
     else:
-        stages.append(_stage("raw_corpus", "provenance_unavailable",
+        stages.append(_lstep("raw_corpus", "provenance_unavailable",
                              "public.documents", identifier=did,
                              note="No public.documents row for this id on this database."))
 
@@ -755,7 +755,7 @@ def build_lineage(cur, document_id):
         q = rec_of(one("SELECT to_jsonb(q) AS rec FROM public.extract_queue q "
                        "WHERE q.document_id = %s", (did,)))
         if q:
-            stages.append(_stage(
+            stages.append(_lstep(
                 "gate", "recorded", "extraction/engine/route.py (presignal gate)",
                 identifier=did, timestamp=q.get("crawl_ts"),
                 reason="class=%s state=%s reason=%s attempts=%s" % (
@@ -764,11 +764,11 @@ def build_lineage(cur, document_id):
                     q.get("attempts")),
                 record=q, downstream_ref="extracted.document.document_id=%s" % did))
         else:
-            stages.append(_stage("gate", "provenance_unavailable",
+            stages.append(_lstep("gate", "provenance_unavailable",
                                  "extraction/engine/route.py", identifier=did,
                                  note="No extract_queue row: document never entered the queue."))
     else:
-        stages.append(_stage("gate", "provenance_unavailable",
+        stages.append(_lstep("gate", "provenance_unavailable",
                              "extraction/engine/route.py", identifier=did,
                              note="extract_queue is created by route.py and is absent on "
                                   "this database (e.g. a serving-only replica)."))
@@ -778,13 +778,13 @@ def build_lineage(cur, document_id):
                       "WHERE d.document_id = %s", (did,)))
     if xdoc:
         found_any = True
-        stages.append(_stage(
+        stages.append(_lstep(
             "extracted_document", "recorded", "extraction/engine/store_pg.py",
             identifier=did, timestamp=xdoc.get("first_seen"),
             reason="passed the gate and was extracted (Layer A)",
             record=xdoc, downstream_ref="extracted.proposition.document_id=%s" % did))
     else:
-        stages.append(_stage("extracted_document", "provenance_unavailable",
+        stages.append(_lstep("extracted_document", "provenance_unavailable",
                              "extraction/engine/store_pg.py", identifier=did,
                              note="No extracted.document row: not yet extracted, or purged."))
 
@@ -798,7 +798,7 @@ def build_lineage(cur, document_id):
     run_ids = sorted({p.get("run_id") for p in props if p and p.get("run_id")})
     if props:
         found_any = True
-        stages.append(_stage(
+        stages.append(_lstep(
             "propositions", "recorded",
             "extraction/engine/comprehend.py -> extracted.proposition",
             identifier="%d proposition(s), %s span(s)" % (
@@ -813,7 +813,7 @@ def build_lineage(cur, document_id):
                       for p in props],
             downstream_ref="signal_card.id=pl_%s (link NOT stored; see gaps)" % did))
     else:
-        stages.append(_stage("propositions", "provenance_unavailable",
+        stages.append(_lstep("propositions", "provenance_unavailable",
                              "extraction/engine/comprehend.py", identifier=did,
                              note="No propositions recorded for this document."))
 
@@ -821,7 +821,7 @@ def build_lineage(cur, document_id):
         run = rec_of(one("SELECT to_jsonb(r) AS rec FROM extracted.extraction_run r "
                          "WHERE r.run_id = %s", (rid,)))
         if run:
-            stages.append(_stage(
+            stages.append(_lstep(
                 "extraction_run", "recorded",
                 "extraction/engine/lineage.py -> extracted.extraction_run",
                 identifier=rid, timestamp=run.get("started_at"),
@@ -832,7 +832,7 @@ def build_lineage(cur, document_id):
                        "config": run.get("config")},
                 record=run))
     if props and not run_ids:
-        stages.append(_stage("extraction_run", "provenance_unavailable",
+        stages.append(_lstep("extraction_run", "provenance_unavailable",
                              "extracted.extraction_run",
                              note="Propositions carry no run_id (pre-lineage extraction)."))
 
@@ -846,7 +846,7 @@ def build_lineage(cur, document_id):
     if card:
         found_any = True
         origin = card.get("origin")
-        stages.append(_stage(
+        stages.append(_lstep(
             "signal_card", "recorded",
             "extraction/signals/serving_fill.py -> serving.signal_card",
             identifier=card_id, timestamp=card.get("updated_at"),
@@ -856,14 +856,14 @@ def build_lineage(cur, document_id):
             note=("reference-origin row: no document lineage" if origin == "reference"
                   else None)))
     else:
-        stages.append(_stage("signal_card", "provenance_unavailable",
+        stages.append(_lstep("signal_card", "provenance_unavailable",
                              "serving.signal_card", identifier=card_id,
                              note="No signal_card for pl_%s: the document produced no card "
                                   "(gated out at the card stage, undated, off-topic, or "
                                   "stale). NOTE: card-stage rejection reasons are printed to "
                                   "stdout only and are not stored." % did))
     if detail:
-        stages.append(_stage(
+        stages.append(_lstep(
             "signal_detail", "recorded",
             "extraction/signals/serving_fill.py -> serving.signal_detail",
             identifier=card_id, timestamp=detail.get("updated_at"),
@@ -876,7 +876,7 @@ def build_lineage(cur, document_id):
     # is honest about being a guess and empty for translated cards.
     stored_props = (card or {}).get("source_prop_ids")
     if card is not None and stored_props is not None:
-        stages.append(_stage(
+        stages.append(_lstep(
             "prop_to_card_link", "recorded",
             "serving.signal_card.source_prop_ids (written by serving_fill.py)",
             identifier=card_id,
@@ -895,7 +895,7 @@ def build_lineage(cur, document_id):
         matched = [p.get("i") for p in props
                    if p.get("ev_quote") and len(p["ev_quote"]) >= 12
                    and p["ev_quote"][:24].lower() in hay]
-        stages.append(_stage(
+        stages.append(_lstep(
             "prop_to_card_link", "reconstructed",
             "quote-overlap heuristic (NOT a stored link)",
             identifier=card_id, method="ev_quote substring match against card/detail text",
@@ -909,14 +909,14 @@ def build_lineage(cur, document_id):
 
     # 8. API DESTINATION + 9. UI DESTINATION (deterministic code paths) -------------------
     if card:
-        stages.append(_stage(
+        stages.append(_lstep(
             "api_destination", "reconstructed", "backend/app.py (/api/dataset)",
             identifier="signal_card[%s] + signal_detail[%s]" % (lane or "?", card_id),
             method="deterministic: origin='pipeline' rows flow through serving_live into "
                    "/api/dataset; no stored row records the serve event",
             note=None if card.get("origin") == "pipeline" else
                  "origin!=pipeline: serving_live filters this row OUT; it is NOT served."))
-        stages.append(_stage(
+        stages.append(_lstep(
             "ui_destination", "reconstructed", "frontend/src/pages",
             identifier=_LANE_TO_UI.get(lane, "(unknown lane -> no mapped page)"),
             method="lane->page mapping lives in frontend code, not in data"))
@@ -928,7 +928,7 @@ def build_lineage(cur, document_id):
         "WHERE p.source_doc_ids IS NOT NULL AND %s = ANY(p.source_doc_ids)", (did,))) \
         if _has_column(cur, "serving", "partner", "source_doc_ids") else None
     if partner_lineage:
-        stages.append(_stage(
+        stages.append(_lstep(
             "enrichment", "recorded",
             "serving.partner.source_doc_ids (written by enrich_serving.py)",
             identifier=did, record=partner_lineage,
@@ -948,7 +948,7 @@ def build_lineage(cur, document_id):
             hit = one("SELECT count(*) AS n FROM %s WHERE %s = %%s" % (tbl, col), (doc_url,))
             if hit and hit.get("n"):
                 enrich_hits.append({"table": tbl, "column": col, "rows": hit["n"]})
-    stages.append(_stage(
+    stages.append(_lstep(
         "enrichment", "reconstructed" if enrich_hits else "provenance_unavailable",
         "extraction/signals/enrich_serving.py + fill_competitor_news.py",
         identifier=did,

@@ -219,6 +219,14 @@ def test_run_detail_404():
     print("  ok  unknown run_id -> clean 404")
 
 
+def test_stage_timer_not_shadowed():
+    # Regression: the lineage helper must not shadow the stage_timer context
+    # manager that /api/dataset uses. Broke every deploy from #45 to #49.
+    with app._stage("frontend", note="probe") as st:
+        assert st is not None
+    print("  ok  _stage is the stage_timer context manager, not the lineage helper")
+
+
 if __name__ == "__main__":
     test_overview_readonly_and_shaped()
     test_overview_survives_all_tables_missing()
@@ -230,4 +238,5 @@ if __name__ == "__main__":
     test_run_detail_timeline_rollup_and_rejects()
     test_run_detail_events_unavailable()
     test_run_detail_404()
+    test_stage_timer_not_shadowed()
     print("ok - ops endpoints: read-only, resilient, grounded")
