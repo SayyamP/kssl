@@ -60,19 +60,25 @@ services:
     # provoke a parallel plan. This is RAM-backed, not disk, and 1GB is what the postgres
     # image's own documentation suggests for a server of this size.
     shm_size: 1gb
-    # max_connections is 300, not the default 60. Each extraction worker holds exactly one
-    # connection for its whole life, so this number caps the worker fleet -- and the fleet is
-    # the throughput ceiling: at 60 the GPU farms sat at ~0.9 concurrent requests per node
-    # against a measured knee of 6. The database, not the GPUs, was the limit.
+    # max_connections is 500, not the default 60. Each extraction worker now holds TWO
+    # connections for its whole life: its main pipeline connection, plus one for
+    # provenance.event (the append-only observability layer added in #47, whose emitter keeps
+    # a cached, isolated, autocommit connection per process). So the fleet needs 2 slots per
+    # worker, and this number caps the fleet -- the fleet is the throughput ceiling: at 60 the
+    # GPU farms sat at ~0.9 concurrent requests per node against a measured knee of 6. The
+    # database, not the GPUs, was the limit.
     #
     # A -c flag beats BOTH postgresql.conf and an ALTER SYSTEM in postgresql.auto.conf, so this
     # line is the only place the limit is really set. `ALTER SYSTEM SET max_connections = 200`
     # was run once and never took effect: the server kept starting at 60 and nothing said why.
     # Change it HERE.
     #
-    # 300 is sized for both farms full: 9 Kharghar nodes x 6 + 12 Pune nodes x 12 = 198 slots,
-    # needing ~198 workers + ~12 service connections = 210, plus room for a human holding a
-    # psql session. Worst case 300 x work_mem 32MB + 2GB shared_buffers = 11.4 GB of 31 GB.
+    # 500 is sized for both farms full: 9 Kharghar nodes x 6 + 12 Pune nodes x 12 = 198 slots,
+    # x2 connections each = ~396 worker connections + ~12 service connections = ~408, plus room
+    # for the serving API's own pool and a human holding a psql session. It was 300 (one
+    # connection per worker) until #47 added the second; 300 then starved the serving API and
+    # took the dashboard 503 on 2026-09-07. Worst case 500 x work_mem 32MB + 2GB shared_buffers
+    # = 18 GB of 31 GB.
     #
     # Running out is not a graceful degradation: a worker that cannot connect crashes and
     # restarts, and each restart re-opens a connection, so the shortage feeds itself until
@@ -86,7 +92,7 @@ services:
       -c shared_buffers=2GB
       -c work_mem=32MB
       -c maintenance_work_mem=512MB
-      -c max_connections=300
+      -c max_connections=500
     volumes:
       - kssl_pgdata:/var/lib/postgresql/data
       # init scripts run in name order, on a FRESH volume only
