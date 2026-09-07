@@ -182,8 +182,32 @@ if [ "$KSSL_ENV_NAME" != "prod" ] && [ -d db/migrations ]; then
   _apply_pending_migrations || echo "!! migrations: step did not complete. The deploy continues."
 fi
 
-echo ">> pulling images @ $SHA"
-"${COMPOSE[@]}" pull frontend backend
+# IMAGES THIS HOST ALREADY HAS, when the registry is not an option.
+#
+# The images are built by CI and pulled from GHCR, and that is the only path production
+# should ever take: staging then runs the exact bytes prod will run. But the pull is also
+# the one step that needs an outside service, and on 2026-09-07 GitHub Actions stopped
+# starting jobs (billing), leaving two fixes built, pushed and undeployable while the
+# boxes themselves were healthy.
+#
+# KSSL_SKIP_PULL is the operator saying "the images for this SHA are already here". It is
+# opt-in and never inferred: a failed pull still fails the deploy, because a registry that
+# is refusing us is not the same as an operator who has staged the images by hand. And it
+# is checked, not trusted -- if the tag is not actually present locally this exits rather
+# than letting `up -d` fall back to whatever `latest` happens to be.
+if [ "${KSSL_SKIP_PULL:-0}" = "1" ]; then
+  echo ">> KSSL_SKIP_PULL=1 -- using images already on this host @ $SHA"
+  for svc in frontend backend; do
+    docker image inspect "ghcr.io/137mallory/kssl-deploy/$svc:$SHA" >/dev/null 2>&1 || {
+      echo "!! KSSL_SKIP_PULL=1 but there is no local ghcr.io/137mallory/kssl-deploy/$svc:$SHA"
+      echo "   Build or load it on this host first. Refusing to deploy an unknown image."
+      exit 6
+    }
+  done
+else
+  echo ">> pulling images @ $SHA"
+  "${COMPOSE[@]}" pull frontend backend
+fi
 
 # WHAT IS RUNNING NOW, so a bad swap has somewhere to go back to. Captured BEFORE the
 # recreate: once `up -d` has replaced the container this is unknowable, and a rollback
