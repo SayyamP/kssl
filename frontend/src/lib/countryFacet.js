@@ -106,14 +106,78 @@ export function companyOrigin(d, cid) {
 
 /* The countries one company is recorded in: footprint rows, catalogued locations, and
    the parts of its hq string the dataset knows as countries. Sorted, deduped. */
+/* The countries a free-text line NAMES, as whole words.
+
+   Whole words matter more than it looks: "India" is inside "Indiana", and this data
+   carries both an India and an "Andhra Pradesh". A substring test would read Indiana as
+   India. Longest first, so "South Korea" is not also reported as "Korea". */
+const words = (s) =>
+  clean(s)
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter(Boolean);
+
+export function countriesNamedIn(text, vocab) {
+  const toks = words(text);
+  if (!toks.length) return [];
+  /* Phrases first, so "South Korea" is read as one country rather than also reporting
+     "Korea", and the tokens it consumed are not offered to a shorter name. */
+  const terms = [...(vocab || [])]
+    .filter(Boolean)
+    .map((c) => ({ c, w: words(c) }))
+    .filter((t) => t.w.length)
+    .sort((a, b) => b.w.length - a.w.length);
+  const used = new Array(toks.length).fill(false);
+  const out = [];
+  terms.forEach(({ c, w }) => {
+    for (let i = 0; i + w.length <= toks.length; i += 1) {
+      if (used.slice(i, i + w.length).some(Boolean)) continue;
+      let hit = true;
+      for (let j = 0; j < w.length; j += 1) {
+        if (toks[i + j] !== w[j]) {
+          hit = false;
+          break;
+        }
+      }
+      if (hit) {
+        out.push(c);
+        for (let j = 0; j < w.length; j += 1) used[i + j] = true;
+        return;
+      }
+    }
+  });
+  return out;
+}
+
 export function companyCountries(d, cid) {
   const co = ((d && d.competitors) || {})[cid] || {};
   const vocab = countryVocabulary(d);
   const out = new Set();
   Object.keys(((d && d.geoData) || {})[cid] || {}).forEach((c) => c && out.add(clean(c)));
+  /* global_locations IS PROSE, NOT A COUNTRY LIST.
+     This branch took each entry whole. When it was written that was harmless -- the
+     note above records the measurement: "0 carry global_locations" -- so nothing ever
+     came through it. The field has since been served, and the Partnerships filter
+     filled with 208 options that are sentences:
+
+        "12 commercial offices in Europe, the US and Brazil"
+        "161 offices and production sites in more than 30 countries across Europe"
+        "Approximately 180,000 employees in 52 countries"
+        "Alabama", "Andhra Pradesh"
+
+     A branch that is correct only because its input is empty is a bug waiting for the
+     input. The entries are read for the countries they NAME, against the same
+     vocabulary hq is already checked against, so nothing is admitted that the dataset
+     does not itself use as a country -- "Alabama" and "Andhra Pradesh" are refused for
+     the same reason "Virginia" always was. */
   (Array.isArray(co.global_locations) ? co.global_locations : []).forEach((g) => {
     const v = clean(g && typeof g === "object" ? g.value || g.country : g);
-    if (v) out.add(v);
+    if (!v) return;
+    if (vocab.has(v)) {
+      out.add(v);                       // already exactly a country
+      return;
+    }
+    countriesNamedIn(v, vocab).forEach((c) => out.add(c));
   });
   clean(co.hq)
     .split(",")
