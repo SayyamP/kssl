@@ -38,6 +38,43 @@ set -a; . "$ENV_FILE"; set +a
 # were deliberately set up as staging or dev. Production has none, which is why a missing
 # marker is allowed for prod and refused for everything else: an unprovisioned host must
 # never receive a non-production deploy.
+# A DEPLOY RUN BY HAND IS ALLOWED, BUT IT HAS TO BE MEANT AND IT HAS TO BE RECORDED.
+#
+# On 2026-09-07 staging was found running a `main` commit that no workflow deployed: a
+# /tmp/deploy.sh written by heredoc and run as root. It worked -- root can always run
+# this script -- and it left staging on a commit nobody had asked for, with an index
+# build holding an AccessExclusiveLock that stalled the API for minutes. Nothing was
+# malicious; it was a recovery action that quietly became a deployment.
+#
+# What a hand-run skips is everything OUTSIDE this file: the ancestry check that stops a
+# commit from another branch being deployed, DEPLOY_ENABLED, the environment approval,
+# CI and selfcheck, and the Actions run that would have recorded any of it. What it does
+# NOT skip is the host marker below and the health gate -- those live here and still
+# apply, which is why a manual deploy is worth keeping rather than blocking.
+#
+# So: keep it working, make it deliberate, and leave a trail. One environment variable
+# is enough to stop an accident (nobody sets it by mistake) and cheap enough not to
+# obstruct a real 3am recovery.
+if [ "${GITHUB_ACTIONS:-}" != "true" ] && [ -z "${KSSL_MANUAL_DEPLOY:-}" ]; then
+  echo "!! REFUSING: this is a manual deploy, not a GitHub Actions run."
+  echo "   Deploying by hand skips the ancestry check, DEPLOY_ENABLED, the environment"
+  echo "   approval, CI/selfcheck, and the audit trail. The host guard and the health"
+  echo "   gate below still apply."
+  echo
+  echo "   Normal route:    push, or dispatch the Deploy workflow (rollback: -f sha=...)"
+  echo "   If you mean it:  KSSL_MANUAL_DEPLOY=1 $0 $SHA ${2:-}"
+  exit 6
+fi
+if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+  # WHO, not just WHAT. SSH_CONNECTION survives sudo where SUDO_USER does not exist,
+  # and the reverse; take whatever is there rather than insisting on one.
+  _who="${SUDO_USER:-$(id -un)}@${SSH_CLIENT%% *}${SSH_CLIENT:+ }"
+  _line="$(date -u +%FT%TZ) MANUAL sha=$SHA env=$KSSL_ENV_NAME by=${_who:-unknown} tty=$(tty 2>/dev/null || echo none)"
+  echo "$_line" >> "$APP/.manual-deploys.log" 2>/dev/null || true
+  echo "!! MANUAL DEPLOY -- recorded in $APP/.manual-deploys.log"
+  echo "   $_line"
+fi
+
 MARKER="$APP/.KSSL_ENV"
 if [ -f "$MARKER" ]; then
   HOST_ENV="$(tr -d '[:space:]' < "$MARKER")"
@@ -82,7 +119,18 @@ for kv in "KSSL_ENV=$KSSL_ENV_NAME" "KSSL_PREFIX=$KSSL_PREFIX" "KSSL_DB_PORT=$KS
   k="${kv%%=*}"
   if grep -q "^$k=" .env 2>/dev/null; then sed -i "s|^$k=.*|$kv|" .env; else echo "$kv" >> .env; fi
 done
-echo "$SHA" > .DEPLOYED_SHA
+# .DEPLOYED_SHA IS NOT WRITTEN HERE. It is written after the health gate, below.
+#
+# It used to be written at this point, before the image swap. So a deploy the gate
+# REJECTED left the marker naming the rejected SHA while .env TAG and the running
+# containers had been rolled back to the previous one -- two files disagreeing about
+# what production was running, with only one of them right. Found by the 2026-09-07
+# rollback drill on staging: the gate correctly refused a48bb36 and restored 3f875de,
+# and .DEPLOYED_SHA still said a48bb36.
+#
+# Nothing in this repository READS the marker -- it exists for humans and for
+# monitoring -- which is exactly why a lie in it survives: no test fails, no deploy
+# breaks, and it is believed the next time somebody asks what is deployed.
 
 # --- pending migrations, on a REPLICA only ---------------------------------------
 # A BACKEND MUST NEVER ARRIVE AHEAD OF ITS SCHEMA.
@@ -196,7 +244,14 @@ echo ">> recreating frontend + backend (nothing else)"
 "${COMPOSE[@]}" up -d --no-build frontend backend
 
 # HEALTH GATE -- see deploy/healthgate.sh (extracted so it can be tested).
+# It exits 1 on failure, so everything below is reached only by a deploy that passed.
 . "$APP/deploy/healthgate.sh"
+
+# THE MARKER, WRITTEN ONLY ONCE THE GATE HAS PASSED. Unreachable on a failed deploy
+# because healthgate.sh exits; and the gate's rollback branch writes the restored tag
+# itself, so every path that changes what is running also updates this file. There is
+# no ordering in which the marker can name something that is not deployed.
+echo "$SHA" > .DEPLOYED_SHA
 
 # --- Extraction stack (its own compose project, network_mode: host) -------------
 # Rebuild the image from the just-synced source and recreate the roles. `up -d` only

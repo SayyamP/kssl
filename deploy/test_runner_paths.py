@@ -86,6 +86,22 @@ def main():
         if name != "resolve" and "needs.resolve.outputs.runner" not in str(job["runs-on"]):
             fail.append("deploy.yml job %r does not follow resolve's runner choice" % name)
 
+    # 3b. the ancestry guard, which is what stops a dispatched `sha` from deploying a
+    # commit that was never merged to the branch it claims to be deploying. Verified
+    # live on 2026-09-07 (a main-only sha dispatched at staging was refused), and
+    # asserted here because it is one `if:` away from being silently skipped.
+    anc = [st for st in deploy["jobs"]["resolve"]["steps"]
+           if "ancestor" in (st.get("name") or "").lower()]
+    if not anc:
+        fail.append("resolve has no ancestry check; a dispatched sha could deploy a "
+                    "commit that is not on the branch")
+    else:
+        body = anc[0].get("run") or ""
+        if "merge-base --is-ancestor" not in body:
+            fail.append("the ancestry step no longer uses `git merge-base --is-ancestor`")
+        if "workflow_dispatch" not in (anc[0].get("if") or ""):
+            fail.append("the ancestry step is not gated on workflow_dispatch")
+
     # 4. resolve's inline mapping vs the mapping it publishes
     # The two are written in different languages -- a workflow expression
     # (`vars.SELF_HOSTED_PROD == 'true'`) and a shell test (`= "true"`) -- so the pattern

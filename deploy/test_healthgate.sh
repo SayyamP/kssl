@@ -68,6 +68,11 @@ run_gate() {
   export SCENARIO="$1" PREVTAG="${2:-abc1234}"
   export PREV_TAG="${2:-abc1234}"   # deploy.sh captures this before the swap
   rm -f "$TMP/restarts" "$TMP/ups"
+  # Seed the marker with a value that is NEITHER the new sha NOR the rollback target,
+  # so an assertion can tell "the gate wrote this" from "it was already there". Seeding
+  # it with PREV_TAG instead made the `latest` case unfalsifiable -- it read `latest`
+  # because the seed put it there, not because the gate did.
+  echo "seedsha0" > "$TMP/.DEPLOYED_SHA"
   ( set +e
     KSSL_PREFIX=kssl SHA=deadbee APP="$TMP" KSSL_API_PORT=8600
     COMPOSE=(docker compose)
@@ -120,7 +125,77 @@ chmod +x "$TMP/docker"
 rc=$(run_gate healthy)
 ck "a container that is UP but does not answer still fails" 1 "$rc"
 
+
+# ---- .DEPLOYED_SHA MUST NEVER NAME A BUILD THAT IS NOT RUNNING -------------------
+#
+# Found by the 2026-09-07 rollback drill on staging. deploy.sh wrote the marker BEFORE
+# the swap, so a deploy this gate rejected left .DEPLOYED_SHA naming the rejected SHA
+# while .env TAG and the containers had been rolled back -- two files disagreeing, one
+# of them wrong, and nothing in the repository reads the marker so nothing ever failed
+# because of it. It is read by humans deciding what is deployed, which is worse.
+echo "marker:"
+
+cat > "$TMP/docker" <<'STUB'
+#!/usr/bin/env bash
+case "$1" in
+  inspect)
+    n=$(cat "$TMPDIR_T/restarts" 2>/dev/null || echo 0)
+    case "$3" in
+      *State.Running*)    echo true ;;
+      *State.Restarting*) echo false ;;
+      *RestartCount*)     n=$((n + 1)); echo "$n" > "$TMPDIR_T/restarts"; echo "$n" ;;
+      *Config.Image*)     echo "ghcr.io/137mallory/kssl-deploy/backend:$PREVTAG" ;;
+    esac ;;
+  exec) exit 1 ;;
+  logs) echo "   (stub)" ;;
+  *) : ;;
+esac
+exit 0
+STUB
+chmod +x "$TMP/docker"
+
+rc=$(run_gate crashloop 3f875de)
+ck "a rejected deploy fails" 1 "$rc"
+ck "...and the marker names the RESTORED sha, not the rejected one" \
+   "3f875de" "$(cat "$TMP/.DEPLOYED_SHA")"
+ck "...so the marker never names the sha the gate refused" \
+   0 "$(grep -c deadbee "$TMP/.DEPLOYED_SHA")"
+
+# `latest` is refused as a rollback target, so nothing is restored -- and a marker
+# rewritten to `latest` would be a worse lie than the one this fixes. Nothing was
+# rolled back, so the marker must be left exactly as it was found.
+rc=$(run_gate crashloop latest)
+ck "'latest' is refused, and the marker is not rewritten to it" \
+   0 "$(grep -c '^latest$' "$TMP/.DEPLOYED_SHA")"
+ck "...the marker is left untouched when no rollback happened" \
+   "seedsha0" "$(cat "$TMP/.DEPLOYED_SHA")"
+
+# ---- and the ORDERING in deploy.sh, which is the other half of the fix -----------
+# The gate exits 1 on failure, so a marker written after it is unreachable on a failed
+# deploy. Asserted structurally because there is no way to observe it from here, and
+# because moving that one line back is a silent regression.
+gate_line=$(grep -n 'healthgate.sh"' "$HERE/deploy.sh" | head -1 | cut -d: -f1)
+mark_line=$(grep -n '^echo "\$SHA" > .DEPLOYED_SHA' "$HERE/deploy.sh" | head -1 | cut -d: -f1)
+ck "deploy.sh writes the marker (exactly once)" \
+   1 "$(grep -c '^echo "\$SHA" > .DEPLOYED_SHA' "$HERE/deploy.sh")"
+ck "...AFTER the health gate, so a failed deploy cannot record its sha" \
+   yes "$([ -n "$gate_line" ] && [ -n "$mark_line" ] && [ "$mark_line" -gt "$gate_line" ] && echo yes || echo no)"
+
+
+# ---- a hand-run deploy is deliberate, and still possible -------------------------
+# The control added after the 2026-09-07 bypass. It must refuse an accident and must
+# NOT obstruct a real recovery -- a guard nobody can get past at 3am gets deleted.
+echo "manual-deploy control:"
+out=$(cd "$HERE/.." && bash deploy/deploy.sh testsha staging 2>&1); rc=$?
+ck "an unset KSSL_MANUAL_DEPLOY refuses a hand-run deploy" 6 "$rc"
+ck "...and the message names the escape hatch" 1 "$(echo "$out" | grep -c 'KSSL_MANUAL_DEPLOY=1')"
+out=$(cd "$HERE/.." && KSSL_MANUAL_DEPLOY=1 bash deploy/deploy.sh testsha staging 2>&1); rc=$?
+ck "...but KSSL_MANUAL_DEPLOY=1 gets past it (recovery preserved)" 0 "$(echo "$out" | grep -c 'REFUSING: this is a manual deploy')"
+ck "...and the run is recorded as MANUAL" 1 "$(echo "$out" | grep -c 'MANUAL DEPLOY -- recorded')"
+out=$(cd "$HERE/.." && GITHUB_ACTIONS=true bash deploy/deploy.sh testsha staging 2>&1)
+ck "an Actions run is never asked for the flag" 0 "$(echo "$out" | grep -c 'manual deploy')"
+
 if [ "$fails" -gt 0 ]; then
   echo "$fails FAILED"; exit 1
 fi
-echo "ok - the gate catches a crash loop, a silent API, and rolls back"
+echo "ok - the gate catches a crash loop, a silent API, rolls back, and the marker follows"

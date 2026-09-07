@@ -41,3 +41,7 @@ sc/
 # harvest output: written by the run, not by hand
 pipeline/fetch_patents_wipo.json
 pipeline/fetch_patents_unresolved.json
+
+# Written on the box by a hand-run deploy (deploy/deploy.sh). Host state, like
+# .KSSL_ENV and .DEPLOYED_SHA -- it records what happened on THAT machine.
+.manual-deploys.log

@@ -93,6 +93,14 @@ if [ "$HEALTHY" != "1" ]; then
     if [ -f "$APP/.env" ]; then
       sed -i "s/^TAG=.*/TAG=$PREV_TAG/" "$APP/.env" 2>/dev/null || true
     fi
+    # AND THE MARKER, for the same reason .env is rewritten: a file that says what is
+    # deployed has to say what is deployed. deploy.sh now writes it only after this
+    # gate passes, so on this path it still holds the previous SHA and is already
+    # right -- but only as long as the previous deploy was the last thing to touch it.
+    # A tag set by hand, or a restore of something the marker never recorded, breaks
+    # that assumption. Writing it here makes the rollback self-consistent on its own
+    # rather than by inheritance.
+    echo "$PREV_TAG" > "$APP/.DEPLOYED_SHA" 2>/dev/null || true
     TAG="$PREV_TAG" "${COMPOSE[@]}" up -d --no-build frontend backend || true
     sleep "${KSSL_HEALTH_SLEEP:-5}"
     if _settled; then
