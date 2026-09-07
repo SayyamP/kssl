@@ -1,0 +1,4 @@
+# Shell scripts run on Linux. A CRLF here is not cosmetic: `set -euo pipefail`
+# is a syntax error, and an editor or a Python write_text() on Windows introduces it
+# silently into a file that was mixed to begin with.
+*.sh text eol=lf
