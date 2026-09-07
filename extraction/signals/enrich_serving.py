@@ -985,6 +985,11 @@ def _workbook_band_map(cur=None):
     Measured on staging, of the eight curated companies with no row, six gain a band here
     and two -- Huntington Ingalls and Thyssenkrupp Marine, both shipyards -- still do not.
     That the shipyards stay out is the check that this is evidence and not a bypass.
+
+    The eight are keyed by comp_id, not by name. Keying that survey on the NAME reported a
+    ninth, Larsen & Toubro, which has had a roster row all along: it is stored as
+    "Larsen &amp; Toubro", and an HTML entity in a display field silently breaks every
+    join that compares names. See the ord/name note in _write_companies.
     """
     out = {}
 
