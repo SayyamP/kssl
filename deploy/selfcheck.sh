@@ -23,6 +23,13 @@ C_TIERS_PATH=extraction/engine/source_tiers.py \
 # The audit regressions.
 (cd extraction && python test_fixes.py)
 
+# The self-hosted deploy path's two invariants: no ssh on the local path, and no
+# pull_request trigger anywhere a self-hosted runner can be reached. Neither is visible
+# to actionlint, and both fail silently -- see deploy/RUNNERS.md.
+# PyYAML is this check's dependency, not extraction's, so it is declared here.
+python -c "import yaml" 2>/dev/null || pip install --quiet pyyaml
+python deploy/test_runner_paths.py
+
 # The signals modules import each other by bare filename, so they run from their own
 # directory. The test_*.py loop is deliberate: a new regression test is picked up by
 # being written, without also having to remember to edit this file.

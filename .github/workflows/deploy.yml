@@ -41,7 +41,19 @@ on:
 concurrency:
   # Per branch, so a staging deploy never queues behind a production one.
   group: deploy-${{ github.ref_name }}
-  cancel-in-progress: false
+  # SUPERSEDED NON-PRODUCTION DEPLOYS ARE CANCELLED; A PRODUCTION ONE IS NEVER TOUCHED.
+  #
+  # Measured over 2026-09-01..07: 18 of 150 Deploy runs were still going when a newer run
+  # on the same branch started -- work that could not reach a machine, because this same
+  # concurrency group makes the newer run wait for it. Cancelling those is free.
+  #
+  # It is NOT free on main. A deploy killed between the rsync and the health gate leaves
+  # production with this commit's source tree, the previous commit's containers, and no
+  # gate having run -- the one state deploy.sh's rollback cannot reason about, because
+  # rollback happens INSIDE the run being cancelled. So main keeps the old behaviour and
+  # queues. On staging and dev the same interruption is recoverable by re-running, which
+  # is what those environments are for.
+  cancel-in-progress: ${{ github.ref_name != 'main' }}
 
 permissions:
   contents: read
@@ -49,10 +61,24 @@ permissions:
 
 jobs:
   resolve:
-    runs-on: ubuntu-latest
+    # RESOLVE CANNOT USE `needs.resolve.outputs.runner` -- it is the job that computes it.
+    # So the branch -> runner mapping is spelled out once more here, and only here. The
+    # two must agree; test_runner_paths.py asserts they do, because a drift would put
+    # this job on a GitHub runner while everything downstream waited on a self-hosted one.
+    #
+    # Same two variables, same default: unset (or anything but 'true') is ubuntu-latest,
+    # which is the ssh path and the state this repository is in today.
+    runs-on: ${{ fromJSON(
+      (github.ref_name == 'main'    && vars.SELF_HOSTED_PROD    == 'true' && '["self-hosted","prod"]')
+      || (github.ref_name == 'staging' && vars.SELF_HOSTED_STAGING == 'true' && '["self-hosted","staging"]')
+      || '["ubuntu-latest"]') }}
     outputs:
       sha: ${{ steps.pick.outputs.sha }}
       env: ${{ steps.pick.outputs.env }}
+      # A JSON array, consumed by the deploy job as `runs-on: ${{ fromJSON(...) }}`.
+      # Emitted here so the branch -> environment -> machine mapping stays in ONE case
+      # statement; a second copy in an inline `runs-on` expression is how the two drift.
+      runner: ${{ steps.pick.outputs.runner }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,12 +86,49 @@ jobs:
       - id: pick
         run: |
           echo "sha=${{ github.event.inputs.sha || github.sha }}" >> "$GITHUB_OUTPUT"
+          # WHICH MACHINE RUNS THE DEPLOY, not just which machine it targets.
+          #
+          # prod and staging deploy FROM the box they deploy TO: a runner installed on
+          # VPS-B and VPS-A respectively, which makes the deploy a local operation and
+          # removes the inbound ssh the old path needed. dev has no runner (it lives in
+          # the data centre) and keeps the ssh path, which is why both paths still exist
+          # in the deploy job below.
+          #
+          # The label pair is also the first of the two wrong-environment guards: GitHub
+          # will only hand this job to a runner registered with BOTH labels, so the
+          # staging runner is not eligible for a prod job at all. The second guard is the
+          # .KSSL_ENV marker check, which runs on the machine itself.
+          # EACH ENVIRONMENT IS ARMED SEPARATELY, and the default is the old ssh path.
+          #
+          # A job asking for `[self-hosted, prod]` when no runner carries those labels does
+          # not fail -- it QUEUES, for up to 24 hours, looking exactly like a slow deploy.
+          # So merging this file cannot be what switches production over: the runners have
+          # to exist first, and staging has to have proved the path before prod tries it.
+          #
+          # Same shape as DEPLOY_ENABLED, which this repository already uses for the
+          # production gate: flip a repo variable (Settings -> Variables -> Actions) once
+          # that environment's runner reads "Idle". Unset or anything but 'true' keeps the
+          # ssh path, so a runner that is uninstalled, unreachable or mid-rebuild is one
+          # variable away from being routed around.
           case "${{ github.ref_name }}" in
-            main)    echo "env=prod"    >> "$GITHUB_OUTPUT" ;;
-            staging) echo "env=staging" >> "$GITHUB_OUTPUT" ;;
-            dev)     echo "env=dev"     >> "$GITHUB_OUTPUT" ;;
-            *)       echo "env=none"    >> "$GITHUB_OUTPUT" ;;
+            main)    echo "env=prod"    >> "$GITHUB_OUTPUT"
+                     if [ "${{ vars.SELF_HOSTED_PROD }}" = "true" ]; then
+                       echo 'runner=["self-hosted","prod"]' >> "$GITHUB_OUTPUT"
+                     else
+                       echo 'runner=["ubuntu-latest"]'      >> "$GITHUB_OUTPUT"
+                     fi ;;
+            staging) echo "env=staging" >> "$GITHUB_OUTPUT"
+                     if [ "${{ vars.SELF_HOSTED_STAGING }}" = "true" ]; then
+                       echo 'runner=["self-hosted","staging"]' >> "$GITHUB_OUTPUT"
+                     else
+                       echo 'runner=["ubuntu-latest"]'         >> "$GITHUB_OUTPUT"
+                     fi ;;
+            dev)     echo "env=dev"     >> "$GITHUB_OUTPUT"
+                     echo 'runner=["ubuntu-latest"]'         >> "$GITHUB_OUTPUT" ;;
+            *)       echo "env=none"    >> "$GITHUB_OUTPUT"
+                     echo 'runner=["ubuntu-latest"]'         >> "$GITHUB_OUTPUT" ;;
           esac
+          echo "runner: $(grep '^runner=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
 
       # A DISPATCHED SHA MUST BE ON THE BRANCH IT DEPLOYS.
       #
@@ -110,7 +173,10 @@ jobs:
   # `build` and `deploy` left the arbitrary code running anyway.
   selfcheck:
     needs: resolve
-    runs-on: ubuntu-latest
+    # Follows resolve, so the whole workflow lands on one environment's runner or none of
+    # it does. These checks are hermetic -- no database, no network beyond pip, no model
+    # call -- so running them on the deploy target costs it nothing but CPU.
+    runs-on: ${{ fromJSON(needs.resolve.outputs.runner) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -118,8 +184,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      # A SELF-HOSTED RUNNER'S TOOL CACHE OUTLIVES THE JOB, AND THIS JOB pip-INSTALLS.
+      #
+      # deploy/selfcheck.sh opens with `pip install -r extraction/requirements.txt`. On
+      # GitHub's disposable machines that lands in a Python thrown away minutes later. On
+      # a runner that persists, it lands in the tool cache and STAYS -- so a requirement
+      # deleted from requirements.txt would go on being importable, and the gate whose
+      # entire job is catching that would pass. A stale package masking a missing
+      # dependency is the exact failure this script exists to prevent.
+      #
+      # $RUNNER_TEMP is cleared between jobs on both kinds of runner, so a venv there is
+      # empty every run. Prepending it to $GITHUB_PATH makes the `python` and `pip` that
+      # selfcheck.sh calls resolve to it, with no change to the script -- which ci.yml
+      # also calls, and which should stay one script.
+      - name: Fresh venv, so a persistent runner cannot fake a passing gate
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
       - name: Extraction + serving self-checks
-        run: bash deploy/selfcheck.sh
+        run: |
+          echo "python: $(command -v python)  ($(python -V))"
+          bash deploy/selfcheck.sh
 
       - uses: actions/setup-node@v4
         with:
@@ -141,7 +226,10 @@ jobs:
 
   build:
     needs: resolve
-    runs-on: ubuntu-latest
+    # Builds on the machine that will run the images, which is also what keeps the two
+    # environments apart: a staging build never touches VPS-B. Both boxes are x86_64, the
+    # same architecture ubuntu-latest was producing, so the images are unchanged.
+    runs-on: ${{ fromJSON(needs.resolve.outputs.runner) }}
     strategy:
       fail-fast: false
       matrix:
@@ -178,7 +266,30 @@ jobs:
 
   deploy:
     needs: [resolve, build, selfcheck]
-    runs-on: ubuntu-latest
+    # THE DEPLOY RUNS ON THE MACHINE IT DEPLOYS TO (prod, staging), or on a GitHub runner
+    # over ssh (dev). `resolve` picks; see the case statement there.
+    #
+    # THIS WORKFLOW IS SAFE TO PUT ON A SELF-HOSTED RUNNER AND ci.yml IS NOT, and the
+    # difference is the trigger, not the steps. Deploy fires only on `push` to
+    # main/staging/dev and on workflow_dispatch -- both of which require write access to
+    # this repository. ci.yml fires on `pull_request`, which a stranger's fork can open,
+    # so it stays on GitHub's disposable machines where arbitrary code is meant to run.
+    # Never add a pull_request trigger to this file.
+    runs-on: ${{ fromJSON(needs.resolve.outputs.runner) }}
+    # A DEPLOY THAT HANGS IS STOPPED; A DEPLOY THAT CANNOT START IS NOT, AND THE
+    # DIFFERENCE MATTERS -- do not read this as a queue timeout, because it is not one.
+    #
+    # timeout-minutes is measured from the moment a runner picks the job up. It bounds a
+    # `compose pull` against a stalled registry or a health gate waiting on a container
+    # that never settles; the ssh path bounded neither. It does NOT bound the time spent
+    # WAITING for a runner: GitHub gives a queued job 24 hours and offers no per-job
+    # setting to shorten it. There is no workflow-level fix for that, so the control is
+    # upstream -- SELF_HOSTED_PROD / SELF_HOSTED_STAGING in `resolve`. An environment
+    # whose runner is gone is un-armed, and the very next run takes the ssh path with no
+    # revert and no redeploy. See deploy/RUNNERS.md.
+    #
+    # 30 minutes: the slowest real deploy in this repository's history is well under 10.
+    timeout-minutes: 30
     # Production stays gated behind DEPLOY_ENABLED. Staging and dev deploy on every push --
     # that is what they are for, and neither can reach production's data.
     if: needs.resolve.outputs.env != 'none' && (needs.resolve.outputs.env != 'prod' || vars.DEPLOY_ENABLED == 'true')
@@ -187,6 +298,72 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.resolve.outputs.sha }}
+      # WRONG-ENVIRONMENT GUARD, SELF-HOSTED PATH. Same question as the ssh version
+      # below -- "is this machine the environment being deployed?" -- asked of the local
+      # filesystem, because on a self-hosted runner there is no remote to ask.
+      #
+      # This is the SECOND of the two guards. The first is the label pair in `runs-on`:
+      # GitHub only dispatches a `[self-hosted, prod]` job to a runner registered with
+      # both labels, so the staging runner is never offered it. This one covers the case
+      # the labels cannot -- a runner registered with the wrong label by hand -- and it
+      # runs BEFORE the rsync, which is the whole point: deploy.sh has the same check,
+      # but by the time deploy.sh runs the tree has already been written over.
+      - name: This runner must be the environment being deployed
+        if: runner.environment == 'self-hosted'
+        env:
+          KENV: ${{ needs.resolve.outputs.env }}
+        run: |
+          MARK="$(tr -d '[:space:]' < /opt/kssl/app/.KSSL_ENV 2>/dev/null || true)"
+          if [ -n "$MARK" ] && [ "$MARK" != "$KENV" ]; then
+            echo "::error::This runner's machine is provisioned as '$MARK' but this is a"
+            echo "::error::'$KENV' deploy. The runner carries the wrong label. Nothing was"
+            echo "::error::transferred. Re-register it with the '$MARK' label."
+            exit 1
+          fi
+          if [ -z "$MARK" ] && [ "$KENV" != "prod" ]; then
+            echo "::error::This machine carries no /opt/kssl/app/.KSSL_ENV, so it is not a"
+            echo "::error::provisioned '$KENV' host. Nothing was transferred."
+            exit 1
+          fi
+          echo "runner: $(hostname) · marker '${MARK:-none}' — ok for a $KENV deploy"
+          echo "labels: ${{ join(fromJSON(needs.resolve.outputs.runner), ', ') }}"
+
+      # DEPLOY WITHOUT LEAVING THE BOX. No ssh, no key on disk, no inbound connection --
+      # the runner already holds the checkout, and the target is its own filesystem.
+      # deploy.sh is byte-for-byte the script the ssh path invokes, so the health gate,
+      # the image pin and the rollback are unchanged; only the transport is gone.
+      - name: Sync source + recreate frontend/backend (local)
+        if: runner.environment == 'self-hosted'
+        env:
+          GHTOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          KENV: ${{ needs.resolve.outputs.env }}
+        run: |
+          # Same exclude list as the ssh path, and it must stay the same list: '/*.env' is
+          # anchored to the transfer root so deploy/envs/*.env survive, and /.KSSL_ENV is
+          # the host identity marker the guard above just read.
+          # No -z: compressing a copy between two directories on one disk only costs CPU.
+          rsync -a \
+            --exclude='.git' --exclude='node_modules' --exclude='frontend/dist' \
+            --exclude='__pycache__' --exclude='*.pyc' --exclude='.env' --exclude='/*.env' \
+            --exclude='*.log' --exclude='*.sqlite*' \
+            --exclude='/.KSSL_ENV' \
+            ./ /opt/kssl/app/
+          echo "$GHTOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          cd /opt/kssl/app
+          chmod +x deploy/deploy.sh
+          # Log out whatever happens, then report deploy.sh's own exit code -- an
+          # ephemeral registry token must not outlive the run that minted it.
+          ./deploy/deploy.sh "$SHA" "$KENV"; rc=$?
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          exit $rc
+
+      # --- THE SSH PATH, KEPT ------------------------------------------------------
+      # Still the only path for dev, and still the fallback for prod and staging: flip a
+      # `runs-on` back to ubuntu-latest in `resolve` and these two steps take over again
+      # with nothing else changed. It stays until the self-hosted path has deployed both
+      # environments successfully.
       # THE GUARD HAS TO RUN BEFORE THE RSYNC, NOT INSIDE deploy.sh.
       #
       # deploy.sh's host check is the last line of defence and it is real, but by the time
@@ -203,6 +380,7 @@ jobs:
       # Same logic as deploy.sh, asked over ssh first: a marker that disagrees is refused,
       # an absent marker is prod-only. Nothing is written and nothing is transferred.
       - name: This host must be the environment being deployed
+        if: runner.environment != 'self-hosted'
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           HOST: ${{ secrets.VPS_HOST }}
@@ -224,7 +402,29 @@ jobs:
           # secrets" -- a configuration error, naming settings that were correct. The
           # staging deploy sat on that message while the real fault was that the runner
           # could not open a socket to the box at all.
-          if ! $SSH "$USER@$HOST" true 2>"$HOME/ssherr"; then
+          # RETRY BEFORE DIAGNOSING, because one dropped SYN is not an outage.
+          #
+          # Measured 2026-09-06 with the ssh-check workflow against PRODUCTION, five
+          # dispatches minutes apart: four connected, one had its SYN silently dropped
+          # for the full 10s timeout. Same secrets, same workflow, different runner IP --
+          # the provider's edge does not admit every GitHub range every time. A single
+          # attempt therefore fails roughly one deploy in five, and it fails at the
+          # preflight, so the log says "could not reach the host" about a host that is
+          # up and that the next run reaches.
+          #
+          # Three tries with a widening gap, not a loosened firewall: the fix for an
+          # intermittent drop is to tolerate it, not to open the box to more of the
+          # internet. Only the LAST failure is diagnosed, so a recovered blip is silent.
+          SSH_OK=0
+          for attempt in 1 2 3; do
+            if $SSH "$USER@$HOST" true 2>"$HOME/ssherr"; then
+              [ "$attempt" -gt 1 ] && echo "ssh reachable on attempt $attempt"
+              SSH_OK=1
+              break
+            fi
+            [ "$attempt" -lt 3 ] && { echo "ssh attempt $attempt failed, retrying"; sleep $((attempt * 15)); }
+          done
+          if [ "$SSH_OK" = 0 ]; then
             echo "::error::Could not reach $USER@$HOST port $PORT over ssh. This is NOT a"
             echo "::error::secrets problem: VPS_HOST is set and was used. Nothing was transferred."
             sed 's/^/::error::ssh: /' "$HOME/ssherr"
@@ -242,8 +442,34 @@ jobs:
             if getent hosts "$HOST" >/dev/null 2>&1; then
               echo "::error::DNS: VPS_HOST resolves."
               if timeout 10 bash -c "cat < /dev/null > /dev/tcp/$HOST/$PORT" 2>/dev/null; then
-                echo "::error::TCP: port $PORT accepts a connection, so this is ssh-level"
-                echo "::error::(host key, or sshd refusing this user/key), not reachability."
+                # ACCEPTING A CONNECTION IS NOT THE SAME AS ANSWERING IT, and the
+                # difference is the whole diagnosis. This branch used to conclude
+                # "ssh-level (host key, or sshd refusing this user/key)" from the TCP
+                # connect alone. That inference is impossible: sshd sends its version
+                # banner BEFORE it looks at a host key or a user, so a refusal always
+                # arrives after "SSH-2.0-...". A reset with ZERO bytes cannot be sshd
+                # refusing anything -- it is a listener with no ssh service behind it.
+                # On 2026-09-06 that wrong sentence sent the staging investigation at
+                # sshd config and keys for hours while the box was accepting on 2222
+                # and answering nothing, and serving HTTP on :80 the whole time.
+                #
+                # So read the banner and let it decide. `head -c` returns as soon as
+                # the peer closes, and the timeout covers a peer that just holds on.
+                BANNER="$(timeout 8 bash -c "exec 3<>/dev/tcp/$HOST/$PORT; head -c 20 <&3" 2>/dev/null | tr -dc '\40-\176')"
+                if [ -z "$BANNER" ]; then
+                  echo "::error::TCP: port $PORT accepts, then closes WITHOUT AN SSH BANNER."
+                  echo "::error::That is not sshd rejecting this key -- sshd always greets first."
+                  echo "::error::Something is bound to the port with no working ssh behind it:"
+                  echo "::error::a socket unit whose per-connection service fails, a stale"
+                  echo "::error::docker port-publish for a stopped container, or a non-ssh"
+                  echo "::error::service. Fix it ON THE HOST; no key or workflow change helps."
+                elif [ "${BANNER#SSH-}" != "$BANNER" ]; then
+                  echo "::error::TCP: port $PORT answers with an ssh banner ($BANNER), so this"
+                  echo "::error::IS ssh-level: host key, this user/key, or a rate limit."
+                else
+                  echo "::error::TCP: port $PORT answers, but not with an ssh banner. Something"
+                  echo "::error::other than sshd is listening, or VPS_SSH_PORT is the wrong port."
+                fi
               else
                 echo "::error::TCP: port $PORT does NOT accept a connection from this runner,"
                 echo "::error::while DNS resolves. So the address is routable but the port is"
@@ -273,6 +499,7 @@ jobs:
           echo "host marker: '${MARK:-none}' — ok for a $KENV deploy"
 
       - name: Sync source + recreate frontend/backend
+        if: runner.environment != 'self-hosted'
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           HOST: ${{ secrets.VPS_HOST }}
