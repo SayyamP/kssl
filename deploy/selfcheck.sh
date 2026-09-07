@@ -39,6 +39,9 @@ python extraction/signals/company_sites.py --demo
 # where a first-number parse would invert a verdict (one field, two quantities) or
 # invent one (3 rounds/30 sec IS 6 rds/min).
 python extraction/signals/spec_number.py
+# The verified competitor workbook -> the Positioning panel. The matcher's traps are
+# real data: CAESAR's U+00D7, and "Archer" against "Archerfish Mine Disposal System".
+python extraction/signals/fill_matchup_rival_specs.py --demo
 # The queue router.
 C_DS_JSON=extraction/engine/ds.json \
 C_TIERS_PATH=extraction/engine/source_tiers.py \
