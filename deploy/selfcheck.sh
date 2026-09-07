@@ -57,6 +57,12 @@ C_TIERS_PATH=extraction/engine/source_tiers.py \
 # The self-hosted deploy path's two invariants: no ssh on the local path, and no
 # pull_request trigger anywhere a self-hosted runner can be reached. Neither is visible
 # to actionlint, and both fail silently -- see deploy/RUNNERS.md.
+# PyYAML is this check's dependency, not extraction's, so it is declared here rather
+# than added to extraction/requirements.txt. It used to work by accident: GitHub's runner
+# image ships PyYAML system-wide. Moving selfcheck into a fresh venv (deploy.yml) removed
+# that accident and this import was the first thing to fall over -- which is the venv
+# doing its job, one release earlier than it would have mattered.
+python -c "import yaml" 2>/dev/null || pip install --quiet pyyaml
 python deploy/test_runner_paths.py
 
 # The signals modules import each other by bare filename, so they run from their own
