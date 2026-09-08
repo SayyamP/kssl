@@ -186,10 +186,20 @@ ck "...AFTER the health gate, so a failed deploy cannot record its sha" \
 # The control added after the 2026-09-07 bypass. It must refuse an accident and must
 # NOT obstruct a real recovery -- a guard nobody can get past at 3am gets deleted.
 echo "manual-deploy control:"
-out=$(cd "$HERE/.." && bash deploy/deploy.sh testsha staging 2>&1); rc=$?
+# A HAND-RUN DEPLOY IS DEFINED BY THE ABSENCE OF GITHUB_ACTIONS, and this suite runs
+# INSIDE GitHub Actions, where that variable is "true". So every check below has to
+# unset it explicitly or it is not testing a hand-run deploy at all -- deploy.sh takes
+# the Actions branch, skips the guard and the log line, and each assertion reads the
+# silence as a failure. On a laptop the variable is already absent and the section
+# passes, which is why it survived: staging carried these checks but never ran them in
+# CI (its selfcheck.sh did not call this file), and main called this file but its copy
+# had no manual section. Neither branch alone could see it; the merge of the two is the
+# first tree where both halves are present.
+MANUAL="env -u GITHUB_ACTIONS"
+out=$(cd "$HERE/.." && $MANUAL bash deploy/deploy.sh testsha staging 2>&1); rc=$?
 ck "an unset KSSL_MANUAL_DEPLOY refuses a hand-run deploy" 6 "$rc"
 ck "...and the message names the escape hatch" 1 "$(echo "$out" | grep -c 'KSSL_MANUAL_DEPLOY=1')"
-out=$(cd "$HERE/.." && KSSL_MANUAL_DEPLOY=1 bash deploy/deploy.sh testsha staging 2>&1); rc=$?
+out=$(cd "$HERE/.." && KSSL_MANUAL_DEPLOY=1 $MANUAL bash deploy/deploy.sh testsha staging 2>&1); rc=$?
 ck "...but KSSL_MANUAL_DEPLOY=1 gets past it (recovery preserved)" 0 "$(echo "$out" | grep -c 'REFUSING: this is a manual deploy')"
 ck "...and the run is recorded as MANUAL" 1 "$(echo "$out" | grep -c 'MANUAL DEPLOY -- recorded')"
 # BOTH BRANCHES OF `by=`. The line above passes on a console, where SSH_CLIENT is unset
@@ -197,9 +207,9 @@ ck "...and the run is recorded as MANUAL" 1 "$(echo "$out" | grep -c 'MANUAL DEP
 # under `set -u` it killed the deploy on the line meant to record it. Over ssh the
 # variable IS set and the same code took a different path, which is why the bug lived on
 # the box nobody deploys from. Assert the caller is named in each case.
-out=$(cd "$HERE/.." && KSSL_MANUAL_DEPLOY=1 SSH_CLIENT="203.0.113.9 51234 22" bash deploy/deploy.sh testsha staging 2>&1)
+out=$(cd "$HERE/.." && KSSL_MANUAL_DEPLOY=1 SSH_CLIENT="203.0.113.9 51234 22" $MANUAL bash deploy/deploy.sh testsha staging 2>&1)
 ck "...over ssh it still records, and names the client ip" 1 "$(echo "$out" | grep -c 'by=[^ ]*@203.0.113.9')"
-out=$(cd "$HERE/.." && KSSL_MANUAL_DEPLOY=1 env -u SSH_CLIENT -u SSH_CONNECTION bash deploy/deploy.sh testsha staging 2>&1)
+out=$(cd "$HERE/.." && KSSL_MANUAL_DEPLOY=1 env -u SSH_CLIENT -u SSH_CONNECTION -u GITHUB_ACTIONS bash deploy/deploy.sh testsha staging 2>&1)
 ck "...on a console, with no SSH_CLIENT at all, it does not die" 1 "$(echo "$out" | grep -c 'MANUAL DEPLOY -- recorded')"
 ck "...and still names who ran it" 0 "$(echo "$out" | grep -c 'by=unknown')"
 out=$(cd "$HERE/.." && GITHUB_ACTIONS=true bash deploy/deploy.sh testsha staging 2>&1)
