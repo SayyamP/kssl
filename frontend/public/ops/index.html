@@ -116,6 +116,7 @@
   <button data-view="events">Live Event Stream</button>
   <button data-view="runs">Run Timeline</button>
   <button data-view="signals">Signal Explorer</button>
+  <button data-view="features">Feature Explorer</button>
 </nav>
 <main>
   <section id="v-overview" class="view on"><div class="spin">Loading…</div></section>
@@ -158,6 +159,17 @@
       <div id="sig-detail" class="panel"><div class="note">Select a signal on the left, or search above. Card id is <code>pl_&lt;document_id&gt;</code>.</div></div>
     </div>
   </section>
+  <section id="v-features" class="view">
+    <h2>Feature Explorer <span class="faint" style="text-transform:none;font-weight:400">&mdash; each product tab, from source to component</span></h2>
+    <div class="row-input">
+      <input type="text" id="feat-q" placeholder="search feature / table" style="min-width:220px" />
+      <button class="act" id="feat-go">Search</button>
+    </div>
+    <div class="runs-split">
+      <div id="feat-list" class="panel"><div class="spin">Loading…</div></div>
+      <div id="feat-detail" class="panel"><div class="note">Select a feature on the left. Each entry is traced from the real code and grounded with live row counts.</div></div>
+    </div>
+  </section>
 </main>
 
 <script>
@@ -175,14 +187,14 @@ async function getJSON(path){
 }
 
 /* ---- tabs ---- */
-const views = ["overview","pipeline","lineage","events","runs","signals"];
+const views = ["overview","pipeline","lineage","events","runs","signals","features"];
 let loaded = {};
 document.querySelectorAll("nav button").forEach(b=>{
   b.onclick = ()=>{
     const v=b.dataset.view;
     document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
     views.forEach(x=>$("#v-"+x).classList.toggle("on", x===v));
-    if(!loaded[v]) { loaded[v]=true; if(v==="overview")loadOverview(); if(v==="pipeline")loadPipeline(); if(v==="runs")loadRuns(); if(v==="signals")loadSignals(); }
+    if(!loaded[v]) { loaded[v]=true; if(v==="overview")loadOverview(); if(v==="pipeline")loadPipeline(); if(v==="runs")loadRuns(); if(v==="signals")loadSignals(); if(v==="features")loadFeatures(); }
   };
 });
 
@@ -540,6 +552,75 @@ async function loadSignalDetail(id){
 }
 $("#sig-go").onclick=loadSignals;
 $("#sig-q").addEventListener("keydown",e=>{ if(e.key==="Enter")loadSignals(); });
+
+/* ---- 7. Feature Explorer ---- */
+const PROV_CLS={RECORDED:"b-good",RECORDED_PARTIAL:"b-good",RECONSTRUCTED:"b-warn",AGGREGATED:"b-info",UNAVAILABLE:"b-bad"};
+function provChip(c){ const e=el("span","chip "+(PROV_CLS[c]||"")); e.textContent=c||"?"; return e; }
+
+async function loadFeatures(){
+  const list=$("#feat-list"); list.innerHTML='<div class="spin">Loading…</div>';
+  const q=$("#feat-q").value.trim();
+  try{
+    const d=await getJSON("/ops/features"+(q?("?q="+encodeURIComponent(q)):""));
+    list.innerHTML="";
+    const hd=el("div","note"); hd.style.marginBottom="8px"; hd.textContent=d.count+" feature(s)"; list.appendChild(hd);
+    d.features.forEach(f=>{
+      const row=el("div","runrow"); row.dataset.id=f.id;
+      row.innerHTML="<div class='id'>"+esc(f.title)+"</div>"+
+        "<div class='m'>"+esc(f.purpose).slice(0,90)+"</div>"+
+        "<div class='m'><span class='chip "+(PROV_CLS[f.provenance_class]||"")+"'>"+esc(f.provenance_class)+"</span> "+
+        (f.live_rows!=null?"· "+f.live_rows+" rows ":"")+(f.serving_table?"· "+esc(f.serving_table):"")+"</div>";
+      row.onclick=()=>{ document.querySelectorAll("#feat-list .runrow").forEach(x=>x.classList.toggle("on",x===row)); loadFeatureDetail(f.id); };
+      list.appendChild(row);
+    });
+  }catch(e){ list.innerHTML=""; list.appendChild(errBox(e)); }
+}
+
+async function loadFeatureDetail(id){
+  const box=$("#feat-detail"); box.innerHTML='<div class="spin">Loading '+esc(id)+'…</div>';
+  let d;
+  try{ d=await getJSON("/ops/features/"+encodeURIComponent(id)); }
+  catch(e){ box.innerHTML=""; box.appendChild(note("No feature: "+e.message)); return; }
+  box.innerHTML="";
+  const head=el("div"); head.innerHTML="<b>"+esc(d.title)+"</b> "; head.appendChild(provChip(d.provenance.class)); box.appendChild(head);
+  const p=el("div","note"); p.style.margin="6px 0 10px"; p.textContent=d.purpose; box.appendChild(p);
+  function section(t){ const h=el("div"); h.style.margin="14px 0 6px"; h.appendChild(el("b",null,t)); box.appendChild(h); }
+  function kv(obj){ const g=el("div","kv"); Object.entries(obj).forEach(([k,v])=>{ if(v==null||v==="")return; g.appendChild(el("div","k",k)); const val=el("div"); val.textContent=(typeof v==="object")?JSON.stringify(v):String(v); g.appendChild(val); }); box.appendChild(g); }
+
+  section("Pipeline path");
+  d.pipeline_path.forEach((s,i)=>{
+    const r=el("div","tlrow");
+    const label=s.stage+(s.title?" — "+s.title:"");
+    const meta=[];
+    if(s.table) meta.push(s.table);
+    if(s.view) meta.push(s.view+(s.live_rows!=null?" ("+s.live_rows+" rows)":"")+(s.filter?" ["+s.filter+"]":""));
+    if(s.endpoint) meta.push(s.endpoint+(s.keys?" "+JSON.stringify(s.keys):""));
+    if(s.component) meta.push(s.component);
+    if(s.files) meta.push(s.files.join(", "));
+    if(s.model) meta.push("model: "+s.model);
+    if(s.detail) meta.push(s.detail);
+    if(s.note) meta.push(s.note);
+    r.innerHTML="<span class='chip b-info'>"+esc(String(i+1))+"</span> <b>"+esc(label)+"</b> <span class='faint'>"+esc(meta.join(" · ")).slice(0,180)+"</span>";
+    box.appendChild(r);
+  });
+
+  section("Writers (real code)");
+  d.writers.forEach(w=>{ const r=el("div","tlrow"); r.innerHTML="<span class='chip'>"+esc(w.kind||"")+"</span> <span class='mono'>"+esc(w.file)+(w.function?" :: "+esc(w.function):"")+"</span>"+(w.model?" <span class='faint'>· "+esc(w.model)+"</span>":"")+(w.scope?" <span class='faint'>["+esc(w.scope)+"]</span>":"")+(w.note?" <span class='faint'>· "+esc(w.note)+"</span>":""); box.appendChild(r); });
+
+  section("Data");
+  kv({inputs:d.inputs, output_tables:d.output_tables, serving_view:d.serving_view, api:(d.api.endpoint+" "+JSON.stringify(d.api.keys||[])), ui:(d.ui.component||d.ui.note||"—")});
+
+  section("Provenance");
+  box.appendChild(provChip(d.provenance.class));
+  if(d.provenance.note){ const n=el("div","note"); n.textContent=d.provenance.note; box.appendChild(n); }
+  const gr=d.provenance.grounded||{};
+  const gnote=el("div","note"); gnote.textContent="grounded: source_doc_ids column="+gr.has_source_doc_ids_column+", rows with doc lineage="+gr.rows_with_doc_lineage+", live rows="+gr.live_rows; box.appendChild(gnote);
+  if(d.row_level_trace){ const rt=el("div","note"); rt.textContent="row-level trace: "+d.row_level_trace; box.appendChild(rt); }
+
+  if(d.gaps && d.gaps.length){ section("Known gaps"); d.gaps.forEach(g=>{ const r=el("div","tlrow"); r.innerHTML="<span class='chip b-warn'>gap</span> "+esc(g); box.appendChild(r); }); }
+}
+$("#feat-go").onclick=loadFeatures;
+$("#feat-q").addEventListener("keydown",e=>{ if(e.key==="Enter")loadFeatures(); });
 
 /* boot */
 loadOverview();

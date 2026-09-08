@@ -139,6 +139,7 @@ def test_no_writes_issued():
     app.psycopg2.connect = lambda dsn, connect_timeout=None: RecConn({}, {})
     body(app.ops_overview()); body(app.ops_pipeline()); body(app.ops_events())
     body(app.ops_signals()); body(app.ops_signal_detail("pl_doc_x"))
+    body(app.ops_features()); body(app.ops_feature_detail("partnerships"))
     for s in seen:
         assert s.strip().split(None, 1)[0].upper() in ("SELECT", "SET"), "non-read statement: " + s[:40]
     print("  ok  ops endpoints issue only SELECT/SET -- no writes (incl. signals)")
@@ -284,6 +285,45 @@ def test_signal_detail_404_when_nothing_recorded():
     print("  ok  signal detail: no card/detail/events/lineage -> clean 404")
 
 
+def test_features_list_grounded_and_labelled():
+    present = {f["serving_view"]: True for f in app._FEATURES}
+    wire({"information_schema.columns": {"t": 1}}, present)
+    d = body(app.ops_features())
+    assert d["read_only"] is True and FakeConn.last_session.get("readonly") is True
+    assert d["count"] == len(app._FEATURES)
+    ids = {r["id"] for r in d["features"]}
+    assert {"partnerships", "competitors", "matchups", "tenders", "patents", "signals"} <= ids
+    assert all(r.get("provenance_class") for r in d["features"])
+    assert d["features"][0]["live_rows"] == 123, "grounded from the serving_live view count"
+    assert "RECORDED" in d["provenance_legend"]
+    d2 = body(app.ops_features(q="partner"))
+    assert any(r["id"] == "partnerships" for r in d2["features"])
+    assert d2["count"] < len(app._FEATURES), "q must filter"
+    print("  ok  features list: all features, grounded live_rows, provenance labelled, q filter")
+
+
+def test_feature_detail_reuses_pipeline_and_grounds():
+    present = {f["serving_view"]: True for f in app._FEATURES}
+    wire({"information_schema.columns": {"t": 1}}, present)
+    d = body(app.ops_feature_detail("partnerships"))
+    assert d["id"] == "partnerships" and d["provenance"]["class"] == "RECORDED_PARTIAL"
+    assert d["provenance"]["grounded"]["live_rows"] == 123
+    stages = [s["stage"] for s in d["pipeline_path"]]
+    assert "serving_live_view" in stages and "api" in stages and "ui" in stages
+    assert any(w["file"].endswith("enrich_serving.py") for w in d["writers"])
+    # structure feature must honestly report no UI
+    s = body(app.ops_feature_detail("structure"))
+    assert s["ui"]["view"] is None and "not rendered" in (s["gaps"][0].lower() if s["gaps"] else "")
+    print("  ok  feature detail: pipeline path reused, grounded, no-UI reported honestly")
+
+
+def test_feature_detail_404():
+    wire({}, {})
+    r = app.ops_feature_detail("nope")
+    assert r.status_code == 404
+    print("  ok  feature detail: unknown id -> 404")
+
+
 def test_stage_timer_not_shadowed():
     # Regression: the lineage helper must not shadow the stage_timer context
     # manager that /api/dataset uses. Broke every deploy from #45 to #49.
@@ -307,5 +347,8 @@ if __name__ == "__main__":
     test_signals_list_unavailable()
     test_signal_detail_recorded_and_reuses_lineage()
     test_signal_detail_404_when_nothing_recorded()
+    test_features_list_grounded_and_labelled()
+    test_feature_detail_reuses_pipeline_and_grounds()
+    test_feature_detail_404()
     test_stage_timer_not_shadowed()
     print("ok - ops endpoints: read-only, resilient, grounded")
