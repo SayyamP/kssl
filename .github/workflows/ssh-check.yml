@@ -1,0 +1,113 @@
+name: SSH check
+
+# CONNECTIVITY ONLY. Nothing is built, nothing is transferred, nothing is restarted.
+#
+# It exists because the only way to find out whether Actions could reach a box was to
+# run a DEPLOY at it and read the failure -- which builds and pushes three images first,
+# and on a good day rsyncs a tree onto a production machine. That is an expensive and
+# unsafe way to ask "is ssh up yet", so it was asked rarely and late.
+#
+# Run it from the Actions tab against any environment. It reports which LAYER fails --
+# DNS, TCP, the ssh banner, then the key -- and never prints the host, the port or the
+# key. The host is masked in the log and resolving it here would unmask it.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Which environment's secrets to test"
+        required: true
+        default: staging
+        type: choice
+        options: [staging, dev, prod]
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Probe, layer by layer
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          HOST: ${{ secrets.VPS_HOST }}
+          USER: ${{ secrets.VPS_USER }}
+          PORT: ${{ secrets.VPS_SSH_PORT || 22 }}
+        run: |
+          fail() { echo "::error::$*"; FAILED=1; }
+          FAILED=0
+
+          if [ -z "$HOST" ]; then
+            fail "The '${{ inputs.environment }}' Environment has no VPS_HOST."
+            exit 1
+          fi
+          echo "1. VPS_HOST is set."
+
+          if getent hosts "$HOST" >/dev/null 2>&1; then
+            echo "2. DNS resolves."
+          else
+            fail "DNS does NOT resolve. A stale hostname or a typo; no firewall change fixes it."
+            exit 1
+          fi
+
+          # A DROP and a REFUSAL are different faults with the same message. Time it:
+          # a refusal comes back in milliseconds (the kernel says nothing is listening),
+          # a drop burns the whole timeout (a firewall is eating the SYN).
+          T0=$(date +%s%N)
+          if timeout 10 bash -c "cat < /dev/null > /dev/tcp/$HOST/$PORT" 2>/dev/null; then
+            echo "3. TCP: the port accepts a connection."
+          else
+            MS=$(( ($(date +%s%N) - T0) / 1000000 ))
+            if [ "$MS" -ge 9000 ]; then
+              fail "TCP: SYN to the port is DROPPED (${MS}ms, the full timeout). A firewall"
+              fail "     is discarding it: the provider's, or the host's own. Not 'sshd is down'."
+            else
+              fail "TCP: the port REFUSED the connection in ${MS}ms, so nothing is listening"
+              fail "     on it. sshd is stopped, or VPS_SSH_PORT is not the port it uses."
+            fi
+            exit 1
+          fi
+
+          # sshd greets BEFORE it considers a host key or a user, so the banner separates
+          # "no ssh here" from "ssh, and it does not like us".
+          BANNER="$(timeout 8 bash -c "exec 3<>/dev/tcp/$HOST/$PORT; head -c 20 <&3" 2>/dev/null | tr -dc '\40-\176')"
+          if [ -z "$BANNER" ]; then
+            fail "4. The port accepts, then closes with NO SSH BANNER. That is not sshd"
+            fail "   rejecting a key -- sshd always greets first. Something is bound to the"
+            fail "   port with no working ssh behind it: a socket unit whose per-connection"
+            fail "   service fails, a stale docker port-publish, or a non-ssh service."
+            exit 1
+          fi
+          case "$BANNER" in
+            SSH-*) echo "4. SSH banner: $BANNER" ;;
+            *)     fail "4. The port answers, but not with an ssh banner. Wrong port, or"
+                   fail "   something other than sshd is listening."
+                   exit 1 ;;
+          esac
+
+          install -m600 /dev/stdin "$HOME/k" <<< "$SSH_KEY"
+          if ssh -i "$HOME/k" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 \
+                 -o BatchMode=yes -p "$PORT" "$USER@$HOST" true 2>"$HOME/e"; then
+            echo "5. Authenticated and ran a command. This environment is reachable."
+          else
+            fail "5. Reached sshd but could not authenticate or run a command:"
+            sed 's/^/::error::   /' "$HOME/e"
+            exit 1
+          fi
+
+          # The marker the deploy checks, read here so a mismatch is found before a
+          # deploy discovers it with a tree half-transferred.
+          MARK="$(ssh -i "$HOME/k" -o StrictHostKeyChecking=accept-new -o BatchMode=yes \
+                     -p "$PORT" "$USER@$HOST" 'cat /opt/kssl/app/.KSSL_ENV 2>/dev/null || true' | tr -d '[:space:]')"
+          if [ -z "$MARK" ]; then
+            echo "::warning::6. No .KSSL_ENV marker. An unprovisioned host, or the repository"
+            echo "::warning::   secrets were used instead of this Environment's."
+          elif [ "$MARK" = "${{ inputs.environment }}" ]; then
+            echo "6. Marker says '$MARK' -- matches the environment tested."
+          else
+            fail "6. Marker says '$MARK' but you tested '${{ inputs.environment }}'. The"
+            fail "   Environment's secrets point at the WRONG MACHINE. A deploy would"
+            fail "   overwrite it before deploy.sh refused."
+            exit 1
+          fi
+          exit $FAILED

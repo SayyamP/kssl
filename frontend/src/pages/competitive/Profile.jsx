@@ -4,9 +4,10 @@ import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
 import { companyNews, feedSplit, FEED_N, collapseThreads,
          NEWS_MAX, NEWS_WINDOWS, NEWS_WINDOW_DEFAULT, windowDays, withinWindow, capNews } from "../../lib/news";
-import { facetOptionsByName } from "../../lib/countryFacet";
+import { facetOptionsByName, tidyHq } from "../../lib/countryFacet";
 import Thumb from "../../components/thumb/Thumb.jsx";
 import SourceLink, { SourceChip } from "../../components/sourceLink/SourceLink.jsx";
+import { detailLine, listLine } from "../../lib/companyNames";
 
 // Helper function to extract clean company short name without full form or legal suffixes
 const cleanCompanyName = (rawName) => {
@@ -71,6 +72,15 @@ const firstFigure = (v) => {
   return period ? `${hit.value} (${period})` : hit.value || null;
 };
 
+/* HEADQUARTERS, AT ONE GRANULARITY. The column holds three different things: a full
+   postal address ("241 18th Street South, Suite 650, Arlington, Virginia 22202, United
+   States"), a city/region/country chain, and a bare country ("Israel"). Rendered raw
+   they read as different fields, and the street line is noise on a competitor profile.
+
+   The rule itself moved to lib/countryFacet.js on 2026-09-06 -- unchanged -- because the
+   geo map's "Head office" badge needed the same answer and had been doing raw
+   full-string equality instead. It is imported at the top of this file. */
+
 const joinList = (v) => {
   if (!Array.isArray(v) || !v.length) return null;
   const names = v
@@ -90,7 +100,7 @@ const getCompanyDetailsMeta = (p) => {
   if (!p) return null;
   return {
     founded: p.starting_year ? String(p.starting_year) : DASH,
-    hq: p.hq || DASH,
+    hq: tidyHq(p.hq) || DASH,
     globalLocs: joinList(p.global_locations) || DASH,
     size: p.company_size || DASH,
     revenue: firstFigure(p.sales) || DASH,
@@ -325,6 +335,8 @@ export default function Profile() {
     if (!p) return null;
     const details = companyMeta
       ? [
+          /* the exported profile must say what the panel says */
+          ...(detailLine(cid, p.name) ? [["Full name", detailLine(cid, p.name)]] : []),
           ["Starting year", companyMeta.founded],
           ["Headquarters", companyMeta.hq],
           ["Global locations", companyMeta.globalLocs],
@@ -429,7 +441,16 @@ export default function Profile() {
             >
               <span className="pli-n" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span className={`wdot ${r.threat === "high" ? "threat" : r.threat === "low" ? "fav" : "watch"}`} />
-                {cleanCompanyName(r.name)}
+                {/* The full name sits UNDER the short one rather than replacing it: the
+                    short name is what the rest of the dashboard, the matchups and the
+                    operator all call this company. Renders nothing when there is no
+                    sourced expansion -- see lib/companyNames. */}
+                <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                  <span>{cleanCompanyName(r.name)}</span>
+                  {listLine(r.cid, r.name) ? (
+                    <span className="pli-full">{listLine(r.cid, r.name)}</span>
+                  ) : null}
+                </span>
               </span>
             </div>
           ))}
@@ -549,6 +570,18 @@ export default function Profile() {
                     overflow: "hidden",
                   }}
                 >
+                  {/* IDENTITY BEFORE METRICS. Only rendered when something is sourced --
+                      an unknown abbreviation shows no row at all, rather than an empty
+                      value a reader would take for "there is no full name". */}
+                  {detailLine(cid, p.name) ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: "12px", padding: "11px 16px", borderBottom: "1px solid var(--d-line)", fontSize: "13px", alignItems: "center" }}>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--d-txt-3)", fontWeight: "600", textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>
+                        Full Name
+                      </span>
+                      <span style={{ color: "var(--d-txt)", fontWeight: "600" }}>{detailLine(cid, p.name)}</span>
+                    </div>
+                  ) : null}
+
                   <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: "12px", padding: "11px 16px", borderBottom: "1px solid var(--d-line)", fontSize: "13px", alignItems: "center" }}>
                     <span style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--d-txt-3)", fontWeight: "600", textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>
                       Starting Year

@@ -25,17 +25,11 @@
  *   3. an unknown country is not drawn at all AND is reported, so a gap reads as a gap;
  *   4. continent rows are not pinned to a point.
  */
-import { readFileSync } from "node:fs";
-
-const src = readFileSync("./src/components/geoMap/GeoMap.jsx", "utf8");
-const from = src.indexOf("const COUNTRY_COORDS = {");
-const end = src.indexOf("\n}", src.indexOf("export function geoPlotPlan")) + 2;
-if (from < 0 || end < 2) {
-  console.log("  FAIL geoPlotPlan not found in GeoMap.jsx");
-  process.exit(1);
-}
-const { geoPlotPlan, geoCountryCoords } = await import(
-  "data:text/javascript," + encodeURIComponent(src.slice(from, end)));
+/* 2026-09-06: the table and both rules moved to src/lib/geoCountries.js, so this imports
+   the module instead of slicing GeoMap.jsx's source and evaluating the slice. Every
+   assertion below is unchanged -- but they now run against the code the app loads, not
+   against a fragment that could keep passing while the rest of the file failed to parse. */
+import { geoPlotPlan, geoCountryCoords } from "./src/lib/geoCountries.js";
 
 let bad = 0;
 const fail = (m) => { bad++; console.log("  FAIL " + m); };

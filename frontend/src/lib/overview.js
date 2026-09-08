@@ -74,6 +74,48 @@ export function cutGroupsByDirection(groups, firstDirs = ["threat"]) {
   return list.map((g, i) => (i === 0 ? { ...g, dirs: firstDirs.slice() } : { ...g }));
 }
 
+/* THE ONE COMPARATOR. Every surface that orders signal cards calls this.
+
+   The operator asked for two things: "in threat only those news should come first which
+   actually a direct competitor plus that news should create some kind impact", and
+   "based on threat severity do sequencing of signal card everywhere where severity is
+   high and recent show it first". The first is decided upstream, at write time --
+   extraction/signals/threat_gate.py demotes a card whose company is not a served
+   competitor, so `dir` here already means what it says. The second is this function.
+
+   SEVERITY IS READ, NEVER DERIVED. `severityRank` is computed once, by the backend, from
+   threat_gate.SEVERITY_RANK, and travels on the card. Deriving it here as well is the
+   exact fault this repo has already paid for: one edge weight was computed on both sides
+   and the frontend silently overwrote the served value, so a 1-0 winner was scored as
+   behind. If the backend did not send a rank -- an older deploy, or a card the frontend
+   itself synthesised from a tender -- the card is UNASSESSED, which is a real state and
+   ranks last, not a zero and not a "low".
+
+   A CARD WITH NO DATE SORTS LAST. dateVal("") is 0 and the date key is descending, so an
+   undated card falls to the bottom of its severity band rather than sorting as though it
+   were published today; SignalCard prints "date not known" on it rather than an empty
+   corner. */
+export const SEVERITY_UNASSESSED_RANK = 3;   // == threat_gate.SEVERITY_RANK[null]
+export const DIR_RANK = { threat: 0, watch: 1, fav: 2 };
+export const NO_DATE_LABEL = "date not known";
+// The words for the absent state. "low" is a measurement; this is the lack of one.
+export const SEVERITY_UNASSESSED_LABEL = "severity not assessed";
+
+export function severityRankOf(card) {
+  const r = card && card.severityRank;
+  return typeof r === "number" && Number.isFinite(r) ? r : SEVERITY_UNASSESSED_RANK;
+}
+
+export function compareCards(data) {
+  const when = (c) => dateVal(signalDate(c, data));
+  return (a, b) =>
+    (DIR_RANK[a.dir] === undefined ? 9 : DIR_RANK[a.dir]) -
+      (DIR_RANK[b.dir] === undefined ? 9 : DIR_RANK[b.dir]) ||
+    severityRankOf(a) - severityRankOf(b) ||
+    when(b) - when(a) ||
+    (b.sec ? b.sec.length : 0) - (a.sec ? a.sec.length : 0);
+}
+
 /* Ordered, re-ranked and split into the groups the feed renders.
 
    `data` is what the cards are DISPLAYED with: the date on a card comes from
@@ -83,26 +125,22 @@ export function cutGroupsByDirection(groups, firstDirs = ["threat"]) {
    order was real, it just belonged to a different set of values than the ones on screen.
    The comparator and the label have to read the same field. */
 export function buildFeed(cfg, seqMode, data) {
-  const dirRank = { threat: 0, watch: 1, fav: 2 };
+  const cmp = compareCards(data);
   const when = (c) => dateVal(signalDate(c, data));
+  const depth = (c) => (c.sec ? c.sec.length : 0);
   let cards = (cfg.cards || []).slice();
-  if (seqMode === "priority") {
-    cards.sort(
-      (a, b) =>
-        dirRank[a.dir] - dirRank[b.dir] ||
-        when(b) - when(a) ||
-        (b.sec ? b.sec.length : 0) - (a.sec ? a.sec.length : 0),
-    );
-  } else if (seqMode === "recency") {
-    cards.sort((a, b) => when(b) - when(a));
+  /* EVERY MODE ENDS IN THE SAME COMPARATOR. A sequence option changes which key leads,
+     never what "worse" means -- so "most recent" still puts a high-severity card above a
+     low-severity one published the same day, and there is exactly one definition of the
+     severity order in this file. */
+  if (seqMode === "recency") {
+    cards.sort((a, b) => when(b) - when(a) || cmp(a, b));
   } else if (seqMode === "depth") {
-    cards.sort(
-      (a, b) =>
-        (b.sec ? b.sec.length : 0) - (a.sec ? a.sec.length : 0) ||
-        dirRank[a.dir] - dirRank[b.dir],
-    );
+    cards.sort((a, b) => depth(b) - depth(a) || cmp(a, b));
   } else if (seqMode === "category") {
-    cards.sort((a, b) => String(a.meta).localeCompare(String(b.meta)));
+    cards.sort((a, b) => String(a.meta).localeCompare(String(b.meta)) || cmp(a, b));
+  } else {
+    cards.sort(cmp);
   }
   // re-rank display numbers after sort (a copy — the dataset card is not renumbered)
   cards = cards.map((c, n) => ({ ...c, rank: String(n + 1).padStart(2, "0") }));
@@ -315,9 +353,46 @@ export function bucketTenders(tenders) {
    Every pillar computes its tiles — the config carries labels and phrasing only;
    a number the service didn't back is never rendered. */
 export function metricsFor(cfg, pillar, d) {
-  const metrics = (cfg.metrics || []).map((m) => ({ ...m }));
+  /* EVERY TILE STARTS AT "NOT MEASURED".
+
+     The binding at the bottom of this function is by LABEL STRING, and a label no
+     branch computes used to keep whatever `v` the config shipped -- the sample
+     constants baked into overviewConfig ("13", "73,895", "6") -- which CountUp then
+     animated up exactly like a measured figure. Two ways that happened with nothing
+     on screen to show it: a served label renamed on the backend, and the catch below
+     firing part-way through the block (that is how "Open opportunities 7" once sat
+     over 89 open tenders). Blanking the values FIRST means both cases render "—",
+     and the unbound branch at the end names the tile that missed, loudly. */
+  const metrics = (cfg.metrics || []).map((m) => ({ ...m, v: "—" }));
   try {
     const cards = cfg.cards || [];
+    /* A DIRECTION TILE COUNTS SOMETHING ITS FEED MAY NOT CARRY AT ALL.
+
+       serving_fill.py assigns dir='threat' only where pillar=='competitive', so the
+       technology feed's "Capability threats" counted a value that cannot exist and
+       printed a measured-looking 0 under the served subtitle "rivals ahead /
+       closing". A 0 there reads as "no rival is ahead" -- a finding nobody made.
+       When NO card in the pillar carries the direction, the tile says so instead of
+       counting to zero; when one does, it counts normally, so the day the backend
+       starts assigning threats on technology this tile starts working by itself. */
+    const dirCount = (dir) => {
+      const n = cards.filter((c) => c.dir === dir).length;
+      return n || "—";
+    };
+    const dirSub = (dir, word) =>
+      cards.some((c) => c.dir === dir)
+        ? null
+        : `no served ${pillar} signal is assigned a ${word} direction — not assessed`;
+    /* Two tiles showing one number is one tile. Every served technology card carries
+       dir='watch', so "Watch signals" and "All signals" sit side by side reading the
+       same count -- and a reader has no way to tell that from two measurements that
+       happen to agree. The subtitle says which it is. */
+    const dirIsAll = (dir) => {
+      const n = cards.filter((c) => c.dir === dir).length;
+      return n > 0 && n === cards.length
+        ? `every one of the ${cards.length} served signals — no other direction is assigned`
+        : null;
+    };
     const lensSet = new Set();
     cards.forEach((c) => {
       if (c.lens) lensSet.add(c.lens);
@@ -333,11 +408,15 @@ export function metricsFor(cfg, pillar, d) {
     if (pillar === "competitive") {
       byLabel = {
         ...byLabel,
-        "Competitive threats": cards.filter((c) => c.dir === "threat").length,
-        "Watch signals": cards.filter((c) => c.dir === "watch").length,
+        "Competitive threats": dirCount("threat"),
+        "Watch signals": dirCount("watch"),
         "Companies tracked": new Set(cards.map((c) => c.company).filter(Boolean)).size,
         "Analytical lenses": lensSet.size,
       };
+      const tSub = dirSub("threat", "threat");
+      if (tSub) subByLabel["Competitive threats"] = tSub;
+      const wSub = dirSub("watch", "watch") || dirIsAll("watch");
+      if (wSub) subByLabel["Watch signals"] = wSub;
     } else if (pillar === "market") {
       const tenders = (d && d.tenders) || [];
       const { open, awarded, closed } = bucketTenders(tenders);
@@ -381,11 +460,15 @@ export function metricsFor(cfg, pillar, d) {
       const domains = Object.keys(innovations).filter((k) => (innovations[k] || []).length);
       byLabel = {
         ...byLabel,
-        "Capability threats": cards.filter((c) => c.dir === "threat").length,
-        "Watch signals": cards.filter((c) => c.dir === "watch").length,
+        "Capability threats": dirCount("threat"),
+        "Watch signals": dirCount("watch"),
         "Domains tracked": domains.length,
         "Analytical lenses": lensSet.size,
       };
+      const tSub = dirSub("threat", "capability threat");
+      if (tSub) subByLabel["Capability threats"] = tSub;
+      const wSub = dirSub("watch", "watch") || dirIsAll("watch");
+      if (wSub) subByLabel["Watch signals"] = wSub;
       const nameOf = (id) => {
         const c = ((d && d.techCats) || []).find((x) => x.id === id);
         return c ? c.name : id;
@@ -395,12 +478,24 @@ export function metricsFor(cfg, pillar, d) {
         : "no domains served yet";
     }
     metrics.forEach((m) => {
-      if (byLabel[m.l] != null) m.v = String(byLabel[m.l]);
+      if (byLabel[m.l] == null) {
+        /* LOUD, NOT SILENT. Nothing above computed a value for this label, so there
+           is no measurement to show: the tile keeps its "—" and says why, and the
+           served subtitle goes with it -- "rivals ahead / closing" over an unbound
+           tile is a claim about a number that was never taken. */
+        m.sub = `not wired — no measurement is computed for "${m.l}"`;
+        if (typeof console !== "undefined" && console.warn)
+          console.warn(`metricsFor(${pillar}): no measurement bound to tile label "${m.l}"`);
+        return;
+      }
+      m.v = String(byLabel[m.l]);
       if (subByLabel[m.l] != null) m.sub = subByLabel[m.l];
       if (actByLabel[m.l] != null) m.act = actByLabel[m.l];
     });
   } catch (e) {
-    /* the strip is cosmetic; a missing field must never blank the feed */
+    /* The strip is cosmetic; a missing field must never blank the feed. Values were
+       blanked before the try, so what survives a throw is "—", never a served demo
+       number wearing the authority of a measurement. */
   }
   return metrics;
 }

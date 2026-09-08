@@ -132,8 +132,17 @@ export default function Layout() {
       return `${shown} of ${total} signals · ${label}`;
     }
     /* cfg.cnt's phrasing survives, its baked number does not: the count is the
-       served card set's, so an empty dataset says 0 instead of a stale total. */
-    return `${total} ${String(cfg.cnt || "signals").replace(/^\s*[\d,]+\s*/, "")}`;
+       served card set's, so an empty dataset says 0 instead of a stale total.
+
+       ITS ORDERING CLAIM IS ALSO A CLAIM. "sorted threats first" is served copy;
+       serving_fill.py assigns dir='threat' only on the competitive pillar, so on
+       technology (and on the market feed's demand cards) it describes an ordering
+       of a set with no threats in it -- a promise about rows that are not there.
+       The clause is dropped when no served card carries the direction, and comes
+       back on its own the day one does. */
+    const tail = String(cfg.cnt || "signals").replace(/^\s*[\d,]+\s*/, "");
+    const hasThreat = (cfg.cards || []).some((c) => c.dir === "threat");
+    return `${total} ${hasThreat ? tail : tail.replace(/\s*(·\s*)?sorted threats first/i, "")}`;
   })();
 
   const body = () => {

@@ -90,6 +90,22 @@
   .pg-node.ptr.rel-integration circle{fill:#23303f;stroke:#7fa8c9;stroke-width:2}
   .pg-node.ptr.rel-strategic circle{fill:#2a2a30;stroke:#b8b8c0;stroke-width:1.5}
   .pg-node.ptr.rel-other circle{fill:#2a2a30;stroke:#9aa0aa;stroke-width:1.5}
+  /* AN OVERLAP OUTRANKS THE TIE TYPE, so it must outrank the rel-* colour above.
+     This rule is why the previous attempt failed. graphSvg already emitted the right
+     red on the circle -- as fill="#e8483a" -- and the node still drew blue, because
+     fill= and stroke= on an SVG element are PRESENTATION ATTRIBUTES, not inline
+     style. They sit at the very bottom of the cascade and lose to any selector at
+     all, so `.pg-node.ptr.rel-supply circle{fill:#1d3147}` fifteen lines up won on
+     every shared partner whose tie is a supply agreement -- which is Saab, the one
+     overlap on the Anduril graph that the strip underneath was captioning "red
+     above". The colour has to come from a rule, and the rule has to say !important:
+     the rel-* selectors have identical specificity and only source order separates
+     them, which is too fragile a thing to hang the most important mark on the page
+     on. The attributes stay on the element as the fallback for the print report,
+     which renders this SVG without the stylesheet. */
+  .pg-node.ptr.overlap circle.net-circle{fill:#e8483a !important;stroke:#ffb3aa !important;stroke-width:2.5px !important;stroke-opacity:.95 !important}
+  .pg-node.ptr.overlap circle.halo{stroke:#e8483a !important;stroke-width:2.2px !important;opacity:.9 !important}
+
   /* A relationship the source says is over is drawn, but drawn as over. */
   .pg-node.ptr.st-ended circle{stroke-dasharray:2 3;opacity:.6}
 

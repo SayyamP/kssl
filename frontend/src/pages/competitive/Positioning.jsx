@@ -3,6 +3,7 @@ import MatchupList from "../../components/matchupList/MatchupList";
 import MatchupDossier from "../../components/matchupDossier/MatchupDossier";
 import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
+import { advantageText } from "../../lib/specs";
 
 /* Positioning: every rating-matched KSSL-vs-rival pair, and the dossier for the one
    selected. Gap Analysis jumps in here with a matchup id, which arrives as `pending`. */
@@ -77,8 +78,13 @@ export default function Positioning() {
             h: `Specifications (${m.compBy || "rival"} vs ${clientShort})`,
             rows: (m.specs || []).map((s) => [s.l, `${val(s.cv)} vs ${val(s.kv)}${s.u ? ` ${s.u}` : ""}`]),
           },
-          { h: `${clientShort} advantages`, rows: m.advBf || [] },
-          { h: "Competitor strengths", rows: m.advComp || [] },
+          /* Copy Summary is DISPLAY, so it follows the panel: the pipeline appends an
+             inline <a class="adv-src"> to every advantage line and the Positioning tab
+             no longer shows it. `payload` below is deliberately left raw -- that is the
+             JSON export, and stripping provenance out of exported DATA would be a
+             different decision from taking it off the screen. */
+          { h: `${clientShort} advantages`, rows: (m.advBf || []).map(advantageText) },
+          { h: "Competitor strengths", rows: (m.advComp || []).map(advantageText) },
           { h: "Pairing logic", rows: m.reason ? [m.reason] : [] },
         ],
         payload: {
@@ -96,11 +102,29 @@ export default function Positioning() {
         },
       };
     }
+    /* "N COMPARABLE PAIRS" COUNTED EVERY MATCHUP, and "Class-matched pairs" headed the
+       same list -- both over rows the comparability gate rejects. A pair is comparable
+       when at least one independent dimension is measured on BOTH sides (specDims,
+       stored by wireDataset from computeSpecEdge); most rows here have none, and their
+       client column reads "no published figure" from top to bottom. The two counts are
+       stated separately now, and a row with no shared measurable says so rather than
+       being filed under a heading that claims it has one. */
     const all = Object.entries(data.matchups || {});
+    const comparable = all.filter(([, x]) => (x.specDims || 0) > 0);
     return {
       title: "Positioning",
-      subtitle: `${all.length} comparable pairs · none selected`,
-      sections: [{ h: "Class-matched pairs", rows: all.map(([, x]) => [x.comp, `${x.bf} · ${x.cat}`]) }],
+      subtitle:
+        `${all.length} pair${all.length === 1 ? "" : "s"} on file · ` +
+        `${comparable.length} with a measurable published on both sides · none selected`,
+      sections: [
+        {
+          h: "Pairs on file",
+          rows: all.map(([, x]) => [
+            x.comp,
+            `${x.bf} · ${x.cat}${(x.specDims || 0) > 0 ? "" : " · no shared measurable"}`,
+          ]),
+        },
+      ],
       payload: {
         pairs: all.map(([id, x]) => ({
           id,
@@ -108,6 +132,7 @@ export default function Positioning() {
           competitor: x.comp || null,
           client: x.bf || null,
           edge: x.edge == null ? null : x.edge,
+          comparableDimensions: x.specDims == null ? null : x.specDims,
         })),
       },
     };
@@ -137,7 +162,9 @@ export default function Positioning() {
       ) : (
         <div className="mu-dossier">
           <div className="mu-d-h">
-            <span className="eyebrow">Category · comparable pair</span>
+            {/* not "comparable pair": nothing is selected, so nothing has been
+                assessed as comparable. The word was a label on an empty slot. */}
+            <span className="eyebrow">Category · pair</span>
             <div className="matchup">
               <div className="side comp">
                 <div className="pn">Select a rival model</div>
@@ -151,8 +178,14 @@ export default function Positioning() {
               <span className="eyebrow" style={{ fontSize: "10px", color: "var(--l-txt-3)", display: "block", marginBottom: "6px", letterSpacing: ".08em", textTransform: "uppercase", fontWeight: "700" }}>
                 PAIRING LOGIC
               </span>
+              {/* "Paired because both sides publish the same measurables." was printed
+                  with nothing selected, as if it were the rule the whole corpus obeys.
+                  It is not: most pairs here have no dimension published on both sides
+                  (specDims 0), so the sentence contradicted the very rows underneath
+                  it. Each pair carries its own served pairing logic; this slot now says
+                  where to read it instead of speaking for all of them. */}
               <div className="mu-match-reason" style={{ borderTop: "none", paddingTop: 0, marginTop: 0 }}>
-                Paired because both sides publish the same measurables.
+                Pairing logic is recorded per pair — select a rival model to read it.
               </div>
             </div>
           </div>

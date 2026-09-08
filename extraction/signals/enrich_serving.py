@@ -46,6 +46,7 @@ import os
 import re
 import stage_timer
 import sys
+import provenance  # append-only pipeline events; never raises
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -70,6 +71,8 @@ _st_spec = _ilu.spec_from_file_location(
 _st = _ilu.module_from_spec(_st_spec); _st_spec.loader.exec_module(_st)  # type: ignore
 publishable = _st.publishable  # noqa: E402  (ONE source bar, shared)
 import roster  # noqa: E402  (the curated roster, shared with serving_fill)
+import company_sites
+import threat_gate  # noqa: E402  (what a threat level is -- one vocabulary)
 from aliases import (  # noqa: E402  (ONE identity layer, shared with serving_fill)
     CLIENT_MARKS, canonical as canon_name, client_led, fold as fold_name,
     has_proper_name,
@@ -484,11 +487,15 @@ def parse_profile(raw, hay, name=None):
     assess = ground_text(assess, hay, name)
     if not assess:
         return None                      # every sentence ungrounded -> refuse the row
-    threat = _s(d.get("threat"), 10)
-    if threat:
-        threat = threat.lower()
-        if threat not in ("high", "medium", "low"):
-            return None                      # invented vocabulary refuses the row
+    # ONE vocabulary for this column, in threat_gate, checked here and constrained in
+    # the database by the migration that ships with it. This clause already refused an
+    # invented word; it did not stop a caller further down writing a paragraph, and two
+    # production rows hold one -- a partnership summary sitting in a rating column, which
+    # every consumer then renders as a rating.
+    raw_threat = _s(d.get("threat"), 40)
+    if raw_threat and threat_gate.threat_level(raw_threat) is None:
+        return None                      # invented vocabulary refuses the row
+    threat = threat_gate.threat_level(raw_threat)
     direction = (_s(d.get("dir"), 10) or "other").lower()
     if direction not in ("rival", "client", "other"):
         direction = "other"
@@ -607,7 +614,10 @@ def rate_threat(products, n_docs):
         threat = "low"
     note = ("%d corpus document(s); stated products fall in %s"
             % (n_docs, ", ".join(labels) if labels else "no KSSL category"))
-    return threat, note
+    # The MEASUREMENT goes in threatNote; only a LEVEL goes in threat. Stated here at the
+    # return rather than trusted at the call site, because the two values are computed
+    # side by side and the column that holds prose today holds a note like this one.
+    return threat_gate.threat_level(threat), note
 
 
 # A company that only SELLS SERVICES around defence is not a rival to a maker of guns and
@@ -936,6 +946,90 @@ def _archive_band_map():
     return out
 
 
+_WORKBOOK_BANDS = None
+
+
+def _workbook_key(name):
+    """Both spellings a workbook company answers to.
+
+    The workbook writes a company as "Huta Stalowa Wola (HSW)" and "Hanwha
+    (Aerospace/Group)", while the roster and the corpus write "Huta Stalowa Wola". A
+    parenthetical is an expansion, not a different company, so it is indexed both ways.
+    """
+    out = set()
+    for v in (name or "", re.sub(r"\s*\([^)]*\)", " ", name or "")):
+        f = fold_name(canon_name(v.strip()))
+        if f:
+            out.add(f)
+    return out
+
+
+def _workbook_band_map(cur=None):
+    """KSSL categories the CLIENT'S OWN audited workbook says a company competes in.
+
+    THE GATE COULD NOT SEE THE BEST EVIDENCE IT HAD. competes_with_kssl decides whether a
+    company makes anything in KSSL's nine categories from two sources: the products the
+    model read out of the CORPUS, and the client's reference archive. The corpus profile
+    is the weakest of the three for exactly the companies that matter most -- the comment
+    above SPREAD_STATEMENTS measured it: "Northrop 475 docs, 1,113 statements -> a torpedo
+    and a mine detector".
+
+    Meanwhile serving.competitor_product -- the client's own audited workbook, Tier-1
+    sourced, the thing they handed us to be authoritative -- lists Northrop Grumman with
+    four ammunition lines. Ammunition is one of the nine. The gate refused the company for
+    having nothing in KSSL's categories while the client's own catalogue said otherwise,
+    because nothing had ever taught it to look there.
+
+    This does not widen the roster on its own: the allowlist still decides who is
+    profiled at all, so a band can only ever admit a company the client already curated.
+    Measured on staging, of the eight curated companies with no row, six gain a band here
+    and two -- Huntington Ingalls and Thyssenkrupp Marine, both shipyards -- still do not.
+    That the shipyards stay out is the check that this is evidence and not a bypass.
+
+    The eight are keyed by comp_id, not by name. Keying that survey on the NAME reported a
+    ninth, Larsen & Toubro, which has had a roster row all along: it is stored as
+    "Larsen &amp; Toubro", and an HTML entity in a display field silently breaks every
+    join that compares names. See the ord/name note in _write_companies.
+    """
+    out = {}
+
+    def _read(c):
+        c.execute("SELECT to_regclass('serving.competitor_product')")
+        if not c.fetchone()[0]:
+            return
+        c.execute("SELECT company, cat FROM serving.competitor_product "
+                  "WHERE company IS NOT NULL AND cat IS NOT NULL")
+        for name, cat in c.fetchall():
+            band = gate_band(cat)
+            if not band or not name or is_client(name):
+                continue
+            for k in _workbook_key(name):
+                out.setdefault(k, set()).add(band)
+
+    try:
+        if cur is not None:
+            _read(cur)
+        else:
+            import psycopg2
+            with psycopg2.connect(os.environ["KSSL_DSN"]) as con:
+                with con.cursor() as c:
+                    _read(c)
+    except Exception as e:                                   # noqa: BLE001
+        print("workbook bands unavailable (%s) -- archive only" % e, flush=True)
+    return out
+
+
+def workbook_bands(name, cur=None):
+    """The KSSL categories the client's audited workbook credits this company with."""
+    global _WORKBOOK_BANDS
+    if _WORKBOOK_BANDS is None:
+        _WORKBOOK_BANDS = _workbook_band_map(cur)
+    for k in _workbook_key(name):
+        if _WORKBOOK_BANDS.get(k):
+            return _WORKBOOK_BANDS[k]
+    return set()
+
+
 def archive_bands(name):
     """The KSSL categories the client's own archive says this company competes in."""
     global _ARCHIVE_BANDS
@@ -1052,7 +1146,7 @@ def competes_with_kssl(prof, name=""):
     # (Firestorm Labs' product is a 3D-printing factory, not an aircraft; MARSS and LBA are
     # a C-UAS and an unknown). A company whose evidence names no product in any KSSL
     # category has not shown it competes with KSSL.
-    bands = {gate_band(p) for p in prods} | archive_bands(name)
+    bands = {gate_band(p) for p in prods} | archive_bands(name) | workbook_bands(name)
     bands.discard(None)
     if not bands:
         if all(out_of_business(p) for p in prods):
@@ -1114,6 +1208,15 @@ def rebuild_window(cur, con, lock_id, label):
         cur.execute("SET LOCAL lock_timeout='30s'")
         yield True
     finally:
+        # ROLL BACK FIRST. If the block raised, the transaction is ABORTED, and every
+        # statement on an aborted transaction raises InFailedSqlTransaction -- including
+        # the unlock. Without this rollback the `except` below swallowed that and the
+        # advisory lock stayed held for the life of the session, so the next pass on the
+        # same connection would decline to rebuild and quietly write nothing.
+        try:
+            con.rollback()
+        except Exception:                                         # noqa: BLE001
+            pass
         try:
             cur.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
             con.commit()
@@ -1159,7 +1262,12 @@ def _write_companies(cur, con, rows, _prev, _carry):
                                    'pipeline')
                            ON CONFLICT (comp_id) DO NOTHING""",
                         (cid, ORD0 + i, esc(r["name"]), p["dir"], esc(p["sector"]) or None,
-                         esc(p["hq"]) or None, p["threat"], esc(p["assess"]),
+                         # threat is a LEVEL. Anything else -- notably a threatNote that
+                         # reached the wrong argument -- is stored as no rating at all,
+                         # which severity_of reads as "not assessed" rather than as a
+                         # rating it can grade. See threat_gate.threat_level.
+                         esc(p["hq"]) or None, threat_gate.threat_level(p["threat"]),
+                         esc(p["assess"]),
                          json.dumps(r["upd_html"] if r["updates"] else []),
                          json.dumps({"id": cid, "label": r["name"]}),
                          r["site"], json.dumps(r["srcs"]),
@@ -1352,15 +1460,15 @@ def step_companies(cur, con, docs, props_by_doc, limit=None):
             if u and u not in seen_u:
                 seen_u.add(u)
                 srcs.append({"label": docs[did]["source"], "url": u})
-        site = None
-        tok = next((t for t in re.findall(r"[a-z0-9]+", name.lower()) if len(t) >= 4),
-                   None)
-        for did in dids:   # company-owned domain among its own docs -> site
-            u = docs[did]["url"] or ""
-            m = re.match(r"https?://([^/]+)", u)
-            if m and tok and tok in m.group(1).lower():
-                site = "https://" + m.group(1)
-                break
+        # THE COMPANY'S OWN SITE, NOT A PAGE THAT MENTIONS IT.
+        # This used to take the first >=4-character token of the name and accept any
+        # host CONTAINING it, which published four news publishers as competitors'
+        # official websites -- and, worst of the four, put AM General's site on General
+        # Dynamics' profile, attributing one real manufacturer's website to another.
+        # company_sites compares whole names instead of fragments, and returns None
+        # rather than a best guess. See company_sites.py --demo.
+        site = company_sites.pick_site(slug(name), name,
+                                       [docs[did]["url"] or "" for did in dids])
         rows.append({"name": name, "prof": prof, "updates": updates,
                      "upd_html": upd_html,
                      # built HERE because `use` -- the statements this profile was read
@@ -2011,6 +2119,18 @@ def bucket_partnership_candidates(profiles, docs, props_by_doc,
                      "buckets": len(buckets)}
 
 
+def tie_doc_ids(did, pr, docs):
+    """Every document that corroborates this tie: the primary plus the alt_docs the
+    dedupe carried, restricted to documents actually in the corpus, deduped and sorted.
+
+    Multi-document provenance is PRESERVED, never collapsed to one arbitrary source --
+    that set is exactly what serving.partner.source_doc_ids records. Pure, so it is
+    testable without a database.
+    """
+    dids = [did] + list(pr.get("alt_docs") or [])
+    return sorted({d for d in dids if d in docs})
+
+
 def owned_elsewhere(props_by_doc, did, pr):
     """-> the sibling proposition proving this pair is an ACQUISITION, or None.
 
@@ -2210,6 +2330,8 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
             got["urls"] = [docs[did]["url"]] + [docs[d]["url"] for d in
                                                 pr.get("alt_docs") or []
                                                 if d in docs]
+            # LINEAGE: the full contributing document set, for serving.partner.source_doc_ids.
+            got["doc_ids"] = tie_doc_ids(did, pr, docs)
             found += 1
 
             # LAND IT ON EVERY SIDE THAT HAS A ROW, not only on this bucket's company:
@@ -2281,7 +2403,7 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
     #
     # The roster also holds curated reference rows, which this writer does not own and
     # must not delete -- so a company the corpus finds that is ALSO reference data got a
-    # second row, and the tab showed it twice. Measured in production after the identical
+    # second row, and the tab showed it twice. Measured in production AFTER the identical
     # fix landed in revive_partners: "Paramount Group", "Israel Aerospace Industries
     # (IAI)" and "Thales" each appeared twice, once as reference (ord 2/4/6) and once as
     # plp_* here. Fixing the other writer did not touch these, because these were never
@@ -2293,19 +2415,33 @@ def step_partnerships(cur, con, docs, props_by_doc, limit=None):
                 (REV_ORD0,))
     seen_c = {slug(roster.head_org(r[0])) for r in cur.fetchall()}
     written_c = set()
+    # LINEAGE: spliced only where the column exists (deploy.sh runs no migrations).
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema='serving' "
+                "AND table_name='partner' AND column_name='source_doc_ids'")
+    has_partner_lineage = bool(cur.fetchone())
     for i, (other, g) in enumerate(client_rows, start=1):
         if slug(roster.head_org(other)) in seen_c or is_client(other):
             continue
         seen_c.add(slug(roster.head_org(other)))
         written_c.add(slug(other))
+        _pcol = ", source_doc_ids" if has_partner_lineage else ""
+        _pval = ", %s" if has_partner_lineage else ""
+        _pid = "plp_%02d" % i
         cur.execute("""INSERT INTO serving.partner
                          (id, ord, label, kind, rel, sig, ptype, note, date, country,
-                          deal, insight, mean, origin)
+                          deal, insight, mean, origin{pcol})
                        VALUES (%s,%s,%s,NULL,%s,NULL,%s,%s,%s,%s,NULL,NULL,NULL,
-                               'pipeline')
-                       ON CONFLICT (id) DO NOTHING""",
-                    ("plp_%02d" % i, ORD0 + i, esc(other), g["rel"],
-                     REL_PTYPE[g["rel"]], esc(g["note"]), g["date"], g["country"]))
+                               'pipeline'{pval})
+                       ON CONFLICT (id) DO NOTHING""".format(pcol=_pcol, pval=_pval),
+                    (_pid, ORD0 + i, esc(other), g["rel"],
+                     REL_PTYPE[g["rel"]], esc(g["note"]), g["date"], g["country"])
+                    + ((g.get("doc_ids"),) if has_partner_lineage else ()))
+        # One enriched event per CONTRIBUTING document, so every source of a tie is
+        # queryable -- the multi-document provenance the row's source_doc_ids records.
+        for _d in (g.get("doc_ids") or [None]):
+            provenance.emit("enrich", "enrich_serving.py", "enriched", document_id=_d,
+                            ref_table="serving.partner", ref_id=_pid,
+                            evidence={"label": other, "rel": g.get("rel")})
     con.commit()
 
     print("partnerships: %d tie(s) found from %d model call(s), %d refused, "
@@ -3693,10 +3829,37 @@ def step_founded(cur, con, docs, props_by_doc, limit=None):
     return {"written": n, "companies": len(found)}
 
 
+def step_leadership(cur, con, docs, props_by_doc, limit=None):
+    """Fill serving.competitors.leadership -- the Profile panel's "Leadership" grid.
+
+    The column is served by the backend and rendered by the page, and NOTHING has ever
+    written it: 0 of 43 shown competitors had an officer, so the panel has read "No
+    executive officers published on public record." for every company on the dashboard.
+    Same shape as step_revenue and step_founded -- the caller's cursor, inside the pass,
+    after step_companies has re-inserted the rows.
+
+    See signals/fill_leadership.py for what counts as an officer. The short version is
+    that the role must be held NOW (the corpus names outgoing chiefs as often as sitting
+    ones) and held at THIS company -- "president of Naval Power at Raytheon" is a
+    division's office and "BAE Systems, Inc." is a different company from BAE Systems.
+    """
+    import fill_leadership
+    found = fill_leadership.collect(cur)
+    n = 0
+    for cid, rows in found.items():
+        cur.execute("UPDATE serving.competitors SET leadership = %s::jsonb "
+                    "WHERE comp_id = %s",
+                    (json.dumps(rows, ensure_ascii=False), cid))
+        n += cur.rowcount
+    con.commit()
+    print("leadership: %d competitor(s) given named officers" % n, flush=True)
+    return {"written": n, "companies": len(found)}
+
+
 # ----------------------------------------------------------------------------- driver
 
 STEPS = [("companies", step_companies), ("news", step_news), ("revenue", step_revenue),
-         ("founded", step_founded),
+         ("founded", step_founded), ("leadership", step_leadership),
          ("partnerships", step_partnerships),
          ("structure", step_structure), ("metrics", step_metrics),
          ("geo", step_geo), ("tenders", step_tenders),

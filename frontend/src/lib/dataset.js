@@ -6,9 +6,13 @@
    Pure: takes the fetched object, returns a new wired one. Nothing is written to
    `window`, so the app can re-fetch and re-wire without a reload. */
 import { computeSpecEdge } from "./edge.js";
+import { pairingReason } from "./specs.js";
 import { wireTendersWithRealDays } from "./tenderCalc.js";
 import { titleCaseHeadline, formatProductName, tidySeparators } from "./profile.js";
 import { formatDate } from "../utils/formatDate.js";
+// the patent country vocabulary. patents.js imports nothing from here, so this edge
+// adds no cycle -- and the normaliser lives with the rest of the patent display rules.
+import { normCountry } from "./patents.js";
 import { cutGroupsByDirection } from "./overview.js";
 import { logger } from "../utils/logger.js";
 
@@ -184,7 +188,24 @@ export function wireDataset(raw) {
      quantity), so compute the index here exactly as the dossier gauge does. */
   try {
     Object.keys(d.matchups).forEach((id) => {
-      d.matchups[id].edge = computeSpecEdge(d.matchups[id]).edge; // null when too few measured specs
+      const ce = computeSpecEdge(d.matchups[id]);
+      d.matchups[id].edge = ce.edge; // null when too few measured specs
+      /* COMPARABILITY, STORED ALONGSIDE THE INDEX.
+
+         Positioning called every matchup a "comparable pair" and every dossier
+         "Verified specs · analysed", over a corpus where most rows have no dimension
+         measured on BOTH sides -- the client column of many reads "no published
+         figure" from top to bottom. computeSpecEdge already knows: `n` is how many
+         independent dimensions both products publish and `decided` how many separated
+         them. Those are the only honest basis for the word "comparable", so they are
+         kept here rather than re-derived per surface. */
+      d.matchups[id].specDims = ce.n;
+      d.matchups[id].specDecided = ce.decided;
+      /* The served pairing prose promises source links the spec panel does not print;
+         see pairingReason in lib/specs.js. Cleaned once, here, so the dossier, the
+         Products drawer and the exported report cannot disagree about it. */
+      if (d.matchups[id].reason != null)
+        d.matchups[id].reason = pairingReason(d.matchups[id].reason);
     });
   } catch (e) {
     logger.warn("wiring:matchup.edge", e);
@@ -219,6 +240,9 @@ export function wireDataset(raw) {
     const ownGeo = (d.geoData && d.geoData[clientShort]) || {};
     Object.keys(ownGeo).forEach((ct) =>
       ownGeo[ct].forEach((p) => {
+        // keep the real activity: geoBadge needs it to say "Local production"
+        // instead of nothing once the self-naming "KSSL present" label is gone.
+        if (p.c && p.c !== "bf") p.c0 = p.c;
         p.c = "bf";
       }),
     );
@@ -439,14 +463,43 @@ function adaptPatents(d) {
       title: r.title || "",
       assignee: r.assignee || "",
       // the dataset uses granted/published; the badge CSS knows granted/filed/pending
+      /* 'filed' IS ALSO THE FALL-THROUGH, which is why _meta.grantStatusKnown below
+         exists. On the live corpus every one of the 1,157 harvested rows arrives
+         status='filed' with granted=NULL, so this branch cannot distinguish a source
+         that said "filed" from one that said nothing -- and the patents UI was
+         printing "Granted 0 / Pending 0 / Filed N" as if a registry had been checked. */
+      /* 'unknown' is carried through AS ITSELF and never folded into 'filed'. The
+         harvester now emits three states, and the one it emits when it could not read
+         the registry is precisely the one this ternary used to swallow. That is only
+         invisible while NO row has a grant: the day a re-harvest lands real grants,
+         grantStatusKnown flips true for the corpus and every unread record would have
+         worn a blue "FILED" -- a claim about a record nobody checked, appearing at the
+         exact moment the page starts looking trustworthy. Per-record honesty cannot be
+         carried by a corpus-level flag. */
       status: /grant/i.test(r.status || "")
         ? "granted"
         : /pend/i.test(r.status || "")
           ? "pending"
-          : "filed",
+          : /unknown/i.test(r.status || "")
+            ? "unknown"
+            : "filed",
       filed: r.filed || "",
+      // the registry's publication date, which used to be stored IN `filed`
+      published: r.published || "",
       granted: r.granted || "",
-      jurisdiction: r.country || r.jurisdiction || "",
+      // what the registry's detail record said, where it was read: the grant's number
+      // and the publication kind code. Absent on every row harvested before that pass.
+      grant_no: r.grant_no || "",
+      pub_kind: r.pub_kind || "",
+      /* The English title, where the translation step has produced one. `title` above
+         stays exactly as the office published it -- both are carried, and the card
+         shows the source title under the translated one. */
+      title_en: r.title_en || "",
+      /* ONE COUNTRY, ONE KEY. The stored vocabulary collides: 'India' (21 rows) and
+         'IN' (10) are the same office, as are 'US' (354) and 'USA' (2). This is the
+         only place jurisdiction is derived, and everything downstream groups on it --
+         the per-holder country chips counted the same office twice without this. */
+      jurisdiction: normCountry(r.country || r.jurisdiction || ""),
       ipc: r.ipc || [],
       abstract: r.abstract || r.claims || "",
       techArea: r.area || r.techArea || "",
@@ -485,6 +538,34 @@ function adaptPatents(d) {
     cid,
     t: toks(d.competitors[cid].name),
   }));
+
+  /* WHICH ASSESSMENTS THIS CORPUS ACTUALLY CARRIES.
+
+     Three fields the patents UI renders as findings are constant across the whole
+     live harvest: every one of the 1,157 rows arrives status='filed' with granted
+     NULL, threat NULL, and relev='CORE'. A value every row shares separates nothing,
+     and printing it per row -- "Granted 0 / Pending 0 / Filed N", an "N published"
+     chip captioned "Published, not yet granted", a `low` threat chip, a CORE badge --
+     publishes assessments nobody made and, in the pending case, asserts NON-grant for
+     records that may well be granted. Measured once, here, so each surface can say
+     "not captured" instead of counting to zero. Each flips to true on its own the
+     moment the harvester lands the field; nothing downstream needs another edit. */
+  const allRaw = [];
+  Object.keys(byArea).forEach((a) => (byArea[a] || []).forEach((r) => allRaw.push(r)));
+  Object.keys(byAssignee).forEach((n) => (byAssignee[n] || []).forEach((r) => allRaw.push(r)));
+  const distinctVals = (f) =>
+    new Set(
+      allRaw
+        .map((r) => String(f(r) || "").trim().toLowerCase())
+        .filter(Boolean),
+    );
+  PATENTS._meta = {
+    ...(PATENTS._meta || {}),
+    // a grant date, or a status that is not the 'filed' fall-through, on ANY row
+    grantStatusKnown: allRaw.some((r) => r.granted || /grant|pend/i.test(r.status || "")),
+    // a relevance grade every row shares grades nothing
+    relevDiscriminates: distinctVals((r) => r.relev).size > 1,
+  };
 
   PATENTS.byCompetitor = {};
 
@@ -553,15 +634,22 @@ function adaptPatents(d) {
         name: r.assignee,
         filings: 0,
         granted: 0,
+        unknown: 0,
         countries: {},
         latest: null,
-        threat: "low",
+        /* NOT "low". An unassessed holder started at "low" and, since threat is NULL
+           on every harvested row, stayed there -- so the field lens stamped a `low`
+           chip titled "Assessed threat to KSSL" on every rival in the corpus. Empty
+           means unassessed, and the chip is omitted rather than guessed. */
+        threat: "",
         recs: [],
       });
       g.filings++;
       if (r.status === "granted") g.granted++;
+      // counted, not derived: see the `pending` note below
+      if (r.status === "unknown") g.unknown++;
       if (r.jurisdiction) g.countries[r.jurisdiction] = 1;
-      const yr = parseInt((r.granted || r.filed || "").slice(0, 4), 10);
+      const yr = parseInt((r.granted || r.filed || r.published || "").slice(0, 4), 10);
       if (yr && (!g.latest || yr > g.latest)) g.latest = yr;
       const t = (r.threat || "").toLowerCase();
       if ((THREAT_RANK[t] || 0) > (THREAT_RANK[g.threat] || 0)) g.threat = t;
@@ -575,7 +663,13 @@ function adaptPatents(d) {
           name: n,
           filings: g.filings,
           granted: g.granted,
-          pending: g.filings - g.granted,
+          unknown: g.unknown,
+          /* THREE BUCKETS, NOT TWO. `filings - granted` called every non-grant
+             "pending", which was a positive claim -- "published, not yet granted" --
+             about records whose status was never read. A record the registry was not
+             asked about is neither granted nor pending; it is unknown, and it is
+             subtracted out here rather than absorbed into the pending count. */
+          pending: g.filings - g.granted - g.unknown,
           countries: Object.keys(g.countries),
           latest: g.latest,
           threat: g.threat,
@@ -605,7 +699,12 @@ function adaptPatents(d) {
       crowding: recs.length >= 25 ? "crowded" : recs.length >= 8 ? "emerging" : "open",
       summary: (meta && (meta.why || meta.desc)) || "",
       leaders: holders,
-      whitespace: [],
+      /* NULL, NOT []. No pass computes sparsely-patented areas -- there is no
+         upstream field for it and nothing here derives one -- and an empty array
+         reads downstream as "the analysis ran and found none". null says it never
+         ran, which is what patTechBody now prints. Populate this the day a
+         white-space pass exists and the section renders unchanged. */
+      whitespace: null,
       koel: {
         filings: recs.filter((r) => /kalyani|kssl|bharat\s*forge/i.test(r.assignee || "")).length,
         position: (meta && meta.reason) || "No KSSL filings recorded in this field yet.",

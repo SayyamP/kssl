@@ -29,6 +29,9 @@
   .geo-pick .pk-dot.ovl{background:#e8483a;box-shadow:0 0 0 2px rgba(232,72,58,.22)}
   .geo-pick .pk-dot.ovl-cat{background:transparent;border:1.5px solid #e8483a}
   .geo-pick .pk-dot.noovl{background:transparent;border:1px solid var(--d-txt-4);opacity:.5}
+  /* 'not assessed' is not 'no overlap': a dashed ring, so a rival nobody could test
+     never wears the dot a rival earns by being tested and cleared. */
+  .geo-pick .pk-dot.ovl-unk{background:transparent;border:1px dashed var(--d-txt-4);opacity:.75}
   .geo-pick .pk-dot.bf{background:var(--fav)}
   .geo-content{flex:1;display:grid;grid-template-columns:1fr clamp(300px, 25vw, 380px);overflow:hidden;min-height:0;height:100%}
   .geo-content.empty{display:flex;align-items:center;justify-content:center}
@@ -263,6 +266,26 @@
   border: 1px solid rgba(240, 89, 60, 0.35);
 }
 
+/* A presence resting ONLY on analytical estimates. The rest of the dashboard already
+   separates src='syn' from a sourced row (--synthetic, and the .syn dot on the Geo
+   panel); the map did not, so an estimate wore the same solid green as a presence three
+   documents state. Dashed and hollow, matching the marker's own dash. */
+.gm-koel-badge.est {
+  background: transparent;
+  color: var(--synthetic);
+  border: 1px dashed var(--synthetic);
+}
+
+/* "n of m rows is an analytical estimate" -- printed only when there is a mix, so the
+   badge can stay green on the sourced rows without hiding the estimated ones. */
+.gm-evidence-note {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  color: var(--synthetic);
+  margin-top: 3px;
+}
+
 .gm-section-title {
   font-family: var(--mono);
   font-size: 9.5px;
@@ -407,16 +430,41 @@
    canvas rather than beside it: the point is that a reader counting dots sees why the
    count is short, and a note in a side panel would not be read at that moment. */
 .geo-map-unplotted {
+  /* positioned by .geo-map-notes, which stacks it under the client's own footprint */
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: #9aa0a8;
+  background: rgba(9, 11, 13, 0.88);
+  border: 1px solid #24262b;
+  border-radius: 4px;
+  padding: 6px 9px;
+}
+
+/* The two map notices, stacked. They used to be one absolutely-positioned bar each, at
+   fixed offsets from the bottom; .geo-map-unplotted wraps to a second line the moment
+   the corpus reaches a few more regions, and the other would then sit on top of it. */
+.geo-map-notes {
   position: absolute;
   left: 10px;
   right: 10px;
   bottom: 10px;
   z-index: 500;
   pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* THE CLIENT'S OWN FOOTPRINT, stated: every country it holds a row in, which of those
+   are estimates, and the regional rows that exist and cannot be drawn. The map showed
+   one green dot over India and the reader read it as the whole answer. See
+   clientFootprintNote in lib/geoBadge.js. */
+.geo-map-client-footprint {
   font-family: var(--mono);
   font-size: 10.5px;
   line-height: 1.45;
-  color: #9aa0a8;
+  color: var(--fav-badge);
   background: rgba(9, 11, 13, 0.88);
   border: 1px solid #24262b;
   border-radius: 4px;

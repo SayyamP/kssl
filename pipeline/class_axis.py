@@ -20,6 +20,11 @@ Where the two sides are different classes, the mass dimensions are stamped
 `classAxis` with the reason. Nothing is deleted: the number stays visible, it just
 stops counting as a lead.
 """
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from _superseded import refuse_if_superseded  # noqa: E402
+refuse_if_superseded(__file__)   # ported to extraction/signals/, which is what the
+                                 # containers run; this copy is now the older one.
 import argparse
 import json
 import os

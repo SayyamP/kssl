@@ -48,18 +48,33 @@ fake one, and identity was where it went wrong both times:
     than hand-listed, so a product added to the workbook tomorrow needs no entry
     here.
 
-WHAT COUNTS AS COMPARABLE IS NOT A WORD LIST. A spec row already carries `hi`:
-True when higher is better, False when lower is, None when the field has no
-better and worse at all. Calibre is None -- 155 mm is not better than 105 mm --
-so direction, which the engine computes from the field's own semantics and stores
-on the row, does the work a `calibre|bore|type|class` regex was doing. That regex
-survives only for rows that carry no direction at all, because a closed keyword
-list is a language detector and this repo has paid for that lesson three times.
+WHAT COUNTS AS COMPARABLE IS NOT A WORD LIST. A spec row carries `hi`: True when
+higher is better, False when lower is, None when the field has no better and worse
+at all. Calibre is None -- 155 mm is not better than 105 mm -- so direction does the
+work a `calibre|bore|type|class` regex was doing. That regex survives only for rows
+that carry no direction at all, because a closed keyword list is a language detector
+and this repo has paid for that lesson three times.
+
+...BUT DIRECTION IS NOT READ OFF THE ROW ANY MORE. It was never computed: it was
+typed into each of the 507 archive rows by hand, and the same field came out
+directional on one row and blank on the next -- Rate of fire is directional on 1 of
+the 35 live rows that hold it. This gate therefore called the same field comparable
+on one pairing and incomparable on another. spec_direction.DIRECTION is the one table,
+keyed by field label, and it is asked first.
+
+AND AN EMPTY LIST IS A REFUSAL. `if roster_names:` / `if client_products:` meant both
+checks stood down when their list was empty -- which is the state of a database whose
+serving.competitors or serving.client_product has not been loaded, i.e. exactly when
+an unchecked pairing gets published. Being unable to check is not having checked.
+KSSL_PAIRING_ALLOW_EMPTY_LISTS=1 restores the old behaviour on purpose, loudly.
 """
+import os
 import re
+import sys
 import unicodedata
 
 import aliases
+import spec_direction
 
 # One directional field is thin, but it is a comparison; the engine already shrinks
 # a one-field verdict towards parity by n/(n+1) so it cannot print maximum severity
@@ -67,10 +82,23 @@ import aliases
 MIN_SHARED_FIELDS = 1
 
 # Fallback only -- see the module docstring. Applied when a spec row carries no `hi`
-# at all, which is the shape hand-built archive rows have before the engine parses
-# them.
+# at all AND the field's label is not in spec_direction's table, which is the shape a
+# hand-built archive row has before the engine parses it.
 AXIS_FIELDS = re.compile(
     r"\b(calibre|caliber|bore|configuration|type|class|variant|family|role)\b", re.I)
+
+# THE ONE OVERRIDE, AND IT SAYS SO. Both list checks below used to be written
+# `if roster_names:` and `if client_products:`, so an empty list SKIPPED the check and
+# every anchor and every rival walked through -- and the lists are empty in exactly the
+# situation that matters: a run against a database whose serving.competitors or
+# serving.client_product has not been loaded yet. A gate that cannot fail closed is not
+# a gate. Absence is a refusal now; this variable is how someone says otherwise on
+# purpose, and refuse() reports that they did.
+ALLOW_EMPTY = "KSSL_PAIRING_ALLOW_EMPTY_LISTS"
+
+
+def allow_empty():
+    return os.environ.get(ALLOW_EMPTY) == "1"
 
 _NUM = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
@@ -104,15 +132,31 @@ def maker_of(label):
     return parts[0].strip() if len(parts) > 1 else ""
 
 
+# An initialism needs at least this many words, all of them words. A TWO-token name
+# was enough before, and the first letter of a token was taken whether that token was a
+# word or a number -- so "MaRG 45" reduced to 'm' + '4' = "m4" and
+# same_product("M4", "MaRG 45") came back True: an armoured vehicle validated as a
+# client product by a wheeled howitzer. Every real case is three words or more ("Mine
+# Protected Vehicle", "Light Tactical Vehicle", "Ultra Light Specialist Vehicle"), and
+# a two-letter initialism collides with far too much to be evidence of anything.
+MIN_INITIALISM_TOKENS = 3
+
+
 def initialism(name):
     """'Mine Protected Vehicle' -> 'mpv'. The client's own abbreviations.
 
     Generated, not listed: the workbook writes the long name and the matchup writes
     the short one, and there are six of them. A hand-list would need an entry for
     every product added after today.
+
+    Returns "" -- never a partial answer -- when the name is too short to abbreviate or
+    carries a model number, because a model number is part of the NAME and not one of
+    the words being abbreviated.
     """
     toks = [t for t in norm(name).split() if t]
-    if len(toks) < 2:
+    if len(toks) < MIN_INITIALISM_TOKENS:
+        return ""
+    if not all(t.isalpha() for t in toks):
         return ""
     return "".join(t[0] for t in toks)
 
@@ -156,20 +200,58 @@ def shared_measurables(specs):
     n, fields = 0, []
     for s in specs or []:
         label = s.get("l") or s.get("label") or ""
-        if "hi" in s:
-            # The engine's own definition: a number on each side, and a field that
-            # has a better and a worse.
-            if (s.get("cn") is not None and s.get("kn") is not None
-                    and s.get("hi") is not None):
-                n += 1
-                fields.append(label)
+        # THE FIELD DECIDES ITS OWN DIRECTION. Reading `hi` off the row asked the
+        # archive, which typed it by hand and disagreed with itself: Rate of fire is
+        # directional on 1 of the 35 live rows that hold it and blank on the other 34,
+        # so this gate called the same field comparable on one pairing and not on the
+        # next. spec_direction.DIRECTION is the one answer.
+        if spec_direction.known(label):
+            hi = spec_direction.direction_of(label)
+        elif "hi" in s:
+            hi = s.get("hi")
+        else:
+            # Neither the table nor the row says anything. The regex survives for this
+            # case only -- a closed keyword list is a language detector, and this repo
+            # has paid for that lesson three times.
+            if AXIS_FIELDS.search(label):
+                continue
+            hi = True
+        if hi is None:
             continue
-        if AXIS_FIELDS.search(label):
-            continue
-        if _num(s.get("cv")) is not None and _num(s.get("kv")) is not None:
+        # The engine's own definition: a number on each side, and a field that has a
+        # better and a worse.
+        #
+        # The text fallback is for a row that carries no cn/kn AT ALL -- the shape a
+        # hand-built archive row has before the engine parses it. A cn that is present
+        # and None is a DECISION: rebuild() blanks both when the two sides resolve to
+        # different quantities ("one side's unit is unknown: not comparable") or when a
+        # side's sources failed the credibility bar. Reading the numbers back out of
+        # the display text would undo that, and put a 47-against-18000 comparison back
+        # on the screen.
+        if "cn" in s or "kn" in s:
+            cn, kn = s.get("cn"), s.get("kn")
+        else:
+            cn, kn = _num(s.get("cv")), _num(s.get("kv"))
+        if cn is not None and kn is not None:
             n += 1
             fields.append(label)
     return n, fields
+
+
+_warned = [False]
+
+
+def _warn_override(what):
+    """Say it once, on stderr, loudly. An override nobody can see is a silent pass."""
+    if _warned[0]:
+        return
+    _warned[0] = True
+    sys.stderr.write(
+        "\n*** %s IS SET. %s is empty and the check that uses it is being SKIPPED for\n"
+        "*** every row in this run. This is the fault that put 'HESA - Shahed-136'\n"
+        "*** and 'KSSL - Bayonet' on the Positioning tab. Unset it unless you know why\n"
+        "*** you want it.\n\n" % (ALLOW_EMPTY, what))
+    sys.stderr.flush()
 
 
 def refuse(row, roster_names=(), client_products=()):
@@ -178,15 +260,41 @@ def refuse(row, roster_names=(), client_products=()):
     `row` is the shape revive_matchups builds: comp, compBy, bf, bfBy, specs.
     `roster_names` are the tracked competitors' names; `client_products` are the
     product names the client's own workbook holds.
+
+    AN EMPTY LIST IS A REFUSAL, NOT A PASS. `if roster_names:` and
+    `if client_products:` meant the gate stood down exactly when it had nothing to
+    check against -- a database whose serving.competitors or serving.client_product
+    had not been loaded -- and admitted every anchor and every rival. Being unable to
+    check is not the same as having checked. Set KSSL_PAIRING_ALLOW_EMPTY_LISTS=1 to
+    go back to the old behaviour on purpose; it prints a warning when it does.
     """
+    lenient = allow_empty()
+    if not [r for r in roster_names if r]:
+        if not lenient:
+            return ("no tracked-competitor roster to check the maker against",
+                    "serving.competitors returned nothing")
+        _warn_override("the competitor roster")
+    if not [p for p in client_products if p]:
+        if not lenient:
+            return ("no client portfolio to check the KSSL side against",
+                    "serving.client_product returned nothing")
+        _warn_override("the client portfolio")
+
     comp_by = row.get("compBy") or maker_of(row.get("comp"))
     if roster_names:
-        if comp_by and not any(same_org(comp_by, r) for r in roster_names if r):
+        # A row that names no maker at all cannot be checked against the roster
+        # either, and `if comp_by and ...` let it through for the same reason the
+        # empty list did.
+        if not comp_by:
+            return ("the pairing names no maker", str(row.get("comp") or "")[:60])
+        if not any(same_org(comp_by, r) for r in roster_names if r):
             return ("maker is not a tracked competitor", comp_by)
 
     if client_products:
         bf = product_of(row.get("bf"))
-        if bf and not any(same_product(bf, p) for p in client_products if p):
+        if not bf:
+            return ("the pairing names no KSSL product", str(row.get("bf") or "")[:60])
+        if not any(same_product(bf, p) for p in client_products if p):
             return ("the KSSL side is not a product the client publishes", bf)
 
     n, fields = shared_measurables(row.get("specs"))
@@ -280,6 +388,52 @@ def demo():
     # the first draft of this very file refused all 117 published rows.
     seen = [refuse(r, roster, client)[0] for r in (skystriker, shahed, empty, good)]
     ck("the gate both refuses and admits", any(seen) and not all(seen))
+
+    # AN EMPTY LIST IS A REFUSAL. `if roster_names:` skipped the check when there was
+    # nothing to check against, which is precisely when it mattered.
+    os.environ.pop(ALLOW_EMPTY, None)
+    why, _ = refuse(good, [], client)
+    ck("an empty roster refuses rather than admitting everything",
+       why == "no tracked-competitor roster to check the maker against", why)
+    why, _ = refuse(good, roster, [])
+    ck("an empty client portfolio refuses too",
+       why == "no client portfolio to check the KSSL side against", why)
+    why, _ = refuse(good, [], [])
+    ck("both empty still refuses", why is not None, why)
+    # ...and the override is opt-in, named, and restores the old behaviour exactly
+    os.environ[ALLOW_EMPTY] = "1"
+    _warned[0] = True                       # the warning itself is not under test
+    ck("the named override admits it again", refuse(good, [], [])[0] is None)
+    os.environ.pop(ALLOW_EMPTY, None)
+    _warned[0] = False
+
+    # A row that names nobody cannot be checked against the roster either.
+    ck("a pairing with no maker is refused",
+       refuse(dict(good, comp="CAESAR 6x6", compBy=""), roster, client)[0]
+       == "the pairing names no maker")
+    ck("a pairing with no KSSL product is refused",
+       refuse(dict(good, bf=""), roster, client)[0]
+       == "the pairing names no KSSL product")
+
+    # THE INITIALISM COLLISION. norm("MaRG 45") -> ['marg','45'] -> 'm'+'4' -> "m4",
+    # so an armoured vehicle was validated as a client product by a wheeled howitzer.
+    ck("a two-token name cannot abbreviate to a short anchor",
+       initialism("MaRG 45") == "" and initialism("Kalyani M4") == "",
+       "%r / %r" % (initialism("MaRG 45"), initialism("Kalyani M4")))
+    ck("M4 is not MaRG 45", not same_product("M4", "MaRG 45"))
+    ck("...and M4 is still Kalyani M4", same_product("M4", "Kalyani M4"))
+    ck("the real initialisms still resolve",
+       initialism("Mine Protected Vehicle") == "mpv"
+       and initialism("Ultra Light Specialist Vehicle") == "ulsv")
+
+    # DIRECTION COMES FROM THE FIELD, NOT THE ROW. The same field must be counted the
+    # same way whatever the archive typed on this particular row.
+    ck("a directionless field is not comparable however the row is marked",
+       shared_measurables([{"l": "Calibre", "cn": 155, "kn": 105, "hi": True}])[0] == 0)
+    ck("a directional field IS comparable however the row is marked",
+       shared_measurables([{"l": "Rate of fire", "cn": 6, "kn": 5, "hi": None}])[0] == 1)
+    ck("crew + pax carries no direction: fewer crew is better, more troops is not",
+       shared_measurables([{"l": "Crew / pax", "cn": 3, "kn": 8, "hi": True}])[0] == 0)
 
     print("\n%s" % ("all checks passed" if not fails else "%d FAILED" % len(fails)))
     return 1 if fails else 0

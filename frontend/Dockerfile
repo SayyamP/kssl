@@ -32,5 +32,10 @@ FROM caddy:2-alpine
 COPY --from=build /app/dist /srv
 # Static files plus SPA fallback: every route renders index.html, and Caddy in
 # front of this one handles TLS and /api.
-RUN printf ':80 {\n\troot * /srv\n\tencode gzip\n\ttry_files {path} /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
+# try_files also probes {path}/index.html BEFORE the SPA fallback, so a real
+# subdirectory page (e.g. the operator dashboard at /ops/) is served instead of
+# being rewritten to the root app's index.html. Without the middle term, /ops/
+# fell through to the SPA and showed the main app; /ops/index.html worked but
+# the bare directory URL did not.
+RUN printf ':80 {\n\troot * /srv\n\tencode gzip\n\ttry_files {path} {path}/index.html /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
 EXPOSE 80

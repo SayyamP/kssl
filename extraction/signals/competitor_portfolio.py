@@ -306,13 +306,95 @@ def key_of(name):
 # Profile panel as an annual revenue of "Not publicly disclosed -- privately held;
 # historical SIDM directory classified company as <=Rs100 crore turnover in FY2018-19".
 # The honest rendering of an unknown value is the dash the column already falls back to.
-_NO_FIGURE = re.compile(r"\b(not (?:publicly )?(?:disclosed|available|published|reported)"
+#
+# 2026-09-06: THE SAME SENTENCE APPEARS ONE COLUMN TO THE LEFT. A SPECIFICATION cell
+# declines to state a figure in the same words a revenue cell does -- "detailed
+# displacement/power not publicly exposed on current page", "PLR-specific variant
+# datasheet is not publicly complete", "detailed performance figures not publicly
+# disclosed in the cited source" -- and competitor_specs.py has to strike that clause
+# before the bullet around it becomes a served number. Every alternative added below
+# is a real phrase from Defence_Competitor_MASTER_DATASET_CORRECTED_2026-09-06.xlsx;
+# none can occur in a revenue cell that states an amount (checked against all 50, and
+# the demo's positive cases are asserted below).
+_NO_FIGURE = re.compile(r"\b(not (?:publicly |consistently |fully |currently )?"
+                        r"(?:disclosed|available|published|reported|exposed|complete|"
+                        r"stated|specified|established|identified|released|detailed)"
                         r"|undisclosed|not disclosed|no public (?:figure|filing)"
-                        r"|figures? not|n/?a)\b", re.I)
-# A SEGMENT IS NOT THE COMPANY, the same way arms revenue is not total revenue. The
-# workbook offered Oshkosh Defense its parent's "Transport segment sales", and a segment
-# line understates or overstates whichever way the roster entity is drawn.
+                        r"|figures? not|not all numerical|n/?a)\b", re.I)
+# Public alias. `_NO_FIGURE` states ONE rule about one kind of sentence, and a private
+# fourth copy of it is what this repo keeps paying for -- withhold_matchups._NOFIG is
+# already the third. competitor_specs.py imports THIS name rather than writing a fifth.
+NO_FIGURE = _NO_FIGURE
+# A SEGMENT OF SOMETHING ELSE IS NOT THE COMPANY. The workbook offered Oshkosh Defense
+# its parent's "Oshkosh Corporation Transport segment sales" -- a different segment of
+# the same group, which is neither the roster entity's revenue nor its parent's.
+#
+# But "segment" alone cannot be the test, because several roster entities ARE a named
+# segment and say so: Nexter is "KNDS Land Systems France segment revenue" and that is
+# the right figure for it. WHAT SEPARATES THEM IS WHERE THE AMOUNT SITS. A cell about
+# this company leads with its number -- "EUR 1.3 billion -- KNDS Land Systems France
+# segment revenue", "NOK 58.6 billion total legacy-group revenue; ..." -- while a cell
+# describing somebody else's segment has to name it first: "Oshkosh Corporation
+# Transport segment sales: US$2.0967 billion". So the refusal is a segment word BEFORE
+# the first amount, not anywhere in the cell.
 _SEGMENT = re.compile(r"\bsegment (?:sales|revenues?|turnover)\b", re.I)
+_AMOUNT = re.compile(r"[\u20ac\u00a3\u20b9\u00a5$]|\b(?:USD|EUR|GBP|INR|NOK|SEK|KRW|JPY|Rs)\b"
+                     r"|\b\d[\d,.]*\s*(?:billion|million|crore|trillion|lakh)\b", re.I)
+
+
+def _leads_with_another_segment(text):
+    """True when a segment is named BEFORE this cell states any amount."""
+    m = _AMOUNT.search(text or "")
+    head = text[:m.start()] if m else (text or "")
+    return bool(_SEGMENT.search(head))
+
+
+def match_companies(roster, names):
+    """{workbook company name: roster row} for the names that reach a roster row.
+
+    THE SPELLING IS NOT THE COMPANY, AND THIS FILE IS THE THIRD PLACE TO LEARN IT.
+
+    36 of 50 workbook rows reach a roster row on the folded key `key_of`. Seven roster
+    rows are missed by wording alone -- "Hanwha (Aerospace/Group)" against "Hanwha
+    Aerospace", "Kalashnikov Concern" against "Kalashnikov", and "Larsen &amp; Toubro",
+    whose roster name is HTML-escaped. aliases.same_org already decides this for the
+    news writer and for the pairing gate; it decides it here too rather than growing
+    the private ALIAS map a fourth time.
+
+    ONLY WHEN UNAMBIGUOUS. "RTX (Raytheon)" reaches both the RTX and the Raytheon roster
+    rows, and "KNDS Germany" and "Nexter (KNDS France)" both reach "KNDS". A fallback
+    that guessed would put one company's headquarters on another's profile, so a
+    workbook row with two candidates -- or a roster row with two suitors -- is left for
+    a human instead. A name absent from the result is UNMATCHED, never defaulted.
+
+    `roster` is any sequence of rows whose [0] is the id and [1] the display name, so
+    the caller chooses the columns and the WHERE clause. Extracted from plan_profiles
+    on 2026-09-06 because competitor_specs.py must resolve the very same 50 names
+    against the very same roster -- and has to ask it twice, once against the served
+    rows and once against the reference ones, which is the whole point of running it
+    over a caller-chosen row set.
+    """
+    import html
+    from aliases import same_org
+    have = {key_of(r[1]): r for r in roster}
+    out = {}
+    for n in names:
+        r = have.get(key_of(n))
+        if r is not None:
+            out[n] = r
+    claimed = {key_of(r[1]) for r in out.values()}
+    free = [r for r in roster if key_of(r[1]) not in claimed]
+    loose = {}
+    for n in names:
+        if n in out:
+            continue
+        hits = [r for r in free if same_org(n, html.unescape(r[1] or ""))]
+        if len(hits) == 1:
+            loose.setdefault(key_of(hits[0][1]), []).append((n, hits[0]))
+    for _k, pairs in loose.items():
+        if len(pairs) == 1:                     # one suitor, or nobody
+            out[pairs[0][0]] = pairs[0][1]
+    return out
 
 
 def plan_profiles(cur, profiles):
@@ -322,41 +404,11 @@ def plan_profiles(cur, profiles):
     rows = cur.fetchall()
     have = {key_of(n): (cid, n, hq, yr, sz, sl, ctry)
             for cid, n, hq, yr, sz, sl, ctry in rows}
-
-    # THE SPELLING IS NOT THE COMPANY, AND THIS FILE IS THE THIRD PLACE TO LEARN IT.
-    #
-    # 36 of 50 workbook rows reach a roster row on the folded key above. Seven roster
-    # rows are missed by wording alone -- "Hanwha (Aerospace/Group)" against "Hanwha
-    # Aerospace", "Kalashnikov Concern" against "Kalashnikov", and "Larsen &amp;
-    # Toubro", whose roster name is HTML-escaped. aliases.same_org already decides
-    # this for the news writer and for the pairing gate; it decides it here too
-    # rather than growing the private ALIAS map a fourth time.
-    #
-    # ONLY WHEN UNAMBIGUOUS. "RTX (Raytheon)" reaches both the RTX and the Raytheon
-    # roster rows, and "KNDS Germany" and "Nexter (KNDS France)" both reach "KNDS".
-    # A fallback that guessed would put one company's headquarters on another's
-    # profile, so a workbook row with two candidates -- or a roster row with two
-    # suitors -- is left for a human instead.
-    import html
-    from aliases import same_org
-    claimed = {key_of(p["company"]) for p in profiles if key_of(p["company"]) in have}
-    free = [(cid, n, hq, yr, sz, sl, ctry) for cid, n, hq, yr, sz, sl, ctry in rows
-            if key_of(n) not in claimed]
-    loose = {}
-    for p in profiles:
-        if key_of(p["company"]) in have:
-            continue
-        hits = [r for r in free if same_org(p["company"], html.unescape(r[1] or ""))]
-        if len(hits) == 1:
-            loose.setdefault(key_of(hits[0][1]), []).append((p["company"], hits[0]))
-    resolved = {}
-    for _k, pairs in loose.items():
-        if len(pairs) == 1:                     # one suitor, or nobody
-            resolved[pairs[0][0]] = pairs[0][1]
+    matched = match_companies(rows, [p["company"] for p in profiles])
 
     updates, unmatched = [], []
     for p in profiles:
-        row = have.get(key_of(p["company"])) or resolved.get(p["company"])
+        row = matched.get(p["company"])
         if not row:
             unmatched.append(p["company"])
             continue
@@ -385,13 +437,20 @@ def plan_profiles(cur, profiles):
         # workbook writes to mean "unknown" will not carry a number.
         if (not sl and p["sales"] and p["publishable"] and re.search(r"\d", p["sales"])
                 and not _NO_FIGURE.search(p["sales"])
-                and not _SEGMENT.search(p["sales"])):
+                and not _leads_with_another_segment(p["sales"])):
             set_["sales"] = {"text": p["sales"], "fy": p["financial_year"],
                              "srcs": p["sources"][:3]}
         if p["global_locations"]:
+            # SEMICOLONS ONLY. The cell is a list separated by semicolons, and its items
+            # are prose that contains commas: "40+ countries; major markets/operations in
+            # UK, US, Europe, Saudi Arabia and Australia". Splitting on a comma before a
+            # capital cut that second item into four, so the Profile listed "US" and
+            # "Europe" as if they were separate locations. Measured over the 50-company
+            # workbook, the comma rule turned 107 real items into 239, of which 92 were
+            # one- or two-word fragments of a sentence.
             set_["global_locations"] = [x.strip() for x in
-                                        re.split(r"[;\n]|,(?=\s*[A-Z])",
-                                                 p["global_locations"]) if x.strip()]
+                                        re.split(r"[;\n]", p["global_locations"])
+                                        if x.strip()]
         if set_:
             updates.append((cid, p["company"], set_))
     return updates, unmatched, have
@@ -459,6 +518,39 @@ def demo():
     # in CI while passing on the machine that wrote it.
     products, profiles, REFUSED = load()
     assert len(profiles) == 50, len(profiles)
+
+    # WHAT THE SALES CELL MAY AND MAY NOT SAY. Every string below is a real cell from
+    # Defence_Competitor_MASTER_DATASET_CORRECTED_2026-09-06.xlsx.
+    def _ok(t):
+        return not _NO_FIGURE.search(t) and not _leads_with_another_segment(t)
+
+    assert not _ok("Not publicly disclosed \u2014 privately held; historical SIDM "
+                   "directory classified company as \u2264\u20b9100 crore turnover in "
+                   "FY2018-19"), "SSS Defence: a sentence saying there is no figure"
+    assert not _ok("Absolute consolidated revenue not publicly disclosed in accessible "
+                   "filings"), "Kalashnikov Concern: same, worded differently"
+    # A DIFFERENT segment of the parent -- named before the cell states any amount.
+    assert not _ok("Oshkosh Corporation Transport segment sales: US$2.0967 billion"), \
+        "Oshkosh Defense must not inherit its parent's Transport segment"
+    # ...but a company that IS a named segment leads with its own number, and stays.
+    assert _ok("\u20ac1.3 billion \u2014 KNDS Land Systems France segment revenue"), \
+        "Nexter IS KNDS Land Systems France"
+    assert _ok("NOK 58.6 billion total legacy-group revenue; Kongsberg Defence & "
+               "Aerospace segment revenue NOK 25.32 billion"), \
+        "a group total does not stop being one because a segment is mentioned after it"
+    assert _ok("\u20b95,051.20 crore turnover"), "Tata Advanced Systems"
+
+    # GLOBAL LOCATIONS ARE SEMICOLON-SEPARATED, and their items contain commas. Real
+    # cell, and the one that showed "US" and "Europe" on the Profile as if each were a
+    # location of its own.
+    bae = ("40+ countries; major markets/operations in UK, US, Europe, Saudi Arabia "
+           "and Australia")
+    got = [x.strip() for x in re.split(r"[;\n]", bae) if x.strip()]
+    assert got == ["40+ countries",
+                   "major markets/operations in UK, US, Europe, Saudi Arabia and "
+                   "Australia"], got
+    assert len(got) == 2, "a comma inside an item is not a separator"
+    assert _ok("\u00a369.06 million turnover"), "Supacat"
 
     # 1. the maker is official about its OWN product and a news mention about a
     #    rival's. Without this, one company's marketing sets another's numbers.

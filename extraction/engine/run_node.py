@@ -16,6 +16,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import store  # noqa: E402
+# Provenance is observability: its import must never break extraction, so it is guarded
+# and degrades to a no-op emitter if signals/ is not importable.
+try:
+    sys.path.insert(0, str(Path(__file__).parent.parent / "signals"))
+    import provenance as _prov  # noqa: E402
+except Exception:                                       # noqa: BLE001
+    class _prov:                                        # noqa: N801
+        emit = staticmethod(lambda *a, **k: False)
+        emit_many = staticmethod(lambda *a, **k: 0)
 from comprehend import comprehend  # noqa: E402
 from segment import classify, detect_lang, tokenize  # noqa: E402
 
@@ -221,6 +230,11 @@ def drain(node, conn, process, lin=None):
             try:
                 ns, np = store_pg.save_and_commit(q, rec, lin, doc_id, epoch)
                 print(f"{node}: stored {ns} spans, {np} propositions for {doc_id}", flush=True)
+                _prov.emit("extraction", "run_node.py", "extracted", document_id=doc_id,
+                           run_id=(lin or {}).get("run_id"), ref_table="extracted.document",
+                           ref_id=doc_id, evidence={"spans": ns, "props": np,
+                                                    "model": (lin or {}).get("model"),
+                                                    "pipeline_version": (lin or {}).get("pipeline_version")})
             except store_pg._LeaseLost:
                 print(f"{node}: lease lost on {doc_id} -- spans rolled back, whoever holds it owns "
                       f"the result", flush=True)

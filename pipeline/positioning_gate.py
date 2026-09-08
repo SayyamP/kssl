@@ -33,6 +33,11 @@ FAIL CLOSED. A product whose kind cannot be read from its name is REFUSED, not d
 to its category. The whole failure above came from defaulting; a pairing we cannot justify
 is worth less than no pairing, because the operator cannot tell the two apart on screen.
 """
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from _superseded import refuse_if_superseded  # noqa: E402
+refuse_if_superseded(__file__)   # ported to extraction/signals/, which is what the
+                                 # containers run; this copy is now the older one.
 import argparse
 import os
 import re

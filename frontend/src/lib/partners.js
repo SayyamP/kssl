@@ -920,10 +920,23 @@ const PG_IMG_ONERROR =
       const cfg = clusterConfig[nd.cluster];
       const nx = f1(nd.x);
       const ny = f1(nd.y);
-      const strokeColor = p.isOverlap ? "#8c2f2f" : cfg.color;
-      const fillColor = p.isOverlap ? "#8c2f2f" : cfg.color;
+      /* AN OVERLAP IS THE ONE THING ON THIS GRAPH WORTH FINDING, so it is drawn as
+         blood red at full strength, not as a slightly different dot.
+         Two reasons it did not read as red before:
+           - the edge was emitted as class="pg-edge" with no `shared` class, so
+             `.pg-edge.shared{stroke:#e8483a;stroke-width:2.5px;opacity:1}` -- which
+             exists in partnerships.css and is declared after the rel-* rules
+             precisely so red wins -- could never match anything;
+           - the only red it did get was an inline #8c2f2f (a dark maroon) drawn at
+             0.50 opacity, which against this background is browner than the amber
+             cluster beside it.
+         The class carries the colour now; the inline stroke stays as the fallback for
+         a context that renders the SVG without the stylesheet (the print report). */
+      const overlapRed = "#e8483a";
+      const strokeColor = p.isOverlap ? overlapRed : cfg.color;
+      const fillColor = p.isOverlap ? overlapRed : cfg.color;
 
-      edgeHtml += `<line class="pg-edge" data-a="${centerId}" data-b="${p.id}" x1="${f1(cx)}" y1="${f1(cy)}" x2="${nx}" y2="${ny}" stroke="${strokeColor}" stroke-width="${nd.lead ? "1.8px" : "1.4px"}" opacity="${nd.lead ? "0.65" : "0.50"}" />`;
+      edgeHtml += `<line class="pg-edge${p.isOverlap ? " shared" : ""}" data-a="${centerId}" data-b="${p.id}" x1="${f1(cx)}" y1="${f1(cy)}" x2="${nx}" y2="${ny}" stroke="${strokeColor}" stroke-width="${p.isOverlap ? "2.5px" : nd.lead ? "1.8px" : "1.4px"}" opacity="${p.isOverlap ? "1" : nd.lead ? "0.65" : "0.50"}" />`;
 
       const fullLabel = String(p.label || "");
       const labelText = esc(
@@ -940,7 +953,7 @@ const PG_IMG_ONERROR =
       nodeHtml +=
         `<g class="pg-node ptr ${p.isOverlap ? "overlap" : "direct"} rel-${escAll(p.rel || "other")}${p.status === "ended" ? " st-ended" : ""}" data-id="${p.id}" data-cluster="${nd.cluster}">` +
         `<title>${labelText} — ${esc(tieKind(p))}${p.isOverlap ? " — also on the client's own roster" : ""}${p.status === "ended" ? " (ended)" : ""}</title>` +
-        `<circle class="halo" cx="${nx}" cy="${ny}" r="${f1(nd.halo)}" fill="none" stroke="${strokeColor}" stroke-width="1.3" opacity="0.35" />` +
+        `<circle class="halo" cx="${nx}" cy="${ny}" r="${f1(nd.halo)}" fill="none" stroke="${strokeColor}" stroke-width="${p.isOverlap ? "2.2" : "1.3"}" opacity="${p.isOverlap ? "0.85" : "0.35"}" />` +
         `<circle class="net-circle" cx="${nx}" cy="${ny}" r="${f1(nd.r)}" fill="${fillColor}" stroke="#cfd3da" stroke-width="1.2" stroke-opacity="0.42" />` +
         `<text class="lbl-ptr-title" x="${lx}" y="${f1(ly)}" text-anchor="${textAnchor}">${labelText}</text>` +
         (kindText ? `<text class="lbl-ptr-sub" x="${lx}" y="${f1(ly + 12)}" text-anchor="${textAnchor}">${kindText}</text>` : "") +

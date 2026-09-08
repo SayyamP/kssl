@@ -20,6 +20,25 @@ export function createGeo(d) {
   // short name matched nothing, so every overlap test silently returned "none".
   const CLIENT_KEY = (d.client && (d.client.id || d.client.short)) || "KSSL";
 
+  /* IS THERE A CLIENT FOOTPRINT AT ALL?
+
+     Every one of the four overlap tests is "the rival does X where the CLIENT does X",
+     so with no client footprint row on file not one of them can run -- geoOffer returns
+     inScope:false for the client in every country and geoOverlap answers null
+     everywhere. Null is also the answer for a rival that genuinely does not overlap,
+     and the two were being read as the same thing: the page printed "meets KSSL in 0 of
+     them" for every competitor and "KSSL absent" over 100% of countries. That is an
+     absent input rendered as a discovered fact, and it is the loudest kind, because
+     "absent" is the alarming answer.
+
+     On the live serving tables there is no client footprint: wireDataset resolves
+     d.client.id from a competitors row with dir='client' or a geoComps row with isBf,
+     and serving_live.competitors carries only dir in {rival, threat} -- so geoData has
+     no key for the client and this is false. Consumers branch on it to say the
+     footprint is not established instead of asserting zero overlap. It becomes true
+     with no further edits the moment a client row is served. */
+  const clientFootprintKnown = Object.keys((geoData && geoData[CLIENT_KEY]) || {}).length > 0;
+
   const countriesForComp = (cid) => Object.keys(geoData[cid] || {});
   const compsInCountry = (country) =>
     geoComps.filter((c) => geoData[c.id] && geoData[c.id][country]);
@@ -185,6 +204,10 @@ export function createGeo(d) {
     const ck = `${cid}||${country}`;
     if (ck in _ov) return _ov[ck];
     const out = (() => {
+      // no client footprint -> the comparison has no left-hand side; see
+      // clientFootprintKnown. Stated here so the reason is at the test, not
+      // three geoOffer calls away.
+      if (!clientFootprintKnown) return null;
       const c = geoComps.filter((x) => x.id === cid)[0];
       if (!c || c.isBf) return null;
       // geoComps also carries customers (telecom tower, data-centre operators),
@@ -432,6 +455,21 @@ export function createGeo(d) {
     const rs = geoRivalsIn(country);
     const ct = escAll(geoThe(country));
     const k = geoOffer(CLIENT_KEY, country);
+    /* Without a client footprint there is nothing to contest, so "no rival contests
+       KSSL here" would be a conclusion drawn from a missing row. Say which row is
+       missing. */
+    if (!clientFootprintKnown) {
+      return (
+        '<div class="geo-ov none"><div class="geo-ov-h"><span class="geo-ov-t">◌ Overlap not assessed in ' +
+        `${ct}</span></div>` +
+        '<div class="geo-ov-why"><span class="gw-l">Why there is no answer here</span><ul>' +
+        "<li><b>No KSSL footprint is on file.</b> Every overlap test compares a rival's offering against " +
+        "KSSL's in the same country, and the served footprint tables carry no KSSL rows, so no test could run.</li>" +
+        "<li><b>This is not a finding of ‘uncontested’.</b> Rivals may well overlap KSSL here; nothing " +
+        "has been measured either way until a client footprint is served.</li>" +
+        "</ul></div></div>"
+      );
+    }
     if (!rs.length) {
       return (
         '<div class="geo-ov none"><div class="geo-ov-h"><span class="geo-ov-t">○ No overlapping rival on file</span>' +
@@ -546,6 +584,16 @@ export function createGeo(d) {
       };
     const scope = selCountry ? [selCountry] : countriesForComp(c.id);
     const ovs = scope.map((ct) => geoOverlap(c.id, ct)).filter(Boolean);
+    /* "No overlap" is a finding; "not assessed" is not. With no client footprint on
+       file the test never ran, so this dot must not be the same dot a rival earns by
+       being tested and cleared -- it had been marking every rival in the roster
+       "no overlap" on the strength of a missing input. */
+    if (!clientFootprintKnown)
+      return {
+        cls: "ovl-unk",
+        meta: mk,
+        tip: `Overlap with KSSL not assessed${selCountry ? ` in ${selCountry}` : ""} — no KSSL footprint is on file to compare against`,
+      };
     if (!ovs.length)
       return {
         cls: "noovl",
@@ -648,7 +696,15 @@ export function createGeo(d) {
         });
       }),
     );
-    ok(nSpec > 0, "no spec-confirmed overlap found at all");
+    /* Only assert this where the comparison could run at all. With no client footprint
+       served, zero spec-confirmed overlaps is the correct answer, not a failure -- and
+       reporting it as one trained the eye to ignore this check. */
+    ok(
+      clientFootprintKnown ? nSpec > 0 : nSpec === 0,
+      clientFootprintKnown
+        ? "no spec-confirmed overlap found at all"
+        : "an overlap was computed with no client footprint on file",
+    );
     // the dropdown dot is the only place the overlap is read at a glance, so it must
     // not drift from the model behind it
     geoComps.forEach((c) => {
@@ -658,11 +714,13 @@ export function createGeo(d) {
         .filter(Boolean);
       const want = c.isBf
         ? "bf"
-        : ovs.some((o) => o.tier === "spec")
-          ? "ovl"
-          : ovs.length
-            ? "ovl-cat"
-            : "noovl";
+        : !clientFootprintKnown
+          ? "ovl-unk"
+          : ovs.some((o) => o.tier === "spec")
+            ? "ovl"
+            : ovs.length
+              ? "ovl-cat"
+              : "noovl";
       ok(got === want, `dropdown dot for ${c.name} is "${got}" but the model says "${want}"`);
     });
     ok(geoOverlap(CLIENT_KEY, "India") === null, "the client cannot overlap itself");
@@ -671,6 +729,7 @@ export function createGeo(d) {
   }
 
   return {
+    clientFootprintKnown,
     countriesForComp,
     compsInCountry,
     productsFor,

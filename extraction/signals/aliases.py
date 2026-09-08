@@ -191,6 +191,21 @@ def same_org(a, b):
     return re.search(r"(?:^| )%s(?:$| )" % re.escape(short), long_) is not None
 
 
+def spellings(name):
+    """Every surface form the corpus uses for one canonical company.
+
+    `canonical` collapses spellings INTO one name; this is the same table read the
+    other way. A signal that compiles its matcher from the canonical name alone never
+    sees the form the corpus actually uses -- "CEO of Rafael" does not contain "Rafael
+    Advanced Defense Systems", and "BDL Chairman" does not contain "Bharat Dynamics",
+    so those companies matched nothing at all.
+    """
+    canon = canonical(name)
+    out = {canon, name}
+    out.update(k for k, v in ALIASES.items() if v == canon)
+    return {f for f in out if f and len(f) >= 3}
+
+
 def canonical(name):
     """One display name per identity. Unknown names keep their own spelling,
     minus the legal suffix (original casing preserved token-wise)."""

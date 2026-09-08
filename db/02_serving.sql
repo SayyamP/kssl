@@ -181,6 +181,12 @@ CREATE TABLE serving.signal_card (
     ago        text,
     tags       text,
     image      text,           -- the article's own picture, resolved from page markup
+    -- LINEAGE (additive, nullable). The document(s), extraction run and proposition
+    -- indices this card was built from. Read by /api/lineage/doc/{id}; nothing serves
+    -- them. A card is per-document, so these are unambiguous. NULL on reference rows.
+    source_doc_ids  text[],
+    source_run_id   text,
+    source_prop_ids integer[],
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -204,6 +210,10 @@ CREATE TABLE serving.signal_detail (
     match      jsonb,
     pursue     jsonb,
     image      text,           -- the article's own picture, same value as signal_card.image
+    -- LINEAGE (additive, nullable) -- see serving.signal_card.
+    source_doc_ids  text[],
+    source_run_id   text,
+    source_prop_ids integer[],
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -364,11 +374,16 @@ CREATE INDEX client_product_catkey_idx ON serving.client_product ("catKey");
 -- the crawl does reach these companies' sites, so this is a floor the corpus should
 -- grow past. Gated by engine/source_tiers.publishable with product_maker set, so a
 -- maker's page is official about its own product and a mention about a rival's.
--- See db/migrations/2026-09-06_competitor_product.sql.
+-- See db/migrations/2026-09-06_competitor_product.sql and
+-- db/migrations/2026-09-06_competitor_product_verified.sql.
 CREATE TABLE serving.competitor_product (
     product_id    text PRIMARY KEY,
     ord           integer NOT NULL,
     company       text NOT NULL,
+    -- The resolved serving.competitors id. `company` is the workbook's display
+    -- spelling ("Hanwha (Aerospace/Group)") and nothing can join on it. Not an FK:
+    -- a roster change must not cascade into a verified product catalogue.
+    comp_id       text,
     name          text NOT NULL,
     file_category text NOT NULL,
     cat           text,
@@ -377,11 +392,16 @@ CREATE TABLE serving.competitor_product (
     features      jsonb NOT NULL DEFAULT '[]'::jsonb,
     sources       jsonb NOT NULL DEFAULT '[]'::jsonb,
     evidence      jsonb NOT NULL DEFAULT '{}'::jsonb,
+    -- Kept, but not published. Set by competitor_specs.py when a row stops clearing
+    -- the verification rules; the reason travels with the row so one UPDATE restores
+    -- it. Same choice, and the same reasoning, as serving.matchup.withheld_reason.
+    withheld_reason text,
     origin        text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX competitor_product_catkey_idx ON serving.competitor_product ("catKey");
 CREATE INDEX competitor_product_company_idx ON serving.competitor_product (company);
+CREATE INDEX competitor_product_comp_idx ON serving.competitor_product (comp_id);
 
 -- Global: innovations (dict area -> list of items).
 CREATE TABLE serving.innovation (
@@ -422,6 +442,10 @@ CREATE TABLE serving.partner (
     mean       text,
     src        text,
     srcnote    text,
+    -- LINEAGE (additive, nullable). A tie is corroborated across several documents, so
+    -- only the document set is meaningful here -- a run is per-document and a bare
+    -- proposition index is meaningless without its document. NULL on reference rows.
+    source_doc_ids text[],
     cid        text,
     image      text,
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),

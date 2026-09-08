@@ -40,6 +40,7 @@ serving.competitor_news.updated_at timestamp with time zone NOT NULL DEFAULT now
 serving.competitor_news.url text
 serving.competitor_product.cat text
 serving.competitor_product.catKey text
+serving.competitor_product.comp_id text
 serving.competitor_product.company text NOT NULL
 serving.competitor_product.evidence jsonb NOT NULL DEFAULT '{}'::jsonb
 serving.competitor_product.features jsonb NOT NULL DEFAULT '[]'::jsonb
@@ -51,6 +52,7 @@ serving.competitor_product.product_id text NOT NULL
 serving.competitor_product.sources jsonb NOT NULL DEFAULT '[]'::jsonb
 serving.competitor_product.specs jsonb NOT NULL DEFAULT '[]'::jsonb
 serving.competitor_product.updated_at timestamp with time zone NOT NULL DEFAULT now()
+serving.competitor_product.withheld_reason text
 serving.competitor_structure.comp_id text NOT NULL
 serving.competitor_structure.description text
 serving.competitor_structure.entity_id text
@@ -172,6 +174,7 @@ serving.partner.origin text NOT NULL
 serving.partner.ptype text
 serving.partner.rel text
 serving.partner.sig integer
+serving.partner.source_doc_ids ARRAY
 serving.partner.src text
 serving.partner.srcnote text
 serving.partner.updated_at timestamp with time zone NOT NULL DEFAULT now()
@@ -205,6 +208,9 @@ serving.signal_card.ord integer NOT NULL
 serving.signal_card.origin text NOT NULL
 serving.signal_card.rank text
 serving.signal_card.sec jsonb
+serving.signal_card.source_doc_ids ARRAY
+serving.signal_card.source_prop_ids ARRAY
+serving.signal_card.source_run_id text
 serving.signal_card.sowhat text
 serving.signal_card.tags text
 serving.signal_card.title text NOT NULL
@@ -222,6 +228,9 @@ serving.signal_detail.ord integer NOT NULL
 serving.signal_detail.origin text NOT NULL
 serving.signal_detail.pursue jsonb
 serving.signal_detail.rank text
+serving.signal_detail.source_doc_ids ARRAY
+serving.signal_detail.source_prop_ids ARRAY
+serving.signal_detail.source_run_id text
 serving.signal_detail.suggest jsonb
 serving.signal_detail.title text NOT NULL
 serving.signal_detail.updated_at timestamp with time zone NOT NULL DEFAULT now()
@@ -406,6 +415,7 @@ serving_live.partner.origin text
 serving_live.partner.ptype text
 serving_live.partner.rel text
 serving_live.partner.sig integer
+serving_live.partner.source_doc_ids ARRAY
 serving_live.partner.src text
 serving_live.partner.srcnote text
 serving_live.partner.updated_at timestamp with time zone
@@ -439,6 +449,9 @@ serving_live.signal_card.ord integer
 serving_live.signal_card.origin text
 serving_live.signal_card.rank text
 serving_live.signal_card.sec jsonb
+serving_live.signal_card.source_doc_ids ARRAY
+serving_live.signal_card.source_prop_ids ARRAY
+serving_live.signal_card.source_run_id text
 serving_live.signal_card.sowhat text
 serving_live.signal_card.tags text
 serving_live.signal_card.title text
@@ -456,6 +469,9 @@ serving_live.signal_detail.ord integer
 serving_live.signal_detail.origin text
 serving_live.signal_detail.pursue jsonb
 serving_live.signal_detail.rank text
+serving_live.signal_detail.source_doc_ids ARRAY
+serving_live.signal_detail.source_prop_ids ARRAY
+serving_live.signal_detail.source_run_id text
 serving_live.signal_detail.suggest jsonb
 serving_live.signal_detail.title text
 serving_live.signal_detail.updated_at timestamp with time zone

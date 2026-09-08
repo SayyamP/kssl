@@ -38,6 +38,16 @@ import os
 import re
 import sys
 
+# Provenance is observability: guarded so its import can never break the router.
+try:
+    from pathlib import Path as _Path
+    sys.path.insert(0, str(_Path(__file__).parent.parent / "signals"))
+    import provenance as _prov  # noqa: E402
+except Exception:                                       # noqa: BLE001
+    class _prov:                                        # noqa: N801
+        emit = staticmethod(lambda *a, **k: False)
+        emit_many = staticmethod(lambda *a, **k: 0)
+
 # --- the cost model -------------------------------------------------------------------------
 # Calibrated on the real 600-document run: 2,370 input chars produced a measured mean of 11,418
 # output tokens. Generation is 99.99% of wall clock (Python on the hot path measured 0.0056%), so
@@ -953,10 +963,18 @@ def enqueue(q, since, now_iso, limit=20000, cohort_min=30):
 
     now = datetime.datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
     n = collections.Counter()
+    _gate_events = []
+    def _gate_event(doc_id, state, why, cls=None):
+        _gate_events.append({
+            "stage": "gate", "component": "route.py", "action": "gated",
+            "document_id": doc_id, "ref_table": "extract_queue", "ref_id": doc_id,
+            "reason": state if not why else state + ":" + why,
+            "evidence": {"state": state, "class": cls}})
     for d in docs:
         if d["_ps"] is not None and d["_ps"] < PASS_THRESHOLD:
             n["deferred"] += 1
             _mark(q, d["document_id"], "deferred", d, why="gate")
+            _gate_event(d["document_id"], "deferred", "presignal-below-threshold")
             continue
         lang = d.get("language") or "??"
         pool = cohorts.get(lang, [])
@@ -972,8 +990,11 @@ def enqueue(q, since, now_iso, limit=20000, cohort_min=30):
         why = None if state == "ready" else (
             "no-live-node" if state == "deferred" else "over-park-threshold")
         _mark(q, d["document_id"], state, d, cls if cls is not None else P3, why=why)
+        _gate_event(d["document_id"], state, why, cls if cls is not None else P3)
         n[state] += 1
     q.commit()
+    # One round-trip for all gate decisions, not one INSERT per document.
+    _prov.emit_many(_gate_events)
     return dict(n)
 
 

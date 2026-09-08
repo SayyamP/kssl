@@ -246,12 +246,15 @@ export default function Innovation() {
       <div className={`tech-body ${iv ? "has-sel" : "no-sel"}`} id="tech-body">
         <div className="tech-list" id="tech-list">
           <div className="tech-list-h">
-            <span className="eyebrow">
-              {catName} · Innovations{" "}
-              <span className="srcbadge" style={{ marginLeft: "6px" }}>
-                Verified · analysed
-              </span>
-            </span>
+            {/* "Verified · analysed" was an unconditional claim over 1,101 rows whose
+                gap, whatsNew and compNote are all NULL -- nothing on these records was
+                analysed, and no field on them is a verification. Removed rather than
+                rephrased: unlike a count, there is no measurement here to state
+                honestly, and the notes below already say per domain which fields the
+                serving pass did not land. (shell.css hides .srcbadge outright, so this
+                claim was not even on screen -- it was a lie waiting for one CSS line
+                to make it visible.) */}
+            <span className="eyebrow">{catName} · Innovations</span>
             <span className="lh-note">
               {filtering
                 ? `${shown.length} of ${list.length} match "${String(searchQuery).trim()}" · `
@@ -358,12 +361,11 @@ export default function Innovation() {
                         return pill ? <span className={`dirpill ${pill.cls}`}>{pill.text}</span> : null;
                       })()}
                     </div>
-                    <span className="eyebrow">
-                      Innovation Detail{" "}
-                      <span className="srcbadge" style={{ marginLeft: "6px" }}>
-                        Verified · analysed
-                      </span>
-                    </span>
+                    {/* same unconditional "Verified · analysed" claim as the list
+                        header, on a record whose gap, whatsNew and compNote are NULL;
+                        the position pill above already renders only where a position
+                        was actually assessed */}
+                    <span className="eyebrow">Innovation Detail</span>
                     <div className="ct">{iv.t}</div>
                     <div className="sub">
                       {[
