@@ -54,5 +54,13 @@ COPY --from=build /app/dist /srv
 #
 # Mutually exclusive matchers rather than a default plus an override, so there is no
 # question of which rule wins for a hashed asset.
-RUN printf ':80 {\n\troot * /srv\n\tencode gzip\n\t@assets path /assets/*\n\t@rest not path /assets/*\n\theader @assets Cache-Control \"public, max-age=31536000, immutable\"\n\theader @rest Cache-Control \"no-cache\"\n\ttry_files {path} {path}/index.html /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
+#
+# The header values are quoted with a BARE " and not \" -- the printf format is
+# single-quoted, so a double quote needs no escaping and `\"` is not a printf escape
+# at all: it reaches the Caddyfile as a literal backslash, Caddy refuses to parse the
+# file, and the container never starts. The health gate caught exactly that on
+# staging and rolled back, which is the system working -- but the check that was
+# supposed to catch it first had rendered this line in bash, where \" DOES collapse
+# to a quote. Render it the way the image does, or the test agrees with the bug.
+RUN printf ':80 {\n\troot * /srv\n\tencode gzip\n\t@assets path /assets/*\n\t@rest not path /assets/*\n\theader @assets Cache-Control "public, max-age=31536000, immutable"\n\theader @rest Cache-Control "no-cache"\n\ttry_files {path} {path}/index.html /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
 EXPOSE 80

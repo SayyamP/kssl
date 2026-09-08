@@ -40,9 +40,27 @@ def caddyfile():
         ck("frontend/Dockerfile still writes a Caddyfile with printf", False,
            "the printf line is gone or reshaped; this test cannot see the config")
         return None
-    # printf resolves \n, \t and \" -- the shell has already removed nothing else,
-    # because the format string is single-quoted.
-    return (m.group(1).replace("\\n", "\n").replace("\\t", "\t").replace('\\"', '"'))
+    # RENDER IT THE WAY THE IMAGE DOES, which is the whole point of this function.
+    #
+    # The format string is single-quoted, so the shell strips nothing, and printf resolves
+    # only its own escapes: \n, \t, \\. It does NOT resolve \" -- that is not a printf
+    # escape, so a backslash-quote in the source reaches the Caddyfile as a literal
+    # backslash and Caddy refuses the file.
+    #
+    # An earlier version of this helper collapsed \" to " here, because that is what bash
+    # does when the same text is re-quoted by hand. It made the test agree with a broken
+    # Dockerfile: the checks below passed on a config that could not start, the image
+    # shipped, and the health gate on staging was what actually caught it.
+    body = m.group(1)
+    out, i = [], 0
+    while i < len(body):
+        if body[i] == "\\" and i + 1 < len(body) and body[i + 1] in "ntr\\":
+            out.append({"n": "\n", "t": "\t", "r": "\r", "\\": "\\"}[body[i + 1]])
+            i += 2
+        else:
+            out.append(body[i])
+            i += 1
+    return "".join(out)
 
 
 conf = caddyfile()
@@ -50,6 +68,10 @@ if conf is None:
     sys.exit(1)
 
 print("frontend cache policy:")
+ck("no header value carries a literal backslash",
+   "\\" not in conf,
+   'printf does not resolve \\" -- it reaches Caddy as a backslash, Caddy refuses the '
+   'file, and the container never starts')
 ck("the hashed assets are matched separately from everything else",
    "@assets" in conf and "path /assets/*" in conf)
 ck("...and everything that is NOT a hashed asset is matched too",
