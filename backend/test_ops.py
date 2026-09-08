@@ -138,9 +138,10 @@ def test_no_writes_issued():
             "metrics.stage_run": False, "provenance.event": False})
     app.psycopg2.connect = lambda dsn, connect_timeout=None: RecConn({}, {})
     body(app.ops_overview()); body(app.ops_pipeline()); body(app.ops_events())
+    body(app.ops_signals()); body(app.ops_signal_detail("pl_doc_x"))
     for s in seen:
         assert s.strip().split(None, 1)[0].upper() in ("SELECT", "SET"), "non-read statement: " + s[:40]
-    print("  ok  ops endpoints issue only SELECT/SET -- no writes")
+    print("  ok  ops endpoints issue only SELECT/SET -- no writes (incl. signals)")
 
 
 def test_runs_list_stage_run_only():
@@ -219,6 +220,70 @@ def test_run_detail_404():
     print("  ok  unknown run_id -> clean 404")
 
 
+def test_signals_list_shaped_and_readonly():
+    a = {"id": "pl_doc_a", "lane": "competitive", "ord": 1, "dir": "up", "rank": "A",
+         "title": "Rafael wins order", "company": "Rafael", "tags": "uav", "url": "http://x",
+         "ago": "2d", "origin": "pipeline", "updated_at": "2026-09-07 06:00:00+00",
+         "source_doc_ids": ["doc_a"], "source_run_id": "run-1", "source_prop_ids": [0, 1, 2]}
+    b = {"id": "pl_doc_b", "lane": "market", "ord": 2, "dir": None, "rank": "B",
+         "title": "old card", "company": None, "tags": None, "url": None, "ago": "1y",
+         "origin": "pipeline", "updated_at": "2026-01-01 00:00:00+00",
+         "source_doc_ids": None, "source_run_id": None, "source_prop_ids": None}
+    wire({"ORDER BY updated_at DESC, ord": [a, b], "information_schema.columns": {"t": 1}},
+         {"serving.signal_card": True})
+    d = body(app.ops_signals(lane="competitive", company="Rafael"))
+    assert d["available"] is True and d["read_only"] is True
+    assert FakeConn.last_session.get("readonly") is True, "connection must be read-only"
+    assert d["lineage_columns_present"] is True
+    assert d["filters"]["lane"] == "competitive" and d["filters"]["company"] == "Rafael"
+    assert d["signals"][0]["has_lineage"]["source_prop_ids"] is True
+    assert d["signals"][1]["has_lineage"]["source_prop_ids"] is False, "null lineage -> false flag"
+    print("  ok  signals list: read-only, filters echoed, per-row lineage flags")
+
+
+def test_signals_list_unavailable():
+    wire({}, {"serving.signal_card": False})
+    d = body(app.ops_signals())
+    assert d["available"] is False and d["signals"] == [] and "note" in d
+    print("  ok  signals list: missing serving.signal_card -> unavailable, not a 500")
+
+
+def test_signal_detail_recorded_and_reuses_lineage():
+    card = {"id": "pl_doc_a", "lane": "competitive", "company": "Rafael", "tags": "uav",
+            "rank": "A", "dir": "up", "title": "Rafael wins order", "origin": "pipeline",
+            "source_doc_ids": ["doc_a"], "source_run_id": "run-1", "source_prop_ids": [0, 1, 2]}
+    detail = {"id": "pl_doc_a", "what": "w", "why": "y"}
+    rows = {"to_jsonb(c) AS rec FROM serving.signal_card": {"rec": card},
+            "to_jsonb(d) AS rec FROM serving.signal_detail": {"rec": detail},
+            "FROM provenance.event WHERE ref_id": [
+                {"event_id": 1, "ts": "2026-09-07 06:00:00+00", "stage": "signals",
+                 "component": "serving_fill.py", "document_id": "doc_a", "run_id": "run-1",
+                 "action": "card_written", "reason": None, "evidence": None}],
+            "language FROM public.documents": {"language": "it"},
+            "information_schema.columns": {"t": 1}}
+    wire(rows, {"serving.signal_card": True, "provenance.event": True, "public.documents": True})
+    d = body(app.ops_signal_detail("pl_doc_a"))
+    assert d["card_id"] == "pl_doc_a" and d["document_id"] == "doc_a"
+    assert d["signal"]["status"] == "recorded" and d["signal"]["lane"] == "competitive"
+    assert d["lineage_columns"]["status"] == "recorded"
+    assert d["lineage_columns"]["source_prop_ids"] == [0, 1, 2]
+    assert d["provenance_events"]["status"] == "recorded"
+    assert len(d["provenance_events"]["events"]) == 1
+    assert d["translation"]["status"] == "reconstructed" and d["translation"]["translated"] is True
+    assert "lineage" in d and isinstance(d["lineage"], dict), "must embed reused build_lineage"
+    assert FakeConn.last_session.get("readonly") is True
+    # bare document id is accepted too (card id is pl_<did>)
+    assert body(app.ops_signal_detail("doc_a"))["card_id"] == "pl_doc_a"
+    print("  ok  signal detail: recorded fields + reconstructed translation + reused lineage")
+
+
+def test_signal_detail_404_when_nothing_recorded():
+    wire({}, {"serving.signal_card": True, "provenance.event": True, "public.documents": True})
+    r = app.ops_signal_detail("pl_nope")
+    assert r.status_code == 404
+    print("  ok  signal detail: no card/detail/events/lineage -> clean 404")
+
+
 def test_stage_timer_not_shadowed():
     # Regression: the lineage helper must not shadow the stage_timer context
     # manager that /api/dataset uses. Broke every deploy from #45 to #49.
@@ -238,5 +303,9 @@ if __name__ == "__main__":
     test_run_detail_timeline_rollup_and_rejects()
     test_run_detail_events_unavailable()
     test_run_detail_404()
+    test_signals_list_shaped_and_readonly()
+    test_signals_list_unavailable()
+    test_signal_detail_recorded_and_reuses_lineage()
+    test_signal_detail_404_when_nothing_recorded()
     test_stage_timer_not_shadowed()
     print("ok - ops endpoints: read-only, resilient, grounded")

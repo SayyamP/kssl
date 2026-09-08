@@ -1353,3 +1353,195 @@ def ops_run_detail(run_id: str):
                 "the migration is applied."})
     finally:
         conn.close()
+
+
+# ============================================================================================
+# SIGNAL EXPLORER -- investigate one signal end to end. READ-ONLY.
+#
+# A "signal" is a serving.signal_card row, keyed pl_<document_id> (serving_fill.py). This
+# view answers "why does this card exist, from which document, on what evidence, where is it
+# served?" by joining the signal-centric RECORDED fields (card/detail, the 2026-09-07
+# lineage columns, provenance.event lifecycle) to the FULL document trace -- which it gets
+# by calling build_lineage(), the same source of truth the Document Lineage view uses. No
+# lineage logic is duplicated here, and nothing manufactures a proposition->signal link:
+# the recorded input set is signal_card.source_prop_ids; the quote-overlap guess stays
+# labelled 'reconstructed' inside build_lineage. Every section is tagged recorded /
+# reconstructed / aggregated / provenance_unavailable.
+# ============================================================================================
+
+def _sig_ids(signal_id):
+    """A card id is pl_<document_id>. Accept either form; return (card_id, document_id)."""
+    sid = (signal_id or "").strip()
+    if sid.startswith("pl_"):
+        return sid, sid[3:]
+    return "pl_" + sid, sid
+
+
+@app.get("/api/ops/signals")
+def ops_signals(lane: str = None, company: str = None, q: str = None,
+                since: str = None, until: str = None, origin: str = None,
+                limit: int = 50):
+    """Signal list with filters (lane, company, free-text q over id/title/company, a
+    since/until window on updated_at, origin). Source: serving.signal_card, read-only."""
+    limit = max(1, min(int(limit), 500))
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if not _regclass(cur, "serving.signal_card"):
+            return JSONResponse({"available": False, "signals": [],
+                                 "note": "serving.signal_card does not exist on this "
+                                         "database."})
+        has_lin = _has_column(cur, "serving", "signal_card", "source_prop_ids")
+        where, params = [], []
+        if lane:
+            where.append("lane = %s"); params.append(lane)
+        if company:
+            where.append("company ILIKE %s"); params.append("%" + company + "%")
+        if origin:
+            where.append("origin = %s"); params.append(origin)
+        if q:
+            where.append("(id ILIKE %s OR title ILIKE %s OR company ILIKE %s)")
+            params += ["%" + q + "%"] * 3
+        if since:
+            where.append("updated_at >= %s"); params.append(since)
+        if until:
+            where.append("updated_at <= %s"); params.append(until)
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        lin_cols = ", source_doc_ids, source_run_id, source_prop_ids" if has_lin else ""
+        cur.execute(
+            "SELECT id, lane, ord, dir, rank, title, company, tags, url, ago, origin, "
+            "updated_at::text AS updated_at" + lin_cols +
+            " FROM serving.signal_card" + clause +
+            " ORDER BY updated_at DESC, ord LIMIT %s", params + [limit])
+        rows = []
+        for r in cur.fetchall():
+            d = dict(r)
+            d["has_lineage"] = ({
+                "source_doc_ids": bool(d.get("source_doc_ids")),
+                "source_run_id": bool(d.get("source_run_id")),
+                "source_prop_ids": bool(d.get("source_prop_ids"))} if has_lin else None)
+            rows.append(d)
+        return JSONResponse({
+            "available": True, "read_only": True,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "count": len(rows),
+            "filters": {"lane": lane, "company": company, "q": q, "since": since,
+                        "until": until, "origin": origin, "limit": limit},
+            "lineage_columns_present": has_lin,
+            "signals": rows})
+    finally:
+        conn.close()
+
+
+@app.get("/api/ops/signals/{signal_id}")
+def ops_signal_detail(signal_id: str):
+    """One signal, end to end. Signal-centric recorded fields + provenance lifecycle +
+    translation, plus the full document trace from build_lineage() (reused, not
+    duplicated). 404 only when neither a card, a detail, provenance events, nor any
+    document lineage exists for the id."""
+    card_id, did = _sig_ids(signal_id)
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if not _regclass(cur, "serving.signal_card"):
+            return JSONResponse(status_code=503,
+                                content={"error": "serving.signal_card not on this database"})
+
+        def rec_of(row):
+            return row.get("rec") if row else None
+
+        cur.execute("SELECT to_jsonb(c) AS rec FROM serving.signal_card c WHERE c.id = %s",
+                    (card_id,))
+        card = rec_of(cur.fetchone())
+        cur.execute("SELECT to_jsonb(d) AS rec FROM serving.signal_detail d WHERE d.id = %s",
+                    (card_id,))
+        detail = rec_of(cur.fetchone())
+
+        # -- signal-centric recorded fields --
+        if card:
+            signal = {"status": "recorded", "card": card, "detail": detail,
+                      "lane": card.get("lane"), "company": card.get("company"),
+                      "category_tags": card.get("tags"), "rank": card.get("rank"),
+                      "dir": card.get("dir"), "title": card.get("title"),
+                      "origin": card.get("origin")}
+        else:
+            signal = {"status": "provenance_unavailable", "card": None, "detail": detail,
+                      "note": "No serving.signal_card with id %s: the document produced no "
+                              "card. See provenance_events / lineage for why." % card_id}
+
+        # -- lineage columns (recorded 2026-09-07) --
+        if card and card.get("source_prop_ids") is not None:
+            lineage_columns = {
+                "status": "recorded",
+                "source_doc_ids": card.get("source_doc_ids"),
+                "source_run_id": card.get("source_run_id"),
+                "source_prop_ids": card.get("source_prop_ids"),
+                "note": "The INPUT SET of proposition indices fed to this card, recorded at "
+                        "write time -- not sentence-level causal attribution."}
+        else:
+            lineage_columns = {
+                "status": "provenance_unavailable",
+                "note": "This card predates the lineage columns (no backfill) or is a "
+                        "reference row; the prop->card link is only reconstructable "
+                        "(see lineage.stages prop_to_card_link)."}
+
+        # -- provenance lifecycle events for this signal (recorded) --
+        if _regclass(cur, "provenance.event"):
+            cur.execute(
+                "SELECT event_id, ts::text AS ts, stage, component, document_id, run_id, "
+                "action, reason, evidence FROM provenance.event "
+                "WHERE ref_id = %s OR document_id = %s ORDER BY event_id", (card_id, did))
+            evs = [dict(r) for r in cur.fetchall()]
+            rejects = [e for e in evs if e.get("action") in ("record_rejected", "error")]
+            provenance_events = {
+                "status": "recorded", "events": evs,
+                "rejection_or_error": rejects or None,
+                "note": ("record_rejected/error rows are the recorded gate/selection "
+                         "decision for this document." if rejects else None)}
+        else:
+            provenance_events = {
+                "status": "provenance_unavailable", "events": [],
+                "note": "provenance.event is not present on this database."}
+
+        # -- translation (RECONSTRUCTED from source language; there is no stored flag) --
+        lang = None
+        if _regclass(cur, "public.documents"):
+            cur.execute("SELECT language FROM public.documents WHERE document_id = %s", (did,))
+            lr = cur.fetchone()
+            lang = (lr or {}).get("language") if lr else None
+        if lang is not None:
+            translation = {
+                "status": "reconstructed", "source_language": lang,
+                "translated": (lang or "").lower() not in ("", "en", "eng"),
+                "note": "Derived from the source document language. serving_fill translates "
+                        "non-English lead-ins to English at write time (translate.py); there "
+                        "is no stored translation flag, so this is a reconstruction."}
+        else:
+            translation = {"status": "provenance_unavailable",
+                           "note": "Source language not recorded on this database."}
+
+        # -- FULL document trace: REUSE build_lineage (source of truth; own labels) --
+        lineage_code, lineage = build_lineage(cur, did)
+
+        found = bool(card or detail or provenance_events.get("events") or lineage_code != 404)
+        if not found:
+            return JSONResponse(status_code=404,
+                                content={"error": "no signal or lineage for this id",
+                                         "signal_id": signal_id, "card_id": card_id,
+                                         "document_id": did})
+        return JSONResponse({
+            "signal_id": signal_id, "card_id": card_id, "document_id": did,
+            "read_only": True,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "signal": signal,
+            "lineage_columns": lineage_columns,
+            "provenance_events": provenance_events,
+            "translation": translation,
+            "lineage": lineage,            # full doc trace, reused build_lineage (own labels)
+            "lineage_status": lineage_code,
+            "label_key": {"recorded": "a stored fact",
+                          "reconstructed": "derived or guessed, not stored",
+                          "aggregated": "a computed roll-up",
+                          "provenance_unavailable": "an honest gap"}})
+    finally:
+        conn.close()

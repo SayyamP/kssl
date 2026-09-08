@@ -115,6 +115,7 @@
   <button data-view="lineage">Document Lineage</button>
   <button data-view="events">Live Event Stream</button>
   <button data-view="runs">Run Timeline</button>
+  <button data-view="signals">Signal Explorer</button>
 </nav>
 <main>
   <section id="v-overview" class="view on"><div class="spin">Loading…</div></section>
@@ -143,6 +144,20 @@
       <div id="run-detail" class="panel"><div class="note">Select a run on the left.</div></div>
     </div>
   </section>
+  <section id="v-signals" class="view">
+    <h2>Signal Explorer <span class="faint" style="text-transform:none;font-weight:400">&mdash; why a card exists: document &rarr; gate &rarr; propositions &rarr; card &rarr; serving</span></h2>
+    <div class="row-input">
+      <input type="text" id="sig-q" placeholder="search id / title / company" style="min-width:220px" />
+      <select id="sig-lane"><option value="">any lane</option><option value="competitive">competitive</option><option value="market">market</option><option value="tech">tech</option></select>
+      <input type="text" id="sig-company" placeholder="company" style="max-width:150px" />
+      <input type="text" id="sig-since" placeholder="since (YYYY-MM-DD)" style="max-width:160px" />
+      <button class="act" id="sig-go">Search</button>
+    </div>
+    <div class="runs-split">
+      <div id="sig-list" class="panel"><div class="spin">Loading…</div></div>
+      <div id="sig-detail" class="panel"><div class="note">Select a signal on the left, or search above. Card id is <code>pl_&lt;document_id&gt;</code>.</div></div>
+    </div>
+  </section>
 </main>
 
 <script>
@@ -160,14 +175,14 @@ async function getJSON(path){
 }
 
 /* ---- tabs ---- */
-const views = ["overview","pipeline","lineage","events","runs"];
+const views = ["overview","pipeline","lineage","events","runs","signals"];
 let loaded = {};
 document.querySelectorAll("nav button").forEach(b=>{
   b.onclick = ()=>{
     const v=b.dataset.view;
     document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
     views.forEach(x=>$("#v-"+x).classList.toggle("on", x===v));
-    if(!loaded[v]) { loaded[v]=true; if(v==="overview")loadOverview(); if(v==="pipeline")loadPipeline(); if(v==="runs")loadRuns(); }
+    if(!loaded[v]) { loaded[v]=true; if(v==="overview")loadOverview(); if(v==="pipeline")loadPipeline(); if(v==="runs")loadRuns(); if(v==="signals")loadSignals(); }
   };
 });
 
@@ -449,6 +464,82 @@ async function loadRunDetail(id){
   if(d.timeline.length>400){ box.appendChild(note("Showing the first 400 of "+d.timeline.length+" entries.")); }
 }
 function labelled(t){ const h=el("h2",null,t); h.style.marginTop="16px"; return h; }
+
+/* ---- 6. Signal Explorer ---- */
+const ST_CLS={recorded:"b-good",reconstructed:"b-warn",aggregated:"b-info",provenance_unavailable:"b-bad"};
+function stChip(s){ const c=el("span","chip "+(ST_CLS[s]||"")); c.textContent=s||"?"; return c; }
+function openRun(id){ const btn=document.querySelector('nav button[data-view="runs"]'); btn.click(); loadRunDetail(id); }
+
+async function loadSignals(){
+  const list=$("#sig-list"); list.innerHTML='<div class="spin">Loading…</div>';
+  const qs=new URLSearchParams();
+  const q=$("#sig-q").value.trim(); if(q)qs.set("q",q);
+  const lane=$("#sig-lane").value; if(lane)qs.set("lane",lane);
+  const co=$("#sig-company").value.trim(); if(co)qs.set("company",co);
+  const since=$("#sig-since").value.trim(); if(since)qs.set("since",since);
+  qs.set("limit","60");
+  try{
+    const d=await getJSON("/ops/signals?"+qs.toString());
+    list.innerHTML="";
+    if(d.available===false){ list.appendChild(note(d.note||"serving.signal_card unavailable")); return; }
+    if(!d.lineage_columns_present){ const n=el("div","note"); n.style.marginBottom="8px"; n.textContent="Lineage columns absent on this DB; per-signal provenance is limited."; list.appendChild(n); }
+    const hd=el("div","note"); hd.style.marginBottom="8px"; hd.textContent=d.count+" signal(s)"; list.appendChild(hd);
+    if(!d.signals.length){ list.appendChild(note("No signals match.")); return; }
+    d.signals.forEach(s=>{
+      const row=el("div","runrow"); row.dataset.id=s.id;
+      const lin=(s.has_lineage&&s.has_lineage.source_prop_ids)?'<span class="chip b-good">lineage</span>':'<span class="chip b-bad">no lineage</span>';
+      row.innerHTML="<div class='id'>"+esc(s.id)+" <span class='chip'>"+esc(s.lane)+"</span> "+lin+"</div>"+
+        "<div class='m'>"+esc(s.title||"")+"</div>"+
+        "<div class='m'>"+esc(s.company||"—")+" · "+esc(s.ago||"")+" · "+esc((s.updated_at||"").slice(0,10))+"</div>";
+      row.onclick=()=>{ document.querySelectorAll("#sig-list .runrow").forEach(x=>x.classList.toggle("on",x===row)); loadSignalDetail(s.id); };
+      list.appendChild(row);
+    });
+  }catch(e){ list.innerHTML=""; list.appendChild(errBox(e)); }
+}
+
+async function loadSignalDetail(id){
+  const box=$("#sig-detail"); box.innerHTML='<div class="spin">Loading '+esc(id)+'…</div>';
+  let d;
+  try{ d=await getJSON("/ops/signals/"+encodeURIComponent(id)); }
+  catch(e){ box.innerHTML=""; box.appendChild(note("No signal: "+e.message)); return; }
+  box.innerHTML="";
+  const head=el("div"); head.innerHTML="<b class='mono'>"+esc(d.signal_id)+"</b> <span class='faint'>card="+esc(d.card_id)+" · doc="+esc(d.document_id)+"</span>"; box.appendChild(head);
+  const openBtn=el("button","act ghost","Open Document Lineage →"); openBtn.style.margin="8px 0"; openBtn.onclick=()=>openLineage(d.document_id); box.appendChild(openBtn);
+  function section(t,status){ const h=el("div"); h.style.margin="14px 0 6px"; h.appendChild(el("b",null,t)); if(status){ h.appendChild(document.createTextNode(" ")); h.appendChild(stChip(status)); } box.appendChild(h); }
+  function kv(obj){ const g=el("div","kv"); Object.entries(obj).forEach(([k,v])=>{ if(v==null||v==="")return; g.appendChild(el("div","k",k)); const val=el("div"); val.textContent=(typeof v==="object")?JSON.stringify(v):String(v); g.appendChild(val); }); box.appendChild(g); }
+
+  const sig=d.signal;
+  section("Signal", sig.status);
+  if(sig.card){ kv({lane:sig.lane, company:sig.company, category_tags:sig.category_tags, rank:sig.rank, dir:sig.dir, origin:sig.origin, title:sig.title, sowhat:sig.card.sowhat, url:sig.card.url}); }
+  else { box.appendChild(note(sig.note||"no card")); }
+
+  const lc=d.lineage_columns;
+  section("Recorded lineage columns", lc.status);
+  if(lc.status==="recorded"){
+    kv({source_doc_ids:lc.source_doc_ids, source_run_id:lc.source_run_id, source_prop_ids:lc.source_prop_ids});
+    if(lc.source_run_id){ const rb=el("button","act ghost","Run Timeline for "+lc.source_run_id+" →"); rb.style.marginTop="6px"; rb.onclick=()=>openRun(lc.source_run_id); box.appendChild(rb); }
+  }
+  if(lc.note){ const nt=el("div","note"); nt.textContent=lc.note; box.appendChild(nt); }
+
+  const tr=d.translation;
+  section("Translation", tr.status);
+  kv({source_language:tr.source_language, translated:tr.translated});
+  if(tr.note){ const tn=el("div","note"); tn.textContent=tr.note; box.appendChild(tn); }
+
+  const pe=d.provenance_events;
+  section("Provenance events (lifecycle)", pe.status);
+  if(pe.events && pe.events.length){
+    pe.events.forEach(e=>{ const r=el("div","tlrow"); r.innerHTML=actionBadge(e.action)+" <span class='faint'>"+esc((e.ts||"").slice(0,19))+"</span> "+(e.component?esc(e.component)+" ":"")+(e.reason?"· "+esc(e.reason):""); box.appendChild(r); });
+  } else { box.appendChild(note(pe.note||"no events")); }
+
+  section("Document trace (source of truth: Document Lineage)", null);
+  const lin=d.lineage;
+  if(lin && lin.stages){
+    lin.stages.forEach(s=>{ const r=el("div","tlrow"); const c=stChip(s.status); c.style.marginRight="6px"; r.appendChild(c); const sp=el("span"); sp.innerHTML="<b>"+esc(s.stage)+"</b> "+(s.component?"<span class='faint'>"+esc(s.component)+"</span> ":"")+(s.reason?"· "+esc(String(s.reason)).slice(0,120):""); r.appendChild(sp); box.appendChild(r); });
+  } else if(lin && lin.error){ box.appendChild(note("No document lineage: "+esc(lin.error))); }
+}
+$("#sig-go").onclick=loadSignals;
+$("#sig-q").addEventListener("keydown",e=>{ if(e.key==="Enter")loadSignals(); });
 
 /* boot */
 loadOverview();
