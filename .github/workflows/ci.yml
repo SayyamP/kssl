@@ -39,12 +39,101 @@ permissions:
   contents: read
 
 jobs:
+  # WHERE THIS WORKFLOW RUNS, decided once for all four jobs.
+  #
+  # deploy.yml has routed its jobs to the machine they deploy to since 2026-09-07. ci.yml
+  # stayed on ubuntu-latest and was then the ONLY thing in this repository still spending
+  # GitHub-hosted minutes -- which is why every run since has ended in "the job was not
+  # started because recent account payments have failed or your spending limit needs to be
+  # increased". The gates were not failing. They were not running at all, and a required
+  # check that never runs gates nothing.
+  #
+  # CI has no environment of its own, so it borrows STAGING's runner. Never prod's: GitHub
+  # only offers a `[self-hosted, staging]` job to a runner registered with BOTH labels, and
+  # the production runner carries `prod`, so a CI job is not eligible for the production box
+  # at all. The second step below covers the one case labels cannot -- a runner labelled by
+  # hand -- because CI builds images and starts a postgres service container, and neither
+  # belongs on the machine serving production.
+  resolve:
+    # RESOLVE CANNOT USE ITS OWN OUTPUT -- it is the job that computes it. So the condition
+    # is spelled out here and once more in the script below, the same duplication deploy.yml
+    # carries and for the same reason: without it this job lands on a GitHub runner while
+    # everything downstream waits on a self-hosted one, and the billing block takes the
+    # workflow down at the first job instead of none of them.
+    runs-on: ${{ fromJSON(
+      (vars.SELF_HOSTED_CI == 'true'
+       && github.event.repository.private
+       && (github.event_name != 'pull_request'
+           || github.event.pull_request.head.repo.full_name == github.repository))
+      && '["self-hosted","staging"]' || '["ubuntu-latest"]') }}
+    timeout-minutes: 5
+    outputs:
+      # A JSON array, consumed by every other job as `runs-on: ${{ fromJSON(...) }}`.
+      runner: ${{ steps.pick.outputs.runner }}
+    steps:
+      - id: pick
+        # THREE CONDITIONS, AND ALL THREE MUST HOLD.
+        #
+        # 1. vars.SELF_HOSTED_CI == 'true' -- the arming switch, the same pattern as
+        #    SELF_HOSTED_PROD / SELF_HOSTED_STAGING. Unset it in repository variables and
+        #    the very next run is back on ubuntu-latest with no commit and no PR. That is
+        #    the reason the hosted path below is kept rather than deleted.
+        #
+        # 2. The repository is PRIVATE. A self-hosted runner executes whatever the workflow
+        #    file says, on a machine we own, and `run:` is arbitrary code. On a public
+        #    repository a stranger opens a pull request and that code is theirs. This is
+        #    read off the event payload rather than a variable precisely so that making the
+        #    repository public disarms it on its own, with nobody having to remember.
+        #
+        # 3. The pull request comes from THIS repository, not a fork. A private repository
+        #    can still be forked by anyone granted access (allow_forking is on here), and a
+        #    fork's branch is a branch we did not write.
+        #
+        # Failing any of the three falls back to ubuntu-latest. While billing is blocked
+        # that is a failed run rather than a skipped one -- which is the right answer for a
+        # pull request we have not decided to trust, and a visible one.
+        run: |
+          sh=0
+          if [ "${{ vars.SELF_HOSTED_CI }}" = "true" ] \
+             && [ "${{ github.event.repository.private }}" = "true" ]; then
+            if [ "${{ github.event_name }}" != "pull_request" ] \
+               || [ "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}" ]; then
+              sh=1
+            fi
+          fi
+          if [ "$sh" = 1 ]; then
+            echo 'runner=["self-hosted","staging"]' >> "$GITHUB_OUTPUT"
+          else
+            echo 'runner=["ubuntu-latest"]'         >> "$GITHUB_OUTPUT"
+          fi
+          echo "runner: $(grep '^runner=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
+
+      - name: CI must not land on the production box
+        if: runner.environment == 'self-hosted'
+        run: |
+          MARK="$(cat /opt/kssl/app/.KSSL_ENV 2>/dev/null || true)"
+          if [ "$MARK" != "staging" ]; then
+            echo "::error::This runner's machine is provisioned as '${MARK:-unknown}', not"
+            echo "::error::staging. CI builds three images and starts a postgres service"
+            echo "::error::container; it has no business on that box. A runner is carrying"
+            echo "::error::the wrong labels. Nothing was built."
+            exit 1
+          fi
+          echo "runner: $(hostname) · marker '$MARK' — ok for CI"
+
   build-images:
     # PRs only. deploy.yml builds and PUSHES the same three images on every push to
     # main/staging/dev, so running this there too builds each image twice against the
     # same gha cache scope for no extra signal.
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    needs: resolve
+    runs-on: ${{ fromJSON(needs.resolve.outputs.runner) }}
+    # A self-hosted runner is a single machine and these jobs queue behind each other on
+    # it. timeout-minutes is counted from the moment the job is PICKED UP, not from when it
+    # was queued, so this bounds a hung build and not a wait -- but a hung build on a
+    # persistent runner blocks every other job in the repository, deploys included, which
+    # is why it is bounded here and was not worth bounding on a disposable VM.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -74,19 +163,28 @@ jobs:
     # The schema files must build the database they claim to describe. Before this job,
     # db/*.sql was eleven columns and a table behind production -- every one of them
     # added by a hand-applied ALTER over ssh that no file recorded.
-    runs-on: ubuntu-latest
+    needs: resolve
+    runs-on: ${{ fromJSON(needs.resolve.outputs.runner) }}
+    timeout-minutes: 15
     services:
       postgres:
         image: postgres:16
         env:
           POSTGRES_PASSWORD: kssl
           POSTGRES_DB: kssl
-        ports: ["5432:5432"]
+        # 55432, NOT 5432, and bound to loopback. On a disposable VM the throwaway port
+        # number did not matter. On the staging box it matters twice over: a native
+        # postgres already holds 127.0.0.1:5432, so publishing on 5432 fails to bind and
+        # takes the job with it -- and had it bound, `psql "$DSN"` would have applied
+        # db/[0-9][0-9]_*.sql straight into the live staging database instead of into a
+        # throwaway container. The explicit 127.0.0.1 keeps a password of 'kssl' off the
+        # public interface of an internet-facing machine for the length of the job.
+        ports: ["127.0.0.1:55432:5432"]
         options: >-
           --health-cmd pg_isready --health-interval 5s
           --health-timeout 3s --health-retries 20
     env:
-      DSN: postgresql://postgres:kssl@127.0.0.1:5432/kssl
+      DSN: postgresql://postgres:kssl@127.0.0.1:55432/kssl
     steps:
       - uses: actions/checkout@v4
       - name: Apply the base schema in filename order
@@ -121,7 +219,9 @@ jobs:
         run: ./db/test_sanitise_replica.sh "$DSN"
 
   lint-and-test:
-    runs-on: ubuntu-latest
+    needs: resolve
+    runs-on: ${{ fromJSON(needs.resolve.outputs.runner) }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -190,7 +290,9 @@ jobs:
   # It runs against the built bundle with the committed dataset snapshot, so it needs no
   # database and no network.
   layout:
-    runs-on: ubuntu-latest
+    needs: resolve
+    runs-on: ${{ fromJSON(needs.resolve.outputs.runner) }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -236,9 +338,17 @@ jobs:
 
       - name: Build the bundle and serve it
         working-directory: frontend
+        # THE PREVIEW SERVER HAS TO BE KILLED, and on ubuntu-latest it never had to be: the
+        # VM was destroyed after the job and a backgrounded process cost nothing. A
+        # self-hosted runner is a machine that stays. Left alone, `vite preview` outlives
+        # the job holding port 5179, and --strictPort then fails the NEXT run on a port the
+        # last run left behind -- a red build with nothing wrong in the commit. The pid goes
+        # to $RUNNER_TEMP, which is cleared between jobs, and the always-step at the end of
+        # this job collects it whether the audit passed, failed or timed out.
         run: |
           npm run build
           npx vite preview --port 5179 --strictPort &
+          echo $! > "$RUNNER_TEMP/preview.pid"
           npx wait-on http://127.0.0.1:5179 -t 60000
       - name: Chromium
         working-directory: frontend
@@ -252,3 +362,14 @@ jobs:
         env:
           UI_DATASET: ../db/live_dataset.json
         run: node ui_audit.mjs
+
+      - name: Stop the preview server
+        # `$!` is npx, and vite is its child, so killing the recorded pid on its own can
+        # leave the listener behind. The pkill pattern is the fallback and is narrow enough
+        # to match nothing else on a box that also runs staging.
+        if: always()
+        run: |
+          PID="$(cat "$RUNNER_TEMP/preview.pid" 2>/dev/null || true)"
+          if [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; fi
+          pkill -f "vite preview --port 5179" 2>/dev/null || true
+          exit 0
