@@ -45,3 +45,15 @@ pipeline/fetch_patents_unresolved.json
 # Written on the box by a hand-run deploy (deploy/deploy.sh). Host state, like
 # .KSSL_ENV and .DEPLOYED_SHA -- it records what happened on THAT machine.
 .manual-deploys.log
+
+# Test-run OUTPUT, not the tests themselves. tests/report/ is committed as an empty
+# directory (.gitkeep) because pytest.ini and playwright.config.js write into it; the
+# artefacts they produce are per-run and must not be. REPORT_TEMPLATE.md is explicit
+# that every number in a report comes from these files, so a stale committed one is
+# worse than none -- it reads exactly like a fresh result.
+tests/report/*
+!tests/report/.gitkeep
+tests/node_modules/
+tests/test-results/
+tests/playwright-report/
+tests/.pytest_cache/

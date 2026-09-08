@@ -1,0 +1,8 @@
+# Python half of the suite: API, database, extraction and the Selenium cross-browser lane.
+# The Playwright half is JS -- see tests/package.json.
+pytest==8.3.3
+requests==2.32.3
+psycopg2-binary==2.9.9
+selenium==4.25.0
+pytest-html==4.1.1          # the HTML run report
+pytest-timeout==2.3.1
