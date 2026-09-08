@@ -1545,3 +1545,391 @@ def ops_signal_detail(signal_id: str):
                           "provenance_unavailable": "an honest gap"}})
     finally:
         conn.close()
+
+
+# ============================================================================================
+# FEATURE / TAB EXPLORER -- the implementation path of each product feature. READ-ONLY.
+#
+# For every major tab the dashboard renders, this maps the real end-to-end path:
+# source -> gate -> extraction -> propositions -> (signals|enrich|external harvest) ->
+# serving table -> serving_live view -> /api/dataset[key] -> frontend component. The
+# registry below is TRACED from the actual code (files/functions/tables/prompts all exist),
+# and each entry is GROUNDED at request time with live row counts and real column presence,
+# exactly like _PIPELINE. Provenance is labelled per feature; only signal_card/detail and
+# (partially) partner record document lineage -- everything else is UNAVAILABLE / a per-row
+# source URL / an aggregate, and is labelled so, never invented. No pipeline logic is
+# duplicated: row-level lineage still comes from /api/lineage/doc/{id} and /api/ops/signals.
+# ============================================================================================
+
+_FEATURES = [
+    {"id": "signals", "title": "Signal feed (Overview)",
+     "purpose": "The competitive/market/tech signal cards and their detail panels -- the "
+                "headline feed on every pillar's Overview.",
+     "source_kind": "corpus", "pipeline_step": "signals",
+     "serving_table": "serving.signal_card", "serving_view": "serving_live.signal_card",
+     "extra_tables": ["serving.signal_detail"],
+     "api": {"endpoint": "/api/dataset", "keys": ["competitiveCards", "marketCards",
+             "techCards", "details"], "fields": CARD_FIELDS},
+     "ui": {"view": "overview", "component": "frontend/src/pages/overview/Overview.jsx",
+            "renders": "components/signalCard/SignalCard.jsx + detailPanel/DetailPanel.jsx"},
+     "writers": [{"file": "extraction/signals/serving_fill.py", "function": "fill / CARD_INSERT_SQL",
+                  "kind": "LLM", "model": "serving 14B (farm) via llmapi.client; parse_card classifies in code"}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "RECORDED",
+                    "recorded_cols": ["source_doc_ids", "source_run_id", "source_prop_ids"],
+                    "row_trace": "/api/ops/signals/{id} and /api/lineage/doc/{id}"},
+     "gaps": ["prop->card link is an input set, not sentence-level attribution",
+              "pre-2026-09-07 cards have null lineage (no backfill)"]},
+
+    {"id": "partnerships", "title": "Partnerships",
+     "purpose": "KSSL's own partners plus each rival's partnership network and the overlap "
+                "with KSSL (the red-line ties).",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.partner", "serving_view": "serving_live.partner",
+     "api": {"endpoint": "/api/dataset", "keys": ["KSSL_PARTNERS", "competitors[].partners"],
+             "fields": PARTNER_FIELDS},
+     "ui": {"view": "partnerships", "component": "frontend/src/pages/competitive/Partnerships.jsx",
+            "renders": "lib/partners.js SVG graph + per-tie drawer"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_partnerships",
+                  "kind": "LLM", "model": "serving 14B (farm), PART_PROMPT", "scope": "client rows plp_*, ord<REV_ORD0"},
+                 {"file": "pipeline/revive_partners.py", "function": "main",
+                  "kind": "rule/DB", "scope": "rvp_*, ord>=REV_ORD0"}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "RECORDED_PARTIAL", "recorded_cols": ["source_doc_ids"],
+                    "per_row_source": ["src", "srcnote"],
+                    "note": "enrich_serving rows record source_doc_ids; revive_partners rows "
+                            "do not. source_run_id/source_prop_ids are not on this table.",
+                    "row_trace": "/api/lineage/doc/{id} (enrichment stage)"},
+     "gaps": ["revive_partners rows carry no source_doc_ids"]},
+
+    {"id": "competitors", "title": "Competitors / Profile",
+     "purpose": "The per-competitor dossier: sector, HQ, threat, assessment, and the nested "
+                "leadership/revenue/facilities/products sub-panels.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.competitors", "serving_view": "serving_live.competitors",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitors", "compOrder"], "fields": COMP_FIELDS},
+     "ui": {"view": "profile", "component": "frontend/src/pages/competitive/Profile.jsx",
+            "renders": "lib/profile.js buildProfile"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_companies / _rebuild_companies",
+                  "kind": "LLM", "model": "serving 14B (farm), PROFILE_PROMPT", "scope": "ord<REV_ORD0"},
+                 {"file": "pipeline/revive_partners.py", "function": "main", "kind": "rule/DB", "scope": "ord>=REV_ORD0"},
+                 {"file": "pipeline/harvest/promote.py", "function": "(harvest)", "kind": "harvest",
+                  "note": "fills leadership/facilities/sales from each maker's own site, each value carrying its URL + verbatim line"}],
+     "inputs": ["extracted.proposition", "extracted.document", "maker websites (harvest)"],
+     "provenance": {"class": "UNAVAILABLE",
+                    "note": "No source_doc_ids on serving.competitors. Harvested sub-fields "
+                            "(leadership/sales/facilities) carry a per-value source URL + quote; "
+                            "the LLM profile fields carry none. Some profiles are interim agent data.",
+                    "per_row_source": ["srcs"]},
+     "gaps": ["profile/threat/assess have no recorded document lineage",
+              "leadership column is ~0% filled on live data"]},
+
+    {"id": "leadership", "title": "Leadership (Profile sub-panel)",
+     "purpose": "Board/executive cards inside a competitor's profile.",
+     "source_kind": "harvest", "pipeline_step": "enrich",
+     "serving_table": "serving.competitors", "serving_view": "serving_live.competitors",
+     "column": "leadership",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitors[].leadership"]},
+     "ui": {"view": "profile", "component": "frontend/src/pages/competitive/Profile.jsx (Leadership section)"},
+     "writers": [{"file": "pipeline/harvest/promote.py", "function": "(harvest)", "kind": "harvest",
+                  "note": "each value carries the URL and the verbatim line it was read from"}],
+     "inputs": ["maker websites"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["per-value URL + quote"],
+                    "note": "Recorded as a per-value source URL, not document lineage."},
+     "gaps": ["column is ~0% filled on live data -- empty state, not fabricated"]},
+
+    {"id": "revenue", "title": "Revenue / Sales (Profile row)",
+     "purpose": "Annual revenue / sales figure in a competitor's Company Details panel.",
+     "source_kind": "harvest", "pipeline_step": "enrich",
+     "serving_table": "serving.competitors", "serving_view": "serving_live.competitors",
+     "column": "sales",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitors[].sales"]},
+     "ui": {"view": "profile", "component": "frontend/src/pages/competitive/Profile.jsx (firstFigure)"},
+     "writers": [{"file": "pipeline/harvest/promote.py", "function": "(harvest)", "kind": "harvest"}],
+     "inputs": ["maker websites"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["per-value URL + quote"]},
+     "gaps": ["revenue_filter facet tier is unwritten (frontend Products.jsx)"]},
+
+    {"id": "products", "title": "Products",
+     "purpose": "A competitor's product catalogue with specs and product news.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.competitors", "serving_view": "serving_live.competitors",
+     "column": "products", "extra_tables": ["serving.matchup"],
+     "api": {"endpoint": "/api/dataset", "keys": ["competitors[].products", "matchups[].specs"]},
+     "ui": {"view": "products", "component": "frontend/src/pages/competitive/Products.jsx"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_companies (products) / step_matchups (specs)",
+                  "kind": "mixed", "model": "PROFILE_PROMPT for products; specs are rule/DB from propositions"}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "UNAVAILABLE", "note": "products embedded in serving.competitors; no doc lineage."},
+     "gaps": []},
+
+    {"id": "matchups", "title": "Matchups / Positioning",
+     "purpose": "Every rating-matched KSSL-vs-rival pair with the spec dossier and edge verdict.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.matchup", "serving_view": "serving_live.matchup",
+     "api": {"endpoint": "/api/dataset", "keys": ["matchups"], "fields": MATCHUP_FIELDS},
+     "ui": {"view": "positioning", "component": "frontend/src/pages/competitive/Positioning.jsx",
+            "renders": "matchupList + matchupDossier; also GapAnalysis.jsx"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_matchups",
+                  "kind": "rule/DB", "model": "extract_specs / categorise_product over propositions (no self-narration)", "scope": "matchup_id<20000"},
+                 {"file": "pipeline/revive_matchups.py", "function": "main", "kind": "rule/DB", "scope": "matchup_id>=20000"}],
+     "inputs": ["extracted.proposition", "extracted.document", "serving.competitors"],
+     "provenance": {"class": "UNAVAILABLE", "per_row_source": ["srcs", "det"],
+                    "note": "Per-row srcs/det carry the spec sources; no source_doc_ids column."},
+     "gaps": ["spec->document link not stored as lineage"]},
+
+    {"id": "structure", "title": "Structure / Ownership",
+     "purpose": "Ownership and corporate-structure ties between a competitor and other entities.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.competitor_structure", "serving_view": "serving_live.competitor_structure",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitorStructure"], "fields": STRUCT_FIELDS},
+     "ui": {"view": None, "component": None,
+            "note": "NO frontend surface: /api/dataset emits competitorStructure but no RAIL "
+                    "tab or component renders it (verified against the router + Layout switch)."},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_structure",
+                  "kind": "rule/DB", "line": 2702}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["source_url (NOT NULL)", "source_note"],
+                    "note": "Every ownership claim stores its evidence source_url; no source_doc_ids."},
+     "gaps": ["built and served but not rendered anywhere in the UI"]},
+
+    {"id": "metrics", "title": "Mention metrics (KPI strip)",
+     "purpose": "Corpus mention volume per competitor over a rolling window vs the previous "
+                "one -- the KPI tiles and the trend numbers.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.competitor_metrics", "serving_view": "serving_live.competitor_metrics",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitorMetrics"], "fields": METRIC_FIELDS},
+     "ui": {"view": "(cross-cutting)", "component": "frontend/src/components/metricsStrip/MetricsStrip.jsx"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_metrics",
+                  "kind": "rule/DB", "line": 2809, "note": "counts corpus mentions over window_days"}],
+     "inputs": ["extracted.document", "extracted.proposition (mention counts)"],
+     "provenance": {"class": "AGGREGATED",
+                    "note": "Window counts computed over the corpus; window_days travels with "
+                            "the counts so the UI cannot mislabel the units. No per-row source."},
+     "gaps": ["individual mentions are aggregated away; not drillable to documents"]},
+
+    {"id": "news", "title": "Competitor / market news",
+     "purpose": "The sourced news feed shown inside Profile, Products and Geo.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.competitor_news", "serving_view": "serving_live.competitor_news",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitorNews"], "fields": NEWS_FIELDS},
+     "ui": {"view": "(cross-cutting)", "component": "lib/news.js (companyNews/productNews/marketNews)"},
+     "writers": [{"file": "extraction/signals/fill_competitor_news.py", "function": "main",
+                  "kind": "rule/DB", "note": "rows copied from existing serving.signal_card; cascaded away and refilled every enrich pass"}],
+     "inputs": ["serving.signal_card", "serving.competitors"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["url", "story_key", "continues_url"],
+                    "note": "Each article carries its own url; the underlying card has full "
+                            "lineage (trace via Signal Explorer on pl_<doc>)."},
+     "gaps": ["news_chain story_key/continues_url null on standalone articles"]},
+
+    {"id": "geo", "title": "Geo / HQ footprint",
+     "purpose": "Country <-> competitor <-> product footprint with overlap-vs-KSSL badges.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.geo_presence", "serving_view": "serving_live.geo_presence",
+     "extra_tables": ["serving.geo_comp"],
+     "api": {"endpoint": "/api/dataset", "keys": ["geoData", "geoComps"],
+             "fields": GEO_FIELDS},
+     "ui": {"view": "geo", "component": "frontend/src/pages/competitive/Geo.jsx",
+            "renders": "components/geoMap/GeoMap.jsx"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_geo",
+                  "kind": "LLM", "model": "serving 14B (farm), GEO_PROMPT", "scope": "ord<2000"},
+                 {"file": "pipeline/discover_geo.py", "function": "main", "kind": "LLM", "scope": "ord>=GEO_ORD0"}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "UNAVAILABLE", "per_row_source": ["src", "srcnote"],
+                    "note": "Per-row src URL only; no source_doc_ids."},
+     "gaps": []},
+
+    {"id": "innovation", "title": "Innovation / tech pipeline",
+     "purpose": "Innovation pipeline by technology domain with maturity, KSSL gap and sources.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.innovation", "serving_view": "serving_live.innovation",
+     "api": {"endpoint": "/api/dataset", "keys": ["innovations"], "fields": INNOV_FIELDS},
+     "ui": {"view": "innovation", "component": "frontend/src/pages/technology/Innovation.jsx"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_innovations",
+                  "kind": "LLM", "model": "serving 14B (farm), INNOV_PROMPT"}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["sources", "url"],
+                    "note": "Per-row source URLs; no source_doc_ids."},
+     "gaps": []},
+
+    {"id": "tenders", "title": "Tenders / market",
+     "purpose": "Open/awarded/closed procurement tenders with per-tender assessment and the "
+                "market-report roll-ups.",
+     "source_kind": "external_api", "pipeline_step": None,
+     "serving_table": "serving.tender", "serving_view": "serving_live.tender",
+     "api": {"endpoint": "/api/dataset", "keys": ["tenders"], "fields": TENDER_FIELDS},
+     "ui": {"view": "tender", "component": "frontend/src/pages/market/Tenders.jsx + MarketOverview.jsx"},
+     "writers": [{"file": "pipeline/fetch_tenders.py", "function": "write_db",
+                  "kind": "rule/API", "note": "SAM/TED/GeM/CPPP procurement APIs; CPV_MAP classification; id-prefixed sam_/ted_/gem_/cppp_. NOT corpus-derived."}],
+     "inputs": ["government procurement APIs (SAM/TED/GeM/CPPP)"],
+     "provenance": {"class": "UNAVAILABLE", "per_row_source": ["srcs", "url"],
+                    "note": "Sourced from government APIs, not the document corpus; each row "
+                            "carries its portal URL. enrich_serving.step_tenders is dead code."},
+     "gaps": ["not part of the corpus->extraction pipeline; no document lineage applies"]},
+
+    {"id": "patents", "title": "Patents",
+     "purpose": "Competitor patent filings by rival and by technology field.",
+     "source_kind": "external_api", "pipeline_step": None,
+     "serving_table": "serving.patent", "serving_view": "serving_live.patent",
+     "api": {"endpoint": "/api/dataset", "keys": ["PATENTS", "patentAssignees"], "fields": PATENT_FIELDS},
+     "ui": {"view": "patents-comp", "component": "frontend/src/pages/competitive/Patents.jsx"},
+     "writers": [{"file": "pipeline/fetch_patents_wipo.py", "function": "write_db",
+                  "kind": "rule/API", "note": "WIPO feed; area/relev/threat from IPC/CPC classification, not keywords"},
+                 {"file": "extraction/signals/patent_titles.py", "function": "translate_titles",
+                  "kind": "LLM", "model": "title translation only (title_en)"}],
+     "inputs": ["WIPO patent API"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["doc_id", "url"],
+                    "note": "Harvested rows carry a doc_id + url; the three signal-lineage "
+                            "columns do not apply (external source)."},
+     "gaps": ["comp_id/published/grant_no null on pre-detail-pass rows; title_en null until translated"]},
+
+    {"id": "sources", "title": "Source registry",
+     "purpose": "The registry of sources behind the dashboard -- the source-link chips shown "
+                "across every view.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.source_registry", "serving_view": "serving_live.source_registry",
+     "extra_tables": ["serving.company_source"],
+     "api": {"endpoint": "/api/dataset", "keys": ["sourceRegistry", "companySources"], "fields": SRCREG_FIELDS},
+     "ui": {"view": "(cross-cutting)", "component": "components/sourceLink/SourceLink.jsx + lib/html.js srcChips"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_sources",
+                  "kind": "rule/DB", "note": "company_mentions + article_date; no model"}],
+     "inputs": ["extracted.document", "extracted.proposition", "serving.competitors"],
+     "provenance": {"class": "UNAVAILABLE", "per_row_source": ["url"],
+                    "note": "Each entry IS a source URL; there is no upstream lineage column."},
+     "gaps": []},
+]
+
+_FEATURES_BY_ID = {f["id"]: f for f in _FEATURES}
+
+
+def _feature_ground(cur, feat):
+    """Live facts for one feature: serving_live row count and recorded-lineage presence.
+    Names come from our own registry, so the interpolation is safe; every read is a SELECT."""
+    g = {"serving_view_present": False, "live_rows": None,
+         "has_source_doc_ids": False, "rows_with_doc_lineage": None}
+    view = feat.get("serving_view")
+    if view and _regclass(cur, view):
+        g["serving_view_present"] = True
+        try:
+            cur.execute("SELECT count(*) AS n FROM " + view)
+            g["live_rows"] = cur.fetchone()["n"]
+        except Exception:                                   # noqa: BLE001
+            pass
+    tbl = feat.get("serving_table") or ""
+    schema, _, table = tbl.partition(".")
+    if table and _has_column(cur, schema, table, "source_doc_ids"):
+        g["has_source_doc_ids"] = True
+        try:
+            cur.execute("SELECT count(*) AS n FROM %s WHERE source_doc_ids IS NOT NULL" % tbl)
+            g["rows_with_doc_lineage"] = cur.fetchone()["n"]
+        except Exception:                                   # noqa: BLE001
+            pass
+    return g
+
+
+@app.get("/api/ops/features")
+def ops_features(q: str = None):
+    """List every product feature with its provenance class, grounded with live row counts.
+    Optional q filters over id / title / purpose / serving table."""
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        ql = (q or "").strip().lower()
+        rows = []
+        for f in _FEATURES:
+            if ql and ql not in " ".join([
+                    f["id"], f["title"], f["purpose"], f.get("serving_table") or ""]).lower():
+                continue
+            g = _feature_ground(cur, f)
+            rows.append({
+                "id": f["id"], "title": f["title"], "purpose": f["purpose"],
+                "pipeline_step": f.get("pipeline_step"), "source_kind": f.get("source_kind"),
+                "serving_table": f.get("serving_table"),
+                "api_keys": f["api"].get("keys"),
+                "ui_view": f["ui"].get("view"),
+                "provenance_class": f["provenance"]["class"],
+                "live_rows": g["live_rows"],
+                "has_recorded_lineage": g["has_source_doc_ids"],
+                "rows_with_doc_lineage": g["rows_with_doc_lineage"]})
+        return JSONResponse({
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "read_only": True, "count": len(rows),
+            "provenance_legend": {
+                "RECORDED": "document lineage stored on the row (source_doc_ids/run/prop)",
+                "RECORDED_PARTIAL": "some rows record source_doc_ids, others do not",
+                "RECONSTRUCTED": "a per-row source URL is stored, but not full pipeline lineage",
+                "AGGREGATED": "a computed roll-up; individual sources aggregated away",
+                "UNAVAILABLE": "no source lineage recorded on the row"},
+            "features": rows})
+    finally:
+        conn.close()
+
+
+@app.get("/api/ops/features/{feature_id}")
+def ops_feature_detail(feature_id: str):
+    """One feature, end to end: purpose, the pipeline path (reusing _PIPELINE), the real
+    writer files/functions/models, input/output tables, provenance (labelled, grounded),
+    API + UI destinations, and known gaps. 404 for an unknown feature id."""
+    feat = _FEATURES_BY_ID.get(feature_id)
+    if not feat:
+        return JSONResponse(status_code=404,
+                            content={"error": "no such feature", "feature_id": feature_id,
+                                     "known": list(_FEATURES_BY_ID.keys())})
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        g = _feature_ground(cur, feat)
+
+        # The end-to-end path, reusing _PIPELINE stage metadata. Corpus features flow through
+        # ingestion->gate->extraction->(writer step); external-API features skip the corpus.
+        pipe = {p["id"]: p for p in _PIPELINE}
+        if feat.get("source_kind") in ("external_api",):
+            step_ids = [feat.get("pipeline_step") or "api"]
+            path = [{"stage": "external source", "role": "feeder",
+                     "detail": feat["inputs"][0] if feat.get("inputs") else None}]
+        elif feat.get("source_kind") == "harvest":
+            path = [{"stage": "maker-site harvest", "role": "feeder",
+                     "detail": "pipeline/harvest/promote.py; per-value URL + verbatim line"}]
+            step_ids = ["serving"]
+        else:
+            step_ids = ["ingestion", "gate", "extraction", feat.get("pipeline_step") or "signals"]
+            path = []
+        for sid in step_ids:
+            p = pipe.get(sid)
+            if p:
+                path.append({"stage": p["id"], "title": p["title"], "role": p["role"],
+                             "files": p["files"], "functions": p["functions"],
+                             "model": p.get("model")})
+        # then serving -> serving_live -> api -> ui, grounded
+        path.append({"stage": "serving_table", "table": feat.get("serving_table"),
+                     "also": feat.get("extra_tables")})
+        path.append({"stage": "serving_live_view", "view": feat.get("serving_view"),
+                     "present": g["serving_view_present"], "live_rows": g["live_rows"],
+                     "filter": "origin='pipeline'"})
+        path.append({"stage": "api", "endpoint": feat["api"]["endpoint"],
+                     "keys": feat["api"].get("keys")})
+        path.append({"stage": "ui", "view": feat["ui"].get("view"),
+                     "component": feat["ui"].get("component"),
+                     "note": feat["ui"].get("note")})
+
+        prov = dict(feat["provenance"])
+        prov["grounded"] = {"has_source_doc_ids_column": g["has_source_doc_ids"],
+                            "rows_with_doc_lineage": g["rows_with_doc_lineage"],
+                            "live_rows": g["live_rows"]}
+        return JSONResponse({
+            "id": feat["id"], "title": feat["title"], "purpose": feat["purpose"],
+            "read_only": True,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "source_kind": feat.get("source_kind"),
+            "pipeline_path": path,
+            "writers": feat["writers"],
+            "inputs": feat.get("inputs"),
+            "output_tables": [feat.get("serving_table")] + (feat.get("extra_tables") or []),
+            "serving_view": feat.get("serving_view"),
+            "api": feat["api"], "ui": feat["ui"],
+            "provenance": prov,
+            "gaps": feat.get("gaps"),
+            "row_level_trace": feat["provenance"].get("row_trace")
+                or "row-level document lineage is not recorded for this feature"})
+    finally:
+        conn.close()
