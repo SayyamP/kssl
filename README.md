@@ -48,6 +48,11 @@ Each step is idempotent and each has `--demo` (a runnable self-check with no sid
 - `UI_CONTRACT.md` — every view, click, filter and derived value of the reference app, and
   which globals/fields each reads. The schema and API were built against this.
 - `contract_shapes.json` / `contract_samples.json` — the 35-global dataset contract.
+- `docs/DEPLOY.md` — **start here to ship a change.** Branch-to-machine map, what each CI job
+  proves and how to run it yourself, the health gate and automatic rollback, migrations.
+- `deploy/RUNNERS.md` — the self-hosted runners: installing, arming, the trust boundary, and
+  two diagrams of the deploy flow.
+- `ENVIRONMENTS.md` — how one compose file runs on three machines, and how data gets to them.
 
 ## Ports
 
@@ -70,7 +75,13 @@ Documentation lives under [`docs/`](docs/) — kept out of the code tree.
 
 ## Deployment (CI/CD)
 
-Push to `kssl-deploy` → GitHub Actions builds SHA-pinned `frontend`/`backend` images to
-GHCR, then SSH-deploys to VPS-B, recreating **only** those two services (the extraction
-farm and DB/LLM containers are never touched). See [`docs/DEPLOY.md`](docs/DEPLOY.md).
-Rollback: re-run the *Deploy to VPS-B* workflow with a previous SHA.
+Three branches, three machines: `main` → prod (VPS-B), `staging` → VPS-A, `dev` → the data
+centre. GitHub Actions builds SHA-pinned images to GHCR and the target recreates **only**
+`frontend` and `backend` (the extraction farm and DB/LLM containers are never touched),
+behind a health gate that rolls itself back if the new build does not answer.
+
+`main` and `staging` deploy **from a runner on the box they deploy to**, so GitHub opens no
+connection into either machine; `dev` still goes over ssh. Read
+[`docs/DEPLOY.md`](docs/DEPLOY.md) before your first push — it covers running the gate
+locally, reading a run, and rolling back. [`deploy/RUNNERS.md`](deploy/RUNNERS.md) is the
+operator runbook for the runners themselves.
