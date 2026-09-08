@@ -68,7 +68,14 @@ fi
 if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
   # WHO, not just WHAT. SSH_CONNECTION survives sudo where SUDO_USER does not exist,
   # and the reverse; take whatever is there rather than insisting on one.
-  _who="${SUDO_USER:-$(id -un)}@${SSH_CLIENT%% *}${SSH_CLIENT:+ }"
+  #
+  # AND NEITHER MAY BE SET AT ALL. `${SSH_CLIENT%% *}` is an EXPANSION, not a default,
+  # so under `set -u` it aborts the script when the variable is unset -- which is
+  # precisely the console case: somebody at the machine, not over ssh, running the
+  # recovery this guard was written to keep possible. The deploy died on the line whose
+  # only job was to record it. Read the variable through a default first, then expand.
+  _ssh="${SSH_CLIENT:-${SSH_CONNECTION:-}}"
+  _who="${SUDO_USER:-$(id -un)}${_ssh:+@${_ssh%% *}}"
   _line="$(date -u +%FT%TZ) MANUAL sha=$SHA env=$KSSL_ENV_NAME by=${_who:-unknown} tty=$(tty 2>/dev/null || echo none)"
   echo "$_line" >> "$APP/.manual-deploys.log" 2>/dev/null || true
   echo "!! MANUAL DEPLOY -- recorded in $APP/.manual-deploys.log"

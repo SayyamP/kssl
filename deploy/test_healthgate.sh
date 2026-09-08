@@ -192,6 +192,16 @@ ck "...and the message names the escape hatch" 1 "$(echo "$out" | grep -c 'KSSL_
 out=$(cd "$HERE/.." && KSSL_MANUAL_DEPLOY=1 bash deploy/deploy.sh testsha staging 2>&1); rc=$?
 ck "...but KSSL_MANUAL_DEPLOY=1 gets past it (recovery preserved)" 0 "$(echo "$out" | grep -c 'REFUSING: this is a manual deploy')"
 ck "...and the run is recorded as MANUAL" 1 "$(echo "$out" | grep -c 'MANUAL DEPLOY -- recorded')"
+# BOTH BRANCHES OF `by=`. The line above passes on a console, where SSH_CLIENT is unset
+# -- and that was the broken one: `${SSH_CLIENT%% *}` is an expansion, not a default, so
+# under `set -u` it killed the deploy on the line meant to record it. Over ssh the
+# variable IS set and the same code took a different path, which is why the bug lived on
+# the box nobody deploys from. Assert the caller is named in each case.
+out=$(cd "$HERE/.." && KSSL_MANUAL_DEPLOY=1 SSH_CLIENT="203.0.113.9 51234 22" bash deploy/deploy.sh testsha staging 2>&1)
+ck "...over ssh it still records, and names the client ip" 1 "$(echo "$out" | grep -c 'by=[^ ]*@203.0.113.9')"
+out=$(cd "$HERE/.." && KSSL_MANUAL_DEPLOY=1 env -u SSH_CLIENT -u SSH_CONNECTION bash deploy/deploy.sh testsha staging 2>&1)
+ck "...on a console, with no SSH_CLIENT at all, it does not die" 1 "$(echo "$out" | grep -c 'MANUAL DEPLOY -- recorded')"
+ck "...and still names who ran it" 0 "$(echo "$out" | grep -c 'by=unknown')"
 out=$(cd "$HERE/.." && GITHUB_ACTIONS=true bash deploy/deploy.sh testsha staging 2>&1)
 ck "an Actions run is never asked for the flag" 0 "$(echo "$out" | grep -c 'manual deploy')"
 
