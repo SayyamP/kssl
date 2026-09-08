@@ -28,6 +28,49 @@ ENV_FILE="$APP/deploy/envs/$KSSL_ENV_NAME.env"
 [ -f "$ENV_FILE" ] || { echo "!! no such environment: $KSSL_ENV_NAME (expected $ENV_FILE)"; exit 2; }
 # shellcheck disable=SC1090
 set -a; . "$ENV_FILE"; set +a
+
+# THE RUN PAGE, NOT THE LOG.
+#
+# Everything this script decides is already printed, and printing is not the same as
+# being readable: which box ran it, which image, what the gate concluded and whether it
+# rolled back are four facts spread over a few hundred lines of `docker compose` output,
+# behind a step someone has to know to expand. The 2026-09-07 rollback drill answered all
+# four in its own log and still needed a human to read it out.
+#
+# $GITHUB_STEP_SUMMARY is a file the runner renders as markdown at the top of the run
+# page. It exists ONLY inside an Actions job, so a hand-run deploy and the ssh path to
+# dev (where this script runs on the far side of the connection) are untouched -- every
+# function here returns 0 when it is unset.
+#
+# It is flushed from an EXIT trap because healthgate.sh calls `exit 1`: on the path that
+# most needs a summary, nothing after the gate runs. The gate therefore only decides
+# (HG_VERDICT, HG_REASON, HG_TRIES_USED, HG_ROLLBACK) and this renders, on both paths.
+SHA_BEFORE="$(tr -d '[:space:]' < "$APP/.DEPLOYED_SHA" 2>/dev/null || true)"
+
+_summary() {
+  [ -n "${GITHUB_STEP_SUMMARY:-}" ] || return 0
+  local mark_now gate roll
+  mark_now="$(tr -d '[:space:]' < "$APP/.DEPLOYED_SHA" 2>/dev/null || true)"
+  case "${HG_VERDICT:-}" in
+    pass) gate="pass — settled on sample ${HG_TRIES_USED:-?} of ${HG_TRIES:-?}" ;;
+    fail) gate="FAIL — ${HG_REASON:-unhealthy}" ;;
+    *)    gate="did not run" ;;   # refused by a guard, or died before the swap
+  esac
+  roll="${HG_ROLLBACK:-}"
+  [ -n "$roll" ] || roll="none"
+  {
+    printf '### %s deploy — `%s`\n\n' "$KSSL_ENV_NAME" "$SHA"
+    printf '| | |\n|---|---|\n'
+    printf '| runner | `%s` |\n' "${RUNNER_NAME:-$(hostname)}"
+    printf '| environment | %s · prefix `%s` |\n' "$KSSL_ENV_NAME" "${KSSL_PREFIX:-?}"
+    printf '| previous image | `%s` |\n' "${PREV_TAG:-none recorded}"
+    printf '| health gate | %s |\n' "$gate"
+    printf '| rollback | %s |\n' "$roll"
+    printf '| `.DEPLOYED_SHA` | `%s` → `%s` |\n' "${SHA_BEFORE:-none}" "${mark_now:-none}"
+    printf '| run by | %s |\n' "$([ "${GITHUB_ACTIONS:-}" = "true" ] && echo "GitHub Actions" || echo "**by hand**")"
+  } >> "$GITHUB_STEP_SUMMARY"
+}
+trap _summary EXIT
 # HOST GUARD. The GitHub Environments named staging and dev fall back to the REPOSITORY
 # secrets when they carry none of their own -- and those point at production. Without this
 # check a push to `dev` deploys onto VPS-B under kssl-dev- names, orphaning production's
@@ -263,13 +306,6 @@ else
   echo ">> pulling images @ $SHA"
   "${COMPOSE[@]}" pull frontend backend
 fi
-
-# WHAT IS RUNNING NOW, so a bad swap has somewhere to go back to. Captured BEFORE the
-# recreate: once `up -d` has replaced the container this is unknowable, and a rollback
-# that has to guess a tag is not a rollback. The overlay pins both services from a
-# single ${TAG}, so the tag off the running backend is the whole rollback target.
-PREV_BE_IMAGE=$(docker inspect -f '{{.Config.Image}}' "$KSSL_PREFIX-backend" 2>/dev/null || true)
-PREV_TAG="${PREV_BE_IMAGE##*:}"   # validity is judged in healthgate.sh
 
 # WHAT IS RUNNING NOW, so a bad swap has somewhere to go back to. Captured BEFORE the
 # recreate: once `up -d` has replaced the container this is unknowable, and a rollback

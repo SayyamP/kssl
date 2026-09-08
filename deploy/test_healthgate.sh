@@ -76,22 +76,41 @@ run_gate() {
   ( set +e
     KSSL_PREFIX=kssl SHA=deadbee APP="$TMP" KSSL_API_PORT=8600
     COMPOSE=(docker compose)
+    # The verdict is collected from a trap for exactly the reason deploy.sh renders it
+    # from one: the gate `exit 1`s on the path worth reporting, so anything written
+    # after the source runs only when it passed.
+    trap 'printf "%s\n%s\n%s\n%s\n" "${HG_VERDICT:-}" "${HG_REASON:-}" \
+            "${HG_TRIES_USED:-}" "${HG_ROLLBACK:-}" > "$TMP/verdict"' EXIT
     # shellcheck disable=SC1090
     . "$HERE/healthgate.sh" ) >"$TMP/out" 2>&1
   echo "$?"
 }
+
+# HG_VERDICT / HG_REASON / HG_TRIES_USED / HG_ROLLBACK, in that order.
+v() { sed -n "${1}p" "$TMP/verdict"; }
 
 echo "health gate:"
 
 rc=$(run_gate healthy)
 ck "a healthy deploy passes the gate" 0 "$rc"
 ck "...and says so" 1 "$(grep -c 'health gate passed' "$TMP/out")"
+ck "...and records the verdict for the run page" "pass" "$(v 1)"
+ck "...with nothing rolled back" "" "$(v 4)"
 
 # THE ACTUAL OUTAGE: up, but restarting under it.
 rc=$(run_gate crashloop)
 ck "a crash-looping backend FAILS the gate" 1 "$rc"
 ck "...and the reason names the restarts" 1 "$(grep -c 'restarted .* time' "$TMP/out")"
 ck "...and it rolls back rather than leaving the site down" 1 "$(grep -c 'restoring TAG=' "$TMP/out")"
+ck "...and the recorded verdict is a failure" "fail" "$(v 1)"
+# The exact count is the stub's, not the gate's -- it rises with every inspect call --
+# so the assertion is on the shape: a reason a human can act on rather than "unhealthy".
+ck "...which names the restarts, not just 'unhealthy'" 1 \
+   "$(v 2 | grep -c 'backend restarted [0-9]\+x during the gate')"
+ck "...and the recorded rollback names the tag restored" 1 "$(v 4 | grep -c '^restored abc1234')"
+# This stub crash-loops forever, so the restored image is unhealthy too -- the case where
+# rolling back does not save the site. It must not be reported as a clean recovery.
+ck "...and a rollback that did not help says so" 1 "$(v 4 | grep -c 'STILL UNHEALTHY')"
 
 rc=$(run_gate restarting)
 ck "a container reporting Restarting=true never settles" 1 "$rc"
@@ -103,6 +122,7 @@ ck "a container that is not running fails" 1 "$rc"
 rc=$(run_gate crashloop latest)
 ck "'latest' is refused as a rollback target" 1 "$rc"
 ck "...and it says it cannot roll back" 1 "$(grep -c 'cannot roll back' "$TMP/out")"
+ck "...and the run page is told why, not left blank" "refused: no usable previous tag" "$(v 4)"
 
 # Running is not serving: the container is up and quiet, but the API says no.
 cat > "$TMP/docker" <<'STUB'
@@ -180,6 +200,58 @@ ck "deploy.sh writes the marker (exactly once)" \
    1 "$(grep -c '^echo "\$SHA" > .DEPLOYED_SHA' "$HERE/deploy.sh")"
 ck "...AFTER the health gate, so a failed deploy cannot record its sha" \
    yes "$([ -n "$gate_line" ] && [ -n "$mark_line" ] && [ "$mark_line" -gt "$gate_line" ] && echo yes || echo no)"
+
+
+# ---- THE RUN-PAGE SUMMARY --------------------------------------------------------
+# deploy.sh cannot be sourced whole -- sourcing it deploys -- so the renderer is lifted
+# out by name and driven directly. That keeps this a test of the real function rather
+# than of a copy of it: edit the printf block in deploy.sh and this follows.
+echo "run-page summary:"
+eval "$(sed -n '/^_summary() {/,/^}/p' "$HERE/deploy.sh")"
+
+APP="$TMP" KSSL_ENV_NAME=staging KSSL_PREFIX=kssl-stg SHA=deadbee SHA_BEFORE=oldsha1
+PREV_TAG=abc1234 HG_VERDICT=pass HG_TRIES_USED=3 HG_TRIES=20 HG_REASON="" HG_ROLLBACK=""
+RUNNER_NAME=kssl-staging GITHUB_ACTIONS=true
+echo "deadbee" > "$TMP/.DEPLOYED_SHA"
+
+# OUTSIDE ACTIONS IT MUST WRITE NOTHING AT ALL. deploy.sh also runs over ssh for dev and
+# by hand for a recovery; a summary function that assumed the variable would abort those
+# under `set -u`, which is a deploy lost to a reporting feature.
+unset GITHUB_STEP_SUMMARY
+_summary
+ck "unset GITHUB_STEP_SUMMARY writes nothing and does not fail" 0 "$?"
+
+export GITHUB_STEP_SUMMARY="$TMP/summary.md"
+: > "$GITHUB_STEP_SUMMARY"
+_summary
+ck "a passing deploy renders a table" 1 "$(grep -c '^| health gate | pass' "$GITHUB_STEP_SUMMARY")"
+ck "...naming the sample it settled on" 1 "$(grep -c 'sample 3 of 20' "$GITHUB_STEP_SUMMARY")"
+ck "...and the box that ran it" 1 "$(grep -c 'kssl-staging' "$GITHUB_STEP_SUMMARY")"
+ck "...and the marker's before and after" 1 "$(grep -c 'oldsha1` → `deadbee' "$GITHUB_STEP_SUMMARY")"
+ck "...heading names the environment and the sha" 1 "$(grep -c '^### staging deploy — `deadbee`' "$GITHUB_STEP_SUMMARY")"
+
+# THE ROLLBACK CASE IS THE ONE THIS EXISTS FOR: the run the gate rejected is the run
+# somebody reads in a hurry, and it is the one where deploy.sh never reaches its own
+# last line.
+: > "$GITHUB_STEP_SUMMARY"
+HG_VERDICT=fail HG_REASON="backend restarted 3x during the gate" HG_ROLLBACK="restored abc1234"
+echo "abc1234" > "$TMP/.DEPLOYED_SHA"
+_summary
+ck "a rejected deploy renders the failure" 1 "$(grep -c '^| health gate | FAIL — backend restarted 3x' "$GITHUB_STEP_SUMMARY")"
+ck "...and the rollback that followed it" 1 "$(grep -c '^| rollback | restored abc1234 |' "$GITHUB_STEP_SUMMARY")"
+ck "...and the marker follows the rollback, not the rejected sha" 1 \
+   "$(grep -c 'oldsha1` → `abc1234' "$GITHUB_STEP_SUMMARY")"
+
+# A deploy that died before the gate ran must not report a gate that passed.
+: > "$GITHUB_STEP_SUMMARY"
+HG_VERDICT="" HG_ROLLBACK=""
+_summary
+ck "a deploy refused before the gate says so" 1 "$(grep -c '^| health gate | did not run' "$GITHUB_STEP_SUMMARY")"
+
+: > "$GITHUB_STEP_SUMMARY"
+GITHUB_ACTIONS="" _summary
+ck "a hand-run deploy is marked as one" 1 "$(grep -c 'by hand' "$GITHUB_STEP_SUMMARY")"
+unset GITHUB_STEP_SUMMARY GITHUB_ACTIONS
 
 
 # ---- a hand-run deploy is deliberate, and still possible -------------------------

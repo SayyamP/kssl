@@ -9,6 +9,11 @@
 # `docker` so every branch is exercised without a deploy.
 #
 # Callers must set: KSSL_PREFIX, SHA, APP, COMPOSE (array), and may set KSSL_API_PORT.
+# It sets HG_VERDICT, HG_REASON, HG_TRIES_USED and HG_ROLLBACK for deploy.sh to render.
+#
+# shellcheck disable=SC2034
+# Those four look unused because this file is read in isolation: they are consumed by
+# deploy.sh's EXIT trap, which is the only thing that runs on both of this file's paths.
 
 # HEALTH GATE.
 # PREV_TAG is captured by deploy.sh BEFORE the image swap -- it cannot be read here,
@@ -63,12 +68,27 @@ _settled() {              # both up, neither restarting, and the API answering
 
 BE_RESTARTS_BEFORE=$(docker inspect -f '{{.RestartCount}}' "$KSSL_PREFIX-backend" 2>/dev/null || echo 0)
 HEALTHY=0
+
+# THE VERDICT, RECORDED AS IT IS DECIDED. deploy.sh renders these onto the Actions run
+# page; everything below already printed the same facts, but printing them is not the
+# same as being able to read them. What this gate concluded, and whether it rolled back,
+# was recoverable only by expanding a step and reading it -- which is how the rollback
+# drill needed a human to narrate a run that had already answered the question itself.
+#
+# They are plain variables, not printf calls, because this file `exit 1`s on failure:
+# only a trap in deploy.sh runs on both paths, so deploy.sh does the rendering and this
+# file does the deciding.
+HG_VERDICT=fail          # pass | fail
+HG_REASON=""             # why, in a few words, when it failed
+HG_TRIES_USED=0          # how many samples it took -- 1 of 20 and 19 of 20 differ
+HG_ROLLBACK=""           # "" = none attempted
 # Timing is injectable so deploy/test_healthgate.sh can exercise the failing
 # branches without waiting a real minute for each. Production keeps 20x3s, which
 # is longer than an import crash takes to show itself.
 HG_TRIES="${KSSL_HEALTH_TRIES:-20}"
 HG_SLEEP="${KSSL_HEALTH_SLEEP:-3}"
 for _ in $(seq 1 "$HG_TRIES"); do
+  HG_TRIES_USED=$((HG_TRIES_USED + 1))
   if _settled; then HEALTHY=1; break; fi
   sleep "$HG_SLEEP"
 done
@@ -78,10 +98,13 @@ done
 BE_RESTARTS_AFTER=$(docker inspect -f '{{.RestartCount}}' "$KSSL_PREFIX-backend" 2>/dev/null || echo 0)
 if [ "$BE_RESTARTS_AFTER" -gt "$BE_RESTARTS_BEFORE" ]; then
   echo "!! backend restarted $((BE_RESTARTS_AFTER - BE_RESTARTS_BEFORE)) time(s) during the health gate"
+  HG_REASON="backend restarted $((BE_RESTARTS_AFTER - BE_RESTARTS_BEFORE))x during the gate"
   HEALTHY=0
 fi
 
 if [ "$HEALTHY" != "1" ]; then
+  HG_VERDICT=fail
+  [ -n "$HG_REASON" ] || HG_REASON="never settled in $HG_TRIES_USED sample(s)"
   echo "!! $SHA IS NOT HEALTHY — rolling back"
   docker logs --tail 30 "$KSSL_PREFIX-backend" 2>&1 | sed 's/^/   be| /' || true
   if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$SHA" ]; then
@@ -104,14 +127,18 @@ if [ "$HEALTHY" != "1" ]; then
     TAG="$PREV_TAG" "${COMPOSE[@]}" up -d --no-build frontend backend || true
     sleep "${KSSL_HEALTH_SLEEP:-5}"
     if _settled; then
+      HG_ROLLBACK="restored $PREV_TAG"
       echo "!! rolled back to the previous images. $SHA was NOT deployed."
     else
+      HG_ROLLBACK="restored $PREV_TAG, STILL UNHEALTHY"
       echo "!! ROLLBACK ALSO UNHEALTHY. The site is down and needs a human."
     fi
   else
+    HG_ROLLBACK="refused: no usable previous tag"
     echo "!! no previous image recorded — cannot roll back automatically."
   fi
   "${COMPOSE[@]}" ps frontend backend
   exit 1
 fi
+HG_VERDICT=pass
 echo ">> health gate passed: both containers settled and the API answered"
