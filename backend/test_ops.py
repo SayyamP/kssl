@@ -140,6 +140,7 @@ def test_no_writes_issued():
     body(app.ops_overview()); body(app.ops_pipeline()); body(app.ops_events())
     body(app.ops_signals()); body(app.ops_signal_detail("pl_doc_x"))
     body(app.ops_features()); body(app.ops_feature_detail("partnerships"))
+    body(app.ops_database()); body(app.ops_database_detail("serving", "partner"))
     for s in seen:
         assert s.strip().split(None, 1)[0].upper() in ("SELECT", "SET"), "non-read statement: " + s[:40]
     print("  ok  ops endpoints issue only SELECT/SET -- no writes (incl. signals)")
@@ -324,6 +325,65 @@ def test_feature_detail_404():
     print("  ok  feature detail: unknown id -> 404")
 
 
+def test_database_list_grounded_and_labelled():
+    # every registry object is grounded; a present table reports its live row count.
+    rows = {"FROM pg_class": {"relkind": "r"},
+            "information_schema.columns": [
+                {"column_name": "origin", "data_type": "text"},
+                {"column_name": "updated_at", "data_type": "timestamp with time zone"}],
+            "max(": {"m": "2026-09-08T10:00:00+00:00"},
+            "GROUP BY origin": [{"origin": "pipeline", "n": 100}, {"origin": "reference", "n": 23}]}
+    wire(rows, {})
+    d = body(app.ops_database())
+    assert d["read_only"] is True and FakeConn.last_session.get("readonly") is True
+    assert d["count"] == len(app._DBOBJECTS)
+    assert "SOURCE_OF_TRUTH" in d["type_legend"] and "PROVENANCE" in d["type_legend"]
+    assert {"public", "extracted", "serving", "serving_live", "metrics", "provenance"} <= set(d["by_schema"])
+    objs = {o["object"]: o for o in d["objects"]}
+    assert "public.documents" in objs and "provenance.event" in objs
+    assert "serving_live.signal_card" in objs and "metrics.stage_run" in objs
+    assert objs["serving.signal_card"]["row_count"] == 123, "grounded live row count"
+    assert objs["serving.partner"]["type"] == "SERVING"
+    assert objs["serving.tender"]["type"] == "EXTERNAL"
+    # filters
+    assert body(app.ops_database(schema="serving_live"))["count"] == 16
+    assert all(o["type"] == "EXTERNAL" for o in body(app.ops_database(type="external"))["objects"])
+    assert body(app.ops_database(feature="partnerships"))["count"] >= 2  # serving.partner + view
+    print("  ok  database list: every object grounded, typed, filterable by schema/type/feature")
+
+
+def test_database_detail_serving_reuses_feature():
+    rows = {"FROM pg_class": {"relkind": "r"},
+            "information_schema.columns": [
+                {"column_name": "id", "data_type": "text"},
+                {"column_name": "origin", "data_type": "text"}],
+            "GROUP BY origin": [{"origin": "pipeline", "n": 17}]}
+    wire(rows, {})
+    d = body(app.ops_database_detail("serving", "partner"))
+    assert d["object"] == "serving.partner" and d["read_only"] is True
+    assert d["type"] == "SERVING" and d["row_count"] == 123
+    assert d["origin_split"] == {"pipeline": 17}
+    # writers + provenance come from the feature registry (single source of truth)
+    assert any(w["file"].endswith("enrich_serving.py") for w in d["writers"])
+    assert d["provenance"]["class"] == "RECORDED_PARTIAL"
+    assert any(f["id"] == "partnerships" for f in d["features"])
+    assert any("multiple writers" in w for w in d["warnings"])
+    assert d["columns"] and all("meaning" in c for c in d["columns"])
+    assert "serving_live.partner" in d["downstream"], "downstream derived from depends_on"
+    # a non-feature table keeps its own registry writers
+    doc = body(app.ops_database_detail("public", "documents"))
+    assert doc["type"] == "SOURCE_OF_TRUTH"
+    assert any("sync_documents" in w["file"] for w in doc["writers"])
+    print("  ok  database detail: serving reuses feature writers/provenance; plain table keeps its own")
+
+
+def test_database_detail_404():
+    wire({}, {})
+    r = app.ops_database_detail("serving", "nope")
+    assert r.status_code == 404 and "known" in body(r)
+    print("  ok  database detail: unknown object -> 404")
+
+
 def test_stage_timer_not_shadowed():
     # Regression: the lineage helper must not shadow the stage_timer context
     # manager that /api/dataset uses. Broke every deploy from #45 to #49.
@@ -350,5 +410,8 @@ if __name__ == "__main__":
     test_features_list_grounded_and_labelled()
     test_feature_detail_reuses_pipeline_and_grounds()
     test_feature_detail_404()
+    test_database_list_grounded_and_labelled()
+    test_database_detail_serving_reuses_feature()
+    test_database_detail_404()
     test_stage_timer_not_shadowed()
     print("ok - ops endpoints: read-only, resilient, grounded")

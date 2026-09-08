@@ -117,6 +117,7 @@
   <button data-view="runs">Run Timeline</button>
   <button data-view="signals">Signal Explorer</button>
   <button data-view="features">Feature Explorer</button>
+  <button data-view="database">Database Explorer</button>
 </nav>
 <main>
   <section id="v-overview" class="view on"><div class="spin">Loading…</div></section>
@@ -170,6 +171,19 @@
       <div id="feat-detail" class="panel"><div class="note">Select a feature on the left. Each entry is traced from the real code and grounded with live row counts.</div></div>
     </div>
   </section>
+  <section id="v-database" class="view">
+    <h2>Database Explorer <span class="faint" style="text-transform:none;font-weight:400">&mdash; every schema object: writer &rarr; table &rarr; view &rarr; API &rarr; frontend</span></h2>
+    <div class="row-input">
+      <input type="text" id="db-q" placeholder="search object / purpose" style="min-width:200px" />
+      <select id="db-schema"><option value="">all schemas</option><option>public</option><option>extracted</option><option>serving</option><option>serving_live</option><option>metrics</option><option>provenance</option></select>
+      <select id="db-type"><option value="">all types</option><option>SOURCE_OF_TRUTH</option><option>DERIVED</option><option>SERVING</option><option>REFERENCE</option><option>EXTERNAL</option><option>RUNTIME</option><option>QUEUE</option><option>PROVENANCE</option></select>
+      <button class="act" id="db-go">Filter</button>
+    </div>
+    <div class="runs-split">
+      <div id="db-list" class="panel"><div class="spin">Loading…</div></div>
+      <div id="db-detail" class="panel"><div class="note">Select an object on the left. Type, columns, row count and freshness are grounded against the live production DB; writers/readers/ownership are traced from the code. No SQL is executed and no row contents are shown.</div></div>
+    </div>
+  </section>
 </main>
 
 <script>
@@ -187,14 +201,14 @@ async function getJSON(path){
 }
 
 /* ---- tabs ---- */
-const views = ["overview","pipeline","lineage","events","runs","signals","features"];
+const views = ["overview","pipeline","lineage","events","runs","signals","features","database"];
 let loaded = {};
 document.querySelectorAll("nav button").forEach(b=>{
   b.onclick = ()=>{
     const v=b.dataset.view;
     document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("on",x===b));
     views.forEach(x=>$("#v-"+x).classList.toggle("on", x===v));
-    if(!loaded[v]) { loaded[v]=true; if(v==="overview")loadOverview(); if(v==="pipeline")loadPipeline(); if(v==="runs")loadRuns(); if(v==="signals")loadSignals(); if(v==="features")loadFeatures(); }
+    if(!loaded[v]) { loaded[v]=true; if(v==="overview")loadOverview(); if(v==="pipeline")loadPipeline(); if(v==="runs")loadRuns(); if(v==="signals")loadSignals(); if(v==="features")loadFeatures(); if(v==="database")loadDatabase(); }
   };
 });
 
@@ -621,6 +635,76 @@ async function loadFeatureDetail(id){
 }
 $("#feat-go").onclick=loadFeatures;
 $("#feat-q").addEventListener("keydown",e=>{ if(e.key==="Enter")loadFeatures(); });
+
+const TYPE_CLS={SOURCE_OF_TRUTH:"b-good",SERVING:"b-info",DERIVED:"b-info",REFERENCE:"",EXTERNAL:"b-warn",RUNTIME:"",QUEUE:"",PROVENANCE:"b-good"};
+function typeChip(t){ const e=el("span","chip "+(TYPE_CLS[t]||"")); e.textContent=t||"?"; return e; }
+
+async function loadDatabase(){
+  const list=$("#db-list"); list.innerHTML='<div class="spin">Loading…</div>';
+  const qs=[]; const q=$("#db-q").value.trim(); const sc=$("#db-schema").value; const ty=$("#db-type").value;
+  if(q)qs.push("q="+encodeURIComponent(q)); if(sc)qs.push("schema="+sc); if(ty)qs.push("type="+ty);
+  try{
+    const d=await getJSON("/ops/database"+(qs.length?("?"+qs.join("&")):""));
+    list.innerHTML="";
+    const hd=el("div","note"); hd.style.marginBottom="8px";
+    hd.textContent=d.count+" object(s) · "+Object.entries(d.by_schema).map(([k,v])=>k+":"+v).join("  ");
+    list.appendChild(hd);
+    d.objects.forEach(o=>{
+      const row=el("div","runrow"); row.dataset.id=o.object;
+      const warn=o.n_warnings?(" <span class='chip b-warn'>"+o.n_warnings+" warn</span>"):"";
+      row.innerHTML="<div class='id'>"+esc(o.object)+"</div>"+
+        "<div class='m'><span class='chip "+(TYPE_CLS[o.type]||"")+"'>"+esc(o.type)+"</span> "+
+        (o.present?(o.row_count!=null?"· "+o.row_count+" rows ":""):"<span class='chip b-bad'>absent</span> ")+
+        (o.owner_stage?"· "+esc(o.owner_stage):"")+warn+"</div>"+
+        "<div class='m'>"+esc(o.purpose).slice(0,90)+"</div>";
+      row.onclick=()=>{ document.querySelectorAll("#db-list .runrow").forEach(x=>x.classList.toggle("on",x===row)); loadDatabaseDetail(o.schema,o.name); };
+      list.appendChild(row);
+    });
+  }catch(e){ list.innerHTML=""; list.appendChild(errBox(e)); }
+}
+
+async function loadDatabaseDetail(schema,object){
+  const box=$("#db-detail"); box.innerHTML='<div class="spin">Loading '+esc(schema+"."+object)+'…</div>';
+  let d;
+  try{ d=await getJSON("/ops/database/"+encodeURIComponent(schema)+"/"+encodeURIComponent(object)); }
+  catch(e){ box.innerHTML=""; box.appendChild(note("No object: "+e.message)); return; }
+  box.innerHTML="";
+  const head=el("div"); head.innerHTML="<b class='mono'>"+esc(d.object)+"</b> "; head.appendChild(typeChip(d.type));
+  const kc=el("span","chip"); kc.textContent=d.kind||""; head.appendChild(kc);
+  if(!d.present){ const a=el("span","chip b-bad"); a.textContent="not present"; head.appendChild(a); }
+  box.appendChild(head);
+  const p=el("div","note"); p.style.margin="6px 0 10px"; p.textContent=d.purpose; box.appendChild(p);
+  function section(t){ const h=el("div"); h.style.margin="14px 0 6px"; h.appendChild(el("b",null,t)); box.appendChild(h); }
+  function kv(obj){ const g=el("div","kv"); Object.entries(obj).forEach(([k,v])=>{ if(v==null||v===""||(Array.isArray(v)&&!v.length))return; g.appendChild(el("div","k",k)); const val=el("div"); val.textContent=(typeof v==="object")?JSON.stringify(v):String(v); g.appendChild(val); }); box.appendChild(g); }
+
+  if(d.warnings && d.warnings.length){ section("Warnings"); d.warnings.forEach(w=>{ const r=el("div","tlrow"); r.innerHTML="<span class='chip b-warn'>!</span> "+esc(w); box.appendChild(r); }); }
+
+  section("Live facts (grounded)");
+  kv({owner_stage:d.owner_stage, row_count:d.row_count, freshness:d.freshness,
+      origin_split:d.origin_split, state_split:d.state_split});
+
+  section("Columns ("+(d.columns?d.columns.length:0)+")");
+  (d.columns||[]).forEach(c=>{ const r=el("div","tlrow"); r.innerHTML="<span class='mono'>"+esc(c.name)+"</span> <span class='faint'>"+esc(c.type)+"</span>"+(c.meaning?" · "+esc(c.meaning):""); box.appendChild(r); });
+
+  section("Writers (real code)");
+  (d.writers||[]).forEach(w=>{ const r=el("div","tlrow"); r.innerHTML="<span class='mono'>"+esc(w.file)+(w.function?" :: "+esc(w.function):"")+"</span>"+(w.note?" <span class='faint'>· "+esc(w.note)+"</span>":""); box.appendChild(r); });
+  if(d.readers && d.readers.length){ section("Readers"); d.readers.forEach(rd=>{ const r=el("div","tlrow"); r.innerHTML="<span class='faint'>"+esc(rd)+"</span>"; box.appendChild(r); }); }
+
+  section("Ownership & rebuild");
+  if(d.ownership){ const r=el("div","tlrow"); r.innerHTML="<span class='chip b-info'>ownership</span> "+esc(d.ownership); box.appendChild(r); }
+  if(d.rebuild){ const r=el("div","tlrow"); r.innerHTML="<span class='chip'>rebuild</span> "+esc(d.rebuild); box.appendChild(r); }
+
+  section("Dependencies");
+  kv({depends_on:d.depends_on, downstream:d.downstream, features:(d.features||[]).map(f=>f.id)});
+
+  section("Provenance");
+  const pc=d.provenance&&d.provenance.class; const pr=el("div"); pr.textContent=(pc||"—")+" "; box.appendChild(pr);
+  if(d.provenance&&d.provenance.note){ const n=el("div","note"); n.textContent=d.provenance.note; box.appendChild(n); }
+  if(d.intentionally_absent){ const n=el("div","note"); n.textContent="intentionally absent: "+d.intentionally_absent; box.appendChild(n); }
+}
+$("#db-go").onclick=loadDatabase;
+$("#db-q").addEventListener("keydown",e=>{ if(e.key==="Enter")loadDatabase(); });
+$("#db-schema").onchange=loadDatabase; $("#db-type").onchange=loadDatabase;
 
 /* boot */
 loadOverview();
