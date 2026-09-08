@@ -341,8 +341,11 @@ export default function Products() {
             seen.add(name.toLowerCase());
             const specsObj = {};
             (m.specs || []).forEach((s) => {
-              if (s && s.l && (s.cv || s.kv)) {
-                specsObj[formatCategoryTitle(s.l)] = specValueWithUnit(s.cv || s.kv, s.u);
+              /* THE RIVAL'S OWN VALUES, never KSSL's. This read `s.cv || s.kv`, which
+                 printed KSSL's figure under the rival's name on every field the rival
+                 had not published -- see lib/specs.productSpecs. */
+              if (s && s.l && s.cv) {
+                specsObj[formatCategoryTitle(s.l)] = specValueWithUnit(s.cv, s.u);
               }
             });
             prods.push({
