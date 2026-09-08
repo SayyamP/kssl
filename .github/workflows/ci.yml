@@ -236,36 +236,69 @@ jobs:
           pip install httpx psycopg2-binary
           python pipeline/fetch_tenders.py --demo
 
-      # deploy.sh runs no migrations, on any environment -- sync_from_prod.sh is the
-      # only thing that does, and says so itself. So a commit that adds a column to a
-      # backend field list AND ships its migration puts a backend that selects that
-      # column in front of a database without it on the very next deploy. The
-      # competitors query is the first one in _dataset, so that is not a missing field,
-      # it is 500 for GET /api/dataset and a blank dashboard. It happened on staging on
-      # 2026-09-06 with `country`. No database needed: the cursor is a stub.
-      - name: Backend degrades when its migration has not run
+      # THE BACKEND SUITE, FOUND BY DIRECTORY RATHER THAN NAMED FILE BY FILE.
+      #
+      # Naming them is how this job came to run a test that is not on this branch. ci.yml
+      # was brought onto staging by 1bd9d1d carrying main's step list, and the two files
+      # those steps run arrived on main in 391d16c, which staging does not have -- so
+      # every run ended in `python: can't open file .../backend/test_patent_fields.py`.
+      # That is not a gate failing. It is a gate that cannot run, and it stops the two
+      # steps behind it from running either.
+      #
+      # It cuts the other way too: main carries backend/test_lineage.py and
+      # backend/test_ops.py and names neither, so two working suites gate nothing at all.
+      # Same rot, and the same fix, as the frontend loop below -- a backend test should be
+      # picked up by being written, not by also remembering to edit this file.
+      #
+      # What the files in that directory gate today. None of them needs a database; each
+      # builds the cursor or the payload it asserts on.
+      #
+      #   test_optional_columns.py -- deploy.sh runs no migrations, on any environment;
+      #     sync_from_prod.sh is the only thing that does, and says so itself. So a commit
+      #     that adds a column to a backend field list AND ships its migration puts a
+      #     backend that selects that column in front of a database without it on the very
+      #     next deploy. The competitors query is the first one in _dataset, so that is not
+      #     a missing field, it is 500 for GET /api/dataset and a blank dashboard. It
+      #     happened on staging on 2026-09-06 with `country`.
+      #
+      #   test_patent_fields.py -- the other half of that seam. The one above proves a
+      #     backend AHEAD of its database loses one field instead of the dashboard; this
+      #     proves a backend BEHIND its database is not silently serving nothing.
+      #     serving.patent has carried published, grant_no, pub_kind and doc_id since
+      #     2026-09-06 and PATENT_FIELDS -- which is the SELECT -- named none of them, so
+      #     four measured columns could not reach the browser and the tab looked exactly
+      #     like a harvest that had not run. It reads db/migrations/*.sql rather than a
+      #     hand-written list, so the next column added to that table has to be wired up
+      #     or it goes red on its own.
+      #
+      #   test_severity_serve.py -- severity is derived on the response, so the API is the
+      #     only place it can be wrong. It checks the grade AND the call site: a unit test
+      #     that calls _grade_cards directly passes happily against a _dataset that
+      #     assembles the payload and ships it ungraded, which is a dashboard whose feed
+      #     silently loses its ordering key.
+      - name: Backend regression tests
         run: |
           pip install fastapi
-          python backend/test_optional_columns.py
-
-      # THE OTHER HALF OF THE SAME SEAM. The step above proves a backend AHEAD of its
-      # database loses one field instead of the dashboard. This one proves a backend
-      # BEHIND its database is not silently serving nothing: serving.patent has carried
-      # published, grant_no, pub_kind and doc_id since 2026-09-06 and PATENT_FIELDS --
-      # which is the SELECT -- named none of them, so four measured columns could not
-      # reach the browser and the tab looked exactly like a harvest that had not run.
-      # It reads db/migrations/*.sql rather than a hand-written list, so the next column
-      # added to that table has to be wired up or this goes red on its own.
-      - name: Every column a migration adds to serving.patent is served
-        run: python backend/test_patent_fields.py
-
-      # SEVERITY IS DERIVED ON THE RESPONSE, so the API is the only place it can be
-      # wrong. This checks the grade AND the call site: a unit test that calls
-      # _grade_cards directly passes happily against a _dataset that assembles the
-      # payload and ships it ungraded, which is a dashboard whose feed silently loses
-      # its ordering key. No database: the payload is the dict _dataset would have built.
-      - name: Signal cards are graded before they are served
-        run: python backend/test_severity_serve.py
+          found=0
+          fail=0
+          for t in backend/test_*.py; do
+            # An unmatched glob is left literal by bash, so this is the empty directory.
+            [ -e "$t" ] || continue
+            found=$((found + 1))
+            echo "== $t"
+            python "$t" || fail=1
+          done
+          # ZERO IS NOT A PASS. A branch carrying backend/app.py with no test beside it has
+          # lost them somewhere, and a loop that shrugs at an empty directory is exactly the
+          # green tick that would hide it -- the failure this whole step was rewritten over,
+          # arriving the other way round.
+          if [ "$found" = 0 ]; then
+            echo "::error::no backend/test_*.py on this branch, but backend/ is here."
+            echo "::error::A backend with no gate on it is not a passing build."
+            exit 1
+          fi
+          echo "-- $found backend test file(s) run"
+          exit $fail
 
       # The extraction and serving self-checks. These existed and were NOT run here, which
       # is how `serving_fill.py --demo` came to be failing on every invocation while looking
