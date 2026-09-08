@@ -65,6 +65,14 @@ C_TIERS_PATH=extraction/engine/source_tiers.py \
 python -c "import yaml" 2>/dev/null || pip install --quiet pyyaml
 python deploy/test_runner_paths.py
 
+# The frontend's Caddyfile is a printf inside frontend/Dockerfile, so it has no config
+# file anyone would think to review and no syntax check of its own. Its cache rules
+# decide whether a successful deploy is VISIBLE: index.html is the only unhashed file
+# and it is the one that NAMES the bundles, so caching it pins viewers to the previous
+# build while every other part of the deploy reports success.
+echo "== deploy/test_frontend_cache.py"
+python deploy/test_frontend_cache.py
+
 # The signals modules import each other by bare filename, so they run from their own
 # directory. The test_*.py loop is deliberate: a new regression test is picked up by
 # being written, without also having to remember to edit this file.

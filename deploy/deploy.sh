@@ -28,6 +28,49 @@ ENV_FILE="$APP/deploy/envs/$KSSL_ENV_NAME.env"
 [ -f "$ENV_FILE" ] || { echo "!! no such environment: $KSSL_ENV_NAME (expected $ENV_FILE)"; exit 2; }
 # shellcheck disable=SC1090
 set -a; . "$ENV_FILE"; set +a
+
+# THE RUN PAGE, NOT THE LOG.
+#
+# Everything this script decides is already printed, and printing is not the same as
+# being readable: which box ran it, which image, what the gate concluded and whether it
+# rolled back are four facts spread over a few hundred lines of `docker compose` output,
+# behind a step someone has to know to expand. The 2026-09-07 rollback drill answered all
+# four in its own log and still needed a human to read it out.
+#
+# $GITHUB_STEP_SUMMARY is a file the runner renders as markdown at the top of the run
+# page. It exists ONLY inside an Actions job, so a hand-run deploy and the ssh path to
+# dev (where this script runs on the far side of the connection) are untouched -- every
+# function here returns 0 when it is unset.
+#
+# It is flushed from an EXIT trap because healthgate.sh calls `exit 1`: on the path that
+# most needs a summary, nothing after the gate runs. The gate therefore only decides
+# (HG_VERDICT, HG_REASON, HG_TRIES_USED, HG_ROLLBACK) and this renders, on both paths.
+SHA_BEFORE="$(tr -d '[:space:]' < "$APP/.DEPLOYED_SHA" 2>/dev/null || true)"
+
+_summary() {
+  [ -n "${GITHUB_STEP_SUMMARY:-}" ] || return 0
+  local mark_now gate roll
+  mark_now="$(tr -d '[:space:]' < "$APP/.DEPLOYED_SHA" 2>/dev/null || true)"
+  case "${HG_VERDICT:-}" in
+    pass) gate="pass — settled on sample ${HG_TRIES_USED:-?} of ${HG_TRIES:-?}" ;;
+    fail) gate="FAIL — ${HG_REASON:-unhealthy}" ;;
+    *)    gate="did not run" ;;   # refused by a guard, or died before the swap
+  esac
+  roll="${HG_ROLLBACK:-}"
+  [ -n "$roll" ] || roll="none"
+  {
+    printf '### %s deploy — `%s`\n\n' "$KSSL_ENV_NAME" "$SHA"
+    printf '| | |\n|---|---|\n'
+    printf '| runner | `%s` |\n' "${RUNNER_NAME:-$(hostname)}"
+    printf '| environment | %s · prefix `%s` |\n' "$KSSL_ENV_NAME" "${KSSL_PREFIX:-?}"
+    printf '| previous image | `%s` |\n' "${PREV_TAG:-none recorded}"
+    printf '| health gate | %s |\n' "$gate"
+    printf '| rollback | %s |\n' "$roll"
+    printf '| `.DEPLOYED_SHA` | `%s` → `%s` |\n' "${SHA_BEFORE:-none}" "${mark_now:-none}"
+    printf '| run by | %s |\n' "$([ "${GITHUB_ACTIONS:-}" = "true" ] && echo "GitHub Actions" || echo "**by hand**")"
+  } >> "$GITHUB_STEP_SUMMARY"
+}
+trap _summary EXIT
 # HOST GUARD. The GitHub Environments named staging and dev fall back to the REPOSITORY
 # secrets when they carry none of their own -- and those point at production. Without this
 # check a push to `dev` deploys onto VPS-B under kssl-dev- names, orphaning production's
@@ -38,6 +81,50 @@ set -a; . "$ENV_FILE"; set +a
 # were deliberately set up as staging or dev. Production has none, which is why a missing
 # marker is allowed for prod and refused for everything else: an unprovisioned host must
 # never receive a non-production deploy.
+# A DEPLOY RUN BY HAND IS ALLOWED, BUT IT HAS TO BE MEANT AND IT HAS TO BE RECORDED.
+#
+# On 2026-09-07 staging was found running a `main` commit that no workflow deployed: a
+# /tmp/deploy.sh written by heredoc and run as root. It worked -- root can always run
+# this script -- and it left staging on a commit nobody had asked for, with an index
+# build holding an AccessExclusiveLock that stalled the API for minutes. Nothing was
+# malicious; it was a recovery action that quietly became a deployment.
+#
+# What a hand-run skips is everything OUTSIDE this file: the ancestry check that stops a
+# commit from another branch being deployed, DEPLOY_ENABLED, the environment approval,
+# CI and selfcheck, and the Actions run that would have recorded any of it. What it does
+# NOT skip is the host marker below and the health gate -- those live here and still
+# apply, which is why a manual deploy is worth keeping rather than blocking.
+#
+# So: keep it working, make it deliberate, and leave a trail. One environment variable
+# is enough to stop an accident (nobody sets it by mistake) and cheap enough not to
+# obstruct a real 3am recovery.
+if [ "${GITHUB_ACTIONS:-}" != "true" ] && [ -z "${KSSL_MANUAL_DEPLOY:-}" ]; then
+  echo "!! REFUSING: this is a manual deploy, not a GitHub Actions run."
+  echo "   Deploying by hand skips the ancestry check, DEPLOY_ENABLED, the environment"
+  echo "   approval, CI/selfcheck, and the audit trail. The host guard and the health"
+  echo "   gate below still apply."
+  echo
+  echo "   Normal route:    push, or dispatch the Deploy workflow (rollback: -f sha=...)"
+  echo "   If you mean it:  KSSL_MANUAL_DEPLOY=1 $0 $SHA ${2:-}"
+  exit 6
+fi
+if [ "${GITHUB_ACTIONS:-}" != "true" ]; then
+  # WHO, not just WHAT. SSH_CONNECTION survives sudo where SUDO_USER does not exist,
+  # and the reverse; take whatever is there rather than insisting on one.
+  #
+  # AND NEITHER MAY BE SET AT ALL. `${SSH_CLIENT%% *}` is an EXPANSION, not a default,
+  # so under `set -u` it aborts the script when the variable is unset -- which is
+  # precisely the console case: somebody at the machine, not over ssh, running the
+  # recovery this guard was written to keep possible. The deploy died on the line whose
+  # only job was to record it. Read the variable through a default first, then expand.
+  _ssh="${SSH_CLIENT:-${SSH_CONNECTION:-}}"
+  _who="${SUDO_USER:-$(id -un)}${_ssh:+@${_ssh%% *}}"
+  _line="$(date -u +%FT%TZ) MANUAL sha=$SHA env=$KSSL_ENV_NAME by=${_who:-unknown} tty=$(tty 2>/dev/null || echo none)"
+  echo "$_line" >> "$APP/.manual-deploys.log" 2>/dev/null || true
+  echo "!! MANUAL DEPLOY -- recorded in $APP/.manual-deploys.log"
+  echo "   $_line"
+fi
+
 MARKER="$APP/.KSSL_ENV"
 if [ -f "$MARKER" ]; then
   HOST_ENV="$(tr -d '[:space:]' < "$MARKER")"
@@ -82,7 +169,18 @@ for kv in "KSSL_ENV=$KSSL_ENV_NAME" "KSSL_PREFIX=$KSSL_PREFIX" "KSSL_DB_PORT=$KS
   k="${kv%%=*}"
   if grep -q "^$k=" .env 2>/dev/null; then sed -i "s|^$k=.*|$kv|" .env; else echo "$kv" >> .env; fi
 done
-echo "$SHA" > .DEPLOYED_SHA
+# .DEPLOYED_SHA IS NOT WRITTEN HERE. It is written after the health gate, below.
+#
+# It used to be written at this point, before the image swap. So a deploy the gate
+# REJECTED left the marker naming the rejected SHA while .env TAG and the running
+# containers had been rolled back to the previous one -- two files disagreeing about
+# what production was running, with only one of them right. Found by the 2026-09-07
+# rollback drill on staging: the gate correctly refused a48bb36 and restored 3f875de,
+# and .DEPLOYED_SHA still said a48bb36.
+#
+# Nothing in this repository READS the marker -- it exists for humans and for
+# monitoring -- which is exactly why a lie in it survives: no test fails, no deploy
+# breaks, and it is believed the next time somebody asks what is deployed.
 
 # --- pending migrations, on a REPLICA only ---------------------------------------
 # A BACKEND MUST NEVER ARRIVE AHEAD OF ITS SCHEMA.
@@ -220,7 +318,14 @@ echo ">> recreating frontend + backend (nothing else)"
 "${COMPOSE[@]}" up -d --no-build frontend backend
 
 # HEALTH GATE -- see deploy/healthgate.sh (extracted so it can be tested).
+# It exits 1 on failure, so everything below is reached only by a deploy that passed.
 . "$APP/deploy/healthgate.sh"
+
+# THE MARKER, WRITTEN ONLY ONCE THE GATE HAS PASSED. Unreachable on a failed deploy
+# because healthgate.sh exits; and the gate's rollback branch writes the restored tag
+# itself, so every path that changes what is running also updates this file. There is
+# no ordering in which the marker can name something that is not deployed.
+echo "$SHA" > .DEPLOYED_SHA
 
 # --- Extraction stack (its own compose project, network_mode: host) -------------
 # Rebuild the image from the just-synced source and recreate the roles. `up -d` only

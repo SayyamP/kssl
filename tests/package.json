@@ -1,0 +1,16 @@
+{
+  "name": "kssl-e2e-suite",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Playwright E2E suite for the KSSL / 137Parallax dashboard. Selenium and the API/DB suites are Python -- see tests/requirements.txt.",
+  "scripts": {
+    "test": "playwright test",
+    "test:ui": "playwright test --project=chromium tests-frontend",
+    "test:cross": "playwright test --project=chromium --project=firefox --project=webkit",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0"
+  }
+}

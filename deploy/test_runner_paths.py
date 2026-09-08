@@ -9,11 +9,20 @@ later edit breaks silently:
      call -- or a VPS_HOST/VPS_SSH_KEY in a step's env -- puts the failure mode back
      without changing anything visible in the log until the day it fails.
 
-  2. deploy.yml MUST NEVER TAKE A pull_request TRIGGER, and every ci.yml job must stay on
-     ubuntu-latest. This is the entire security boundary: `push` to a protected branch
-     needs write access, `pull_request` does not -- a stranger's fork can open one. A
-     self-hosted runner on a pull_request-triggered workflow is root on production for
-     any GitHub user.
+  2. deploy.yml MUST NEVER TAKE A pull_request TRIGGER, and ci.yml -- which does take one
+     -- must keep all three of the tripwires that make that safe. This is the entire
+     security boundary: `push` to a protected branch needs write access, `pull_request`
+     does not. A self-hosted runner on a pull_request-triggered workflow with no tripwire
+     is root on our own machine for whoever can open the pull request.
+
+     ci.yml moved onto the staging runner on 2026-09-08, because as the last workflow on
+     ubuntu-latest it was failing every run on the account's spending limit and gating
+     nothing. What keeps that safe is that it goes self-hosted ONLY when the arming
+     variable is set AND the repository is private AND the pull request comes from this
+     repository rather than a fork -- and that the label it asks for is `staging`, never
+     `prod`. All three conditions and the label are checked here, in both places they are
+     written, because any one of them dropped in an edit leaves a workflow that still
+     looks exactly like this one and still passes every other gate.
 
   3. NO DEPLOY JOB MAY PIN ubuntu-latest. Every job routes through the runner `resolve`
      picks, so that the workflow lands entirely on one environment's runner or entirely
@@ -73,10 +82,44 @@ def main():
     # yaml parses a bare `on:` key as the boolean True
     if "pull_request" in list(deploy[True]):
         fail.append("deploy.yml has a pull_request trigger; a fork could reach a runner")
-    for name, job in ci["jobs"].items():
-        if job["runs-on"] != "ubuntu-latest":
-            fail.append("ci.yml job %r is on %r; ci.yml takes pull_request and must stay "
-                        "on GitHub's disposable machines" % (name, job["runs-on"]))
+    # 2b. ci.yml routes through its own resolve, and resolve's decision carries all three
+    # tripwires in BOTH places it is written -- the inline `runs-on` expression and the
+    # shell that publishes the output -- since resolve cannot consume its own output.
+    CI_GUARDS = {
+        "SELF_HOSTED_CI": "the arming variable is gone; ci.yml would go self-hosted with "
+                          "no way to turn it off without a commit",
+        "github.event.repository.private": "the private-repository tripwire is gone; "
+                          "making this repository public would silently hand a stranger's "
+                          "pull request a shell on the staging box",
+        "github.event.pull_request.head.repo.full_name": "the fork tripwire is gone; a "
+                          "pull request from a fork is a branch we did not write",
+    }
+    ci_resolve = ci["jobs"].get("resolve")
+    if not ci_resolve:
+        fail.append("ci.yml has no resolve job; its runner choice is no longer made in "
+                    "one place and the tripwires below cannot be checked")
+    else:
+        ci_pick = next((st for st in ci_resolve["steps"] if st.get("id") == "pick"), None)
+        if not ci_pick:
+            fail.append("ci.yml resolve has no `pick` step to publish a runner")
+        for where, text in (("runs-on", str(ci_resolve["runs-on"])),
+                            ("the pick step", (ci_pick or {}).get("run") or "")):
+            for token, why in CI_GUARDS.items():
+                if token not in text:
+                    fail.append("ci.yml resolve %s no longer mentions %s -- %s"
+                                % (where, token, why))
+            labels = set(re.findall(r'\["self-hosted","(\w+)"\]', text))
+            if labels - {"staging"}:
+                fail.append("ci.yml resolve %s asks for %s; CI builds images and starts a "
+                            "postgres container and must never be offered the production "
+                            "runner" % (where, sorted(labels)))
+        for name, job in ci["jobs"].items():
+            if name == "resolve":
+                continue
+            if "needs.resolve.outputs.runner" not in str(job["runs-on"]):
+                fail.append("ci.yml job %r is on %r rather than following resolve; a job "
+                            "left pinned is billed, and while the spending limit is "
+                            "reached it fails the whole workflow" % (name, job["runs-on"]))
 
     # 3. no Deploy job pinned to GitHub's machines
     for name, job in deploy["jobs"].items():
@@ -85,6 +128,22 @@ def main():
                         "runner resolve picks" % name)
         if name != "resolve" and "needs.resolve.outputs.runner" not in str(job["runs-on"]):
             fail.append("deploy.yml job %r does not follow resolve's runner choice" % name)
+
+    # 3b. the ancestry guard, which is what stops a dispatched `sha` from deploying a
+    # commit that was never merged to the branch it claims to be deploying. Verified
+    # live on 2026-09-07 (a main-only sha dispatched at staging was refused), and
+    # asserted here because it is one `if:` away from being silently skipped.
+    anc = [st for st in deploy["jobs"]["resolve"]["steps"]
+           if "ancestor" in (st.get("name") or "").lower()]
+    if not anc:
+        fail.append("resolve has no ancestry check; a dispatched sha could deploy a "
+                    "commit that is not on the branch")
+    else:
+        body = anc[0].get("run") or ""
+        if "merge-base --is-ancestor" not in body:
+            fail.append("the ancestry step no longer uses `git merge-base --is-ancestor`")
+        if "workflow_dispatch" not in (anc[0].get("if") or ""):
+            fail.append("the ancestry step is not gated on workflow_dispatch")
 
     # 4. resolve's inline mapping vs the mapping it publishes
     # The two are written in different languages -- a workflow expression
@@ -121,8 +180,9 @@ def main():
         return 1
     print("runner paths: %d local step(s) free of ssh, %d ssh step(s) kept for dev, "
           "deploy.yml push-only, all %d deploy job(s) follow resolve, resolve's two "
-          "mappings agree, selfcheck venv present, all %d ci.yml jobs github-hosted -- ok"
-          % (len(local), len(over_ssh), len(deploy["jobs"]), len(ci["jobs"])))
+          "mappings agree, selfcheck venv present, all %d ci.yml job(s) follow ci's own "
+          "resolve with its three tripwires intact -- ok"
+          % (len(local), len(over_ssh), len(deploy["jobs"]), len(ci["jobs"]) - 1))
     return 0
 
 

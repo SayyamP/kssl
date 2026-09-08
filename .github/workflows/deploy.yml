@@ -129,6 +129,14 @@ jobs:
                      echo 'runner=["ubuntu-latest"]'         >> "$GITHUB_OUTPUT" ;;
           esac
           echo "runner: $(grep '^runner=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
+          # ...and on the run page, not only in this log. deploy.sh writes the rest of the
+          # summary, but it is not reached at all when DEPLOY_ENABLED is false, an approval
+          # is pending or selfcheck fails -- the runs where "which box was this even going
+          # to?" is least obvious from the outside.
+          {
+            echo "### ${{ github.ref_name }} → $(grep '^runner=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2-)"
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # A DISPATCHED SHA MUST BE ON THE BRANCH IT DEPLOYS.
       #
