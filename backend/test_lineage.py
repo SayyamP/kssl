@@ -211,6 +211,27 @@ def test_recorded_enrichment_preserves_multiple_docs():
     print("  ok  enrichment RECORDED via source_doc_ids, multiple docs preserved")
 
 
+def leonardo_rows_matchup():
+    """Leonardo chain with NO partner tie but a matchup whose source_doc_ids lists DID."""
+    rows = leonardo_rows()
+    rows["information_schema.columns"] = {"t": 1}      # _has_column -> True
+    rows["FROM serving.matchup m WHERE m.source_doc_ids"] = {"rec": {
+        "matchup_id": 9007, "comp": "Leonardo", "origin": "pipeline",
+        "source_doc_ids": [DID, "doc_spec_2"]}}
+    return rows
+
+
+def test_recorded_enrichment_matchup_source_doc_ids():
+    # The matchup lineage branch surfaces independently of partner, and preserves every
+    # contributing document -- the 2026-09-09 matchup lineage fix.
+    code, body = app.build_lineage(FakeCur(leonardo_rows_matchup()), DID)
+    enr = _stage(body, "enrichment")
+    assert enr and enr["status"] == "recorded", enr
+    assert "serving.matchup.source_doc_ids" in enr["component"], enr
+    assert enr["record"]["source_doc_ids"] == [DID, "doc_spec_2"], enr
+    print("  ok  enrichment RECORDED via serving.matchup.source_doc_ids, docs preserved")
+
+
 def test_existing_behavior_unchanged_when_lineage_null():
     # No lineage columns populated -> the endpoint falls back exactly as before.
     code, body = app.build_lineage(FakeCur(leonardo_rows()), DID)
@@ -228,5 +249,6 @@ if __name__ == "__main__":
     test_endpoint_is_read_only()
     test_recorded_prop_link_when_column_present()
     test_recorded_enrichment_preserves_multiple_docs()
+    test_recorded_enrichment_matchup_source_doc_ids()
     test_existing_behavior_unchanged_when_lineage_null()
     print("ok - lineage POC: recorded chain traced, gaps explicit, read-only")

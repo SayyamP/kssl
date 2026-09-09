@@ -246,6 +246,7 @@ CREATE TABLE serving.matchup (
     revenue_filter text,
     news_image     text,
     product_news   jsonb,
+    source_doc_ids text[],          -- contributing corpus documents (step_matchups); NULL for revive_matchups/reference rows
     origin     text NOT NULL CHECK (origin IN ('reference', 'pipeline')),
     updated_at timestamptz NOT NULL DEFAULT now()
 );
