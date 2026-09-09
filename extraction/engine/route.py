@@ -152,14 +152,39 @@ def _load(modname, attr, cands):
     return None, modname + ".py not found on any candidate path"
 
 
+def _as_dir(p):
+    """C_TIERS_PATH may name the FILE or its directory -- accept both.
+
+    entrypoint.sh exports it as "$ENGINE/source_tiers.py" (a file) while every lookup
+    here does Path(c, "source_tiers.py"), which then resolves to
+    .../source_tiers.py/source_tiers.py and never exists. That mismatch took the
+    feeder's enqueue down completely on 2026-09-09: every cycle raised "refusing to
+    enqueue without source_tiers" and NOTHING entered the queue, while the module
+    imported fine by hand.
+    """
+    import pathlib as _pl
+    if not p:
+        return None
+    q = _pl.Path(p)
+    return str(q.parent) if q.name.endswith(".py") else str(q)
+
+
 def _search_paths():
     import os
     import pathlib as _pl
+    import sys as _sys
     here = _pl.Path(__file__).resolve().parent
-    return [os.environ.get("C_TIERS_PATH"),
+    # sys.argv[0] as well as __file__: under `python3 route.py` these can resolve
+    # differently depending on cwd, and the tier lookup must not depend on which.
+    try:
+        argv_dir = str(_pl.Path(_sys.argv[0]).resolve().parent)
+    except Exception:                                             # noqa: BLE001
+        argv_dir = None
+    return [_as_dir(os.environ.get("C_TIERS_PATH")),
             str(here.parent.parent / "app" / "pipeline"),
             str(here.parent.parent.parent / "app" / "pipeline"),
-            str(here)]
+            str(here),
+            argv_dir]
 
 
 def presignal_of(text, title="", published_at=None):
@@ -210,6 +235,41 @@ def presignal_available():
         return ok, (where if ok else "loaded but blind: %s" % where)
     except Exception:
         return True, _PRESIGNAL_WHY          # older scorer with no ready(): trust the import
+
+
+# A tracked competitor's OWN site is relevant by provenance, not by vocabulary. The
+# presignal lexicon is English-weighted, so a Korean or Russian maker page scores near
+# zero on defence terms and is deferred however on-topic it is: measured 2026-09-09,
+# the same K9 howitzer sentence scores 25 in English, 10 in Russian and -15 in Korean
+# against a PASS_THRESHOLD of 45. That deferred 2,096 of Poongsan's 3,050 pages -- a
+# competitor the crawler had only just started covering.
+#
+# This does NOT lower the threshold (see the note at PASS_THRESHOLD): the bar is
+# unchanged for every third-party source, and bulk news still has to earn its way in.
+# It exempts the one class of document whose relevance the URL already settles.
+#
+# Read from serving.competitors rather than a constant so the set follows the roster;
+# a hard-coded list goes stale the first time someone adds a competitor.
+_FIRST_PARTY = None
+
+
+def first_party_domains(conn):
+    """Domains of the tracked competitors' own sites. Empty set if unavailable."""
+    global _FIRST_PARTY
+    if _FIRST_PARTY is not None:
+        return _FIRST_PARTY
+    try:
+        with conn.cursor() as c:
+            c.execute("""SELECT lower(regexp_replace(
+                             regexp_replace(site, '^https?://(www\\.)?', ''), '/.*$', ''))
+                           FROM serving.competitors WHERE site IS NOT NULL AND site <> ''""")
+            _FIRST_PARTY = {r[0] for r in c.fetchall() if r[0]}
+    except Exception as e:                                        # noqa: BLE001
+        # A missing serving schema must not stop the queue -- degrade to old behaviour.
+        print("first-party bypass unavailable (%s); gate applies to every source"
+              % type(e).__name__, flush=True)
+        _FIRST_PARTY = set()
+    return _FIRST_PARTY
 
 
 def percentile_within(score, cohort_scores):
@@ -635,21 +695,35 @@ def _load_tier_fn():
     import os
     import pathlib as _pl
     here = _pl.Path(__file__).resolve().parent
-    for c in (os.environ.get("C_TIERS_PATH"),
-              str(here.parent.parent / "app" / "pipeline"),
-              str(here.parent.parent.parent / "app" / "pipeline"),
-              str(here)):
+    for c in _search_paths():
         if not c or not _pl.Path(c, "source_tiers.py").exists():
             continue
-        if c not in sys.path:
-            sys.path.insert(0, c)
+        # Load from the RESOLVED FILE, never `import source_tiers`. Two modules of that
+        # name ship in this image -- engine/source_tiers.py (12.5 KB, exports tier()) and
+        # signals/source_tiers.py (17.9 KB, which does NOT). Whichever directory reaches
+        # sys.path first wins, and when the signals copy won, reading .tier raised, the
+        # loop swallowed it, and enqueue reported "not found on any candidate path" while
+        # the file sat right there. Observed on VPS-B 2026-09-09: it took the feeder's
+        # enqueue down completely. Loading by path makes shadowing impossible.
+        import importlib.util as _ilu
         try:
-            import source_tiers
-            _TIER_FN, _TIER_WHY = source_tiers.tier, c
+            _spec = _ilu.spec_from_file_location(
+                "_kssl_source_tiers", str(_pl.Path(c, "source_tiers.py")))
+            _mod = _ilu.module_from_spec(_spec)
+            _spec.loader.exec_module(_mod)
+            fn = getattr(_mod, "tier", None)
+            if fn is None:
+                _TIER_WHY = "%s: source_tiers.py here exports no tier()" % c
+                continue
+            _TIER_FN, _TIER_WHY = fn, c
             return _TIER_FN
         except Exception as e:
             _TIER_WHY = "%s: %s" % (c, type(e).__name__)
-    _TIER_WHY = "source_tiers.py not found on any candidate path"
+    # Keep the LAST REAL reason. Overwriting it with a generic "not found" is what hid a
+    # shadowed module behind a missing-file message for hours.
+    if not _TIER_WHY or "/" not in str(_TIER_WHY):
+        _TIER_WHY = ("source_tiers.py not found on any candidate path: %s"
+                     % [c for c in _search_paths() if c])
     return None
 
 
@@ -970,12 +1044,16 @@ def enqueue(q, since, now_iso, limit=20000, cohort_min=30):
             "document_id": doc_id, "ref_table": "extract_queue", "ref_id": doc_id,
             "reason": state if not why else state + ":" + why,
             "evidence": {"state": state, "class": cls}})
+    own_sites = first_party_domains(q)
     for d in docs:
-        if d["_ps"] is not None and d["_ps"] < PASS_THRESHOLD:
+        first_party = (d.get("source_id") or "").lower() in own_sites
+        if d["_ps"] is not None and d["_ps"] < PASS_THRESHOLD and not first_party:
             n["deferred"] += 1
             _mark(q, d["document_id"], "deferred", d, why="gate")
             _gate_event(d["document_id"], "deferred", "presignal-below-threshold")
             continue
+        if first_party and d["_ps"] is not None and d["_ps"] < PASS_THRESHOLD:
+            n["first_party_bypass"] += 1
         lang = d.get("language") or "??"
         pool = cohorts.get(lang, [])
         # A cohort too small to rank within is "no information", not a confident ordering. Their
@@ -1701,6 +1779,41 @@ def _demo():
     assert r["other"] == 378, r
     print("ok  backfill: %d-row floor, score survives the reason round trip, "
           "no-op above the floor" % BACKFILL_FLOOR)
+
+    # --- first-party bypass --------------------------------------------------------------
+    # The bug this exists for: presignal is English-weighted, so the SAME sentence about a
+    # K9 howitzer scored 25 in English, 10 in Russian and -15 in Korean against a threshold
+    # of 45 (measured 2026-09-09). A maker's own page is on-topic whatever it is written in.
+    class _FakeConn:
+        def __init__(self, rows, boom=False): self.rows, self.boom = rows, boom
+        def cursor(self): return self
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql, args=None):
+            if self.boom:
+                raise RuntimeError("no serving schema")
+        def fetchall(self): return [(r,) for r in self.rows]
+
+    global _FIRST_PARTY
+    _FIRST_PARTY = None
+    doms = first_party_domains(_FakeConn(["poongsan.co.kr", "saab.com"]))
+    assert doms == {"poongsan.co.kr", "saab.com"}, doms
+    # cached: a second call must not re-query
+    assert first_party_domains(_FakeConn([])) == doms, "domain set is not cached"
+
+    # A maker page below the bar is admitted; a news page with the same score is not.
+    for src, expect_ready in (("poongsan.co.kr", True), ("ukrinform.ua", False)):
+        first_party = src.lower() in doms
+        deferred = (10 < PASS_THRESHOLD) and not first_party
+        assert deferred != expect_ready, "%s: bypass decided wrong" % src
+
+    # Degrading must not stop the queue: no serving schema -> empty set, gate applies to all.
+    _FIRST_PARTY = None
+    assert first_party_domains(_FakeConn([], boom=True)) == set(), \
+        "a missing serving schema must degrade to the old behaviour, not raise"
+    _FIRST_PARTY = None
+    print("ok  first-party bypass: maker sites skip the presignal bar, news does not, "
+          "and a missing serving schema degrades instead of raising")
 
 
 STATUS = """
