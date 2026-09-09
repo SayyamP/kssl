@@ -1353,3 +1353,1207 @@ def ops_run_detail(run_id: str):
                 "the migration is applied."})
     finally:
         conn.close()
+
+
+# ============================================================================================
+# SIGNAL EXPLORER -- investigate one signal end to end. READ-ONLY.
+#
+# A "signal" is a serving.signal_card row, keyed pl_<document_id> (serving_fill.py). This
+# view answers "why does this card exist, from which document, on what evidence, where is it
+# served?" by joining the signal-centric RECORDED fields (card/detail, the 2026-09-07
+# lineage columns, provenance.event lifecycle) to the FULL document trace -- which it gets
+# by calling build_lineage(), the same source of truth the Document Lineage view uses. No
+# lineage logic is duplicated here, and nothing manufactures a proposition->signal link:
+# the recorded input set is signal_card.source_prop_ids; the quote-overlap guess stays
+# labelled 'reconstructed' inside build_lineage. Every section is tagged recorded /
+# reconstructed / aggregated / provenance_unavailable.
+# ============================================================================================
+
+def _sig_ids(signal_id):
+    """A card id is pl_<document_id>. Accept either form; return (card_id, document_id)."""
+    sid = (signal_id or "").strip()
+    if sid.startswith("pl_"):
+        return sid, sid[3:]
+    return "pl_" + sid, sid
+
+
+@app.get("/api/ops/signals")
+def ops_signals(lane: str = None, company: str = None, q: str = None,
+                since: str = None, until: str = None, origin: str = None,
+                limit: int = 50):
+    """Signal list with filters (lane, company, free-text q over id/title/company, a
+    since/until window on updated_at, origin). Source: serving.signal_card, read-only."""
+    limit = max(1, min(int(limit), 500))
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if not _regclass(cur, "serving.signal_card"):
+            return JSONResponse({"available": False, "signals": [],
+                                 "note": "serving.signal_card does not exist on this "
+                                         "database."})
+        has_lin = _has_column(cur, "serving", "signal_card", "source_prop_ids")
+        where, params = [], []
+        if lane:
+            where.append("lane = %s"); params.append(lane)
+        if company:
+            where.append("company ILIKE %s"); params.append("%" + company + "%")
+        if origin:
+            where.append("origin = %s"); params.append(origin)
+        if q:
+            where.append("(id ILIKE %s OR title ILIKE %s OR company ILIKE %s)")
+            params += ["%" + q + "%"] * 3
+        if since:
+            where.append("updated_at >= %s"); params.append(since)
+        if until:
+            where.append("updated_at <= %s"); params.append(until)
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
+        lin_cols = ", source_doc_ids, source_run_id, source_prop_ids" if has_lin else ""
+        cur.execute(
+            "SELECT id, lane, ord, dir, rank, title, company, tags, url, ago, origin, "
+            "updated_at::text AS updated_at" + lin_cols +
+            " FROM serving.signal_card" + clause +
+            " ORDER BY updated_at DESC, ord LIMIT %s", params + [limit])
+        rows = []
+        for r in cur.fetchall():
+            d = dict(r)
+            d["has_lineage"] = ({
+                "source_doc_ids": bool(d.get("source_doc_ids")),
+                "source_run_id": bool(d.get("source_run_id")),
+                "source_prop_ids": bool(d.get("source_prop_ids"))} if has_lin else None)
+            rows.append(d)
+        return JSONResponse({
+            "available": True, "read_only": True,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "count": len(rows),
+            "filters": {"lane": lane, "company": company, "q": q, "since": since,
+                        "until": until, "origin": origin, "limit": limit},
+            "lineage_columns_present": has_lin,
+            "signals": rows})
+    finally:
+        conn.close()
+
+
+@app.get("/api/ops/signals/{signal_id}")
+def ops_signal_detail(signal_id: str):
+    """One signal, end to end. Signal-centric recorded fields + provenance lifecycle +
+    translation, plus the full document trace from build_lineage() (reused, not
+    duplicated). 404 only when neither a card, a detail, provenance events, nor any
+    document lineage exists for the id."""
+    card_id, did = _sig_ids(signal_id)
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if not _regclass(cur, "serving.signal_card"):
+            return JSONResponse(status_code=503,
+                                content={"error": "serving.signal_card not on this database"})
+
+        def rec_of(row):
+            return row.get("rec") if row else None
+
+        cur.execute("SELECT to_jsonb(c) AS rec FROM serving.signal_card c WHERE c.id = %s",
+                    (card_id,))
+        card = rec_of(cur.fetchone())
+        cur.execute("SELECT to_jsonb(d) AS rec FROM serving.signal_detail d WHERE d.id = %s",
+                    (card_id,))
+        detail = rec_of(cur.fetchone())
+
+        # -- signal-centric recorded fields --
+        if card:
+            signal = {"status": "recorded", "card": card, "detail": detail,
+                      "lane": card.get("lane"), "company": card.get("company"),
+                      "category_tags": card.get("tags"), "rank": card.get("rank"),
+                      "dir": card.get("dir"), "title": card.get("title"),
+                      "origin": card.get("origin")}
+        else:
+            signal = {"status": "provenance_unavailable", "card": None, "detail": detail,
+                      "note": "No serving.signal_card with id %s: the document produced no "
+                              "card. See provenance_events / lineage for why." % card_id}
+
+        # -- lineage columns (recorded 2026-09-07) --
+        if card and card.get("source_prop_ids") is not None:
+            lineage_columns = {
+                "status": "recorded",
+                "source_doc_ids": card.get("source_doc_ids"),
+                "source_run_id": card.get("source_run_id"),
+                "source_prop_ids": card.get("source_prop_ids"),
+                "note": "The INPUT SET of proposition indices fed to this card, recorded at "
+                        "write time -- not sentence-level causal attribution."}
+        else:
+            lineage_columns = {
+                "status": "provenance_unavailable",
+                "note": "This card predates the lineage columns (no backfill) or is a "
+                        "reference row; the prop->card link is only reconstructable "
+                        "(see lineage.stages prop_to_card_link)."}
+
+        # -- provenance lifecycle events for this signal (recorded) --
+        if _regclass(cur, "provenance.event"):
+            cur.execute(
+                "SELECT event_id, ts::text AS ts, stage, component, document_id, run_id, "
+                "action, reason, evidence FROM provenance.event "
+                "WHERE ref_id = %s OR document_id = %s ORDER BY event_id", (card_id, did))
+            evs = [dict(r) for r in cur.fetchall()]
+            rejects = [e for e in evs if e.get("action") in ("record_rejected", "error")]
+            provenance_events = {
+                "status": "recorded", "events": evs,
+                "rejection_or_error": rejects or None,
+                "note": ("record_rejected/error rows are the recorded gate/selection "
+                         "decision for this document." if rejects else None)}
+        else:
+            provenance_events = {
+                "status": "provenance_unavailable", "events": [],
+                "note": "provenance.event is not present on this database."}
+
+        # -- translation (RECONSTRUCTED from source language; there is no stored flag) --
+        lang = None
+        if _regclass(cur, "public.documents"):
+            cur.execute("SELECT language FROM public.documents WHERE document_id = %s", (did,))
+            lr = cur.fetchone()
+            lang = (lr or {}).get("language") if lr else None
+        if lang is not None:
+            translation = {
+                "status": "reconstructed", "source_language": lang,
+                "translated": (lang or "").lower() not in ("", "en", "eng"),
+                "note": "Derived from the source document language. serving_fill translates "
+                        "non-English lead-ins to English at write time (translate.py); there "
+                        "is no stored translation flag, so this is a reconstruction."}
+        else:
+            translation = {"status": "provenance_unavailable",
+                           "note": "Source language not recorded on this database."}
+
+        # -- FULL document trace: REUSE build_lineage (source of truth; own labels) --
+        lineage_code, lineage = build_lineage(cur, did)
+
+        found = bool(card or detail or provenance_events.get("events") or lineage_code != 404)
+        if not found:
+            return JSONResponse(status_code=404,
+                                content={"error": "no signal or lineage for this id",
+                                         "signal_id": signal_id, "card_id": card_id,
+                                         "document_id": did})
+        return JSONResponse({
+            "signal_id": signal_id, "card_id": card_id, "document_id": did,
+            "read_only": True,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "signal": signal,
+            "lineage_columns": lineage_columns,
+            "provenance_events": provenance_events,
+            "translation": translation,
+            "lineage": lineage,            # full doc trace, reused build_lineage (own labels)
+            "lineage_status": lineage_code,
+            "label_key": {"recorded": "a stored fact",
+                          "reconstructed": "derived or guessed, not stored",
+                          "aggregated": "a computed roll-up",
+                          "provenance_unavailable": "an honest gap"}})
+    finally:
+        conn.close()
+
+
+# ============================================================================================
+# FEATURE / TAB EXPLORER -- the implementation path of each product feature. READ-ONLY.
+#
+# For every major tab the dashboard renders, this maps the real end-to-end path:
+# source -> gate -> extraction -> propositions -> (signals|enrich|external harvest) ->
+# serving table -> serving_live view -> /api/dataset[key] -> frontend component. The
+# registry below is TRACED from the actual code (files/functions/tables/prompts all exist),
+# and each entry is GROUNDED at request time with live row counts and real column presence,
+# exactly like _PIPELINE. Provenance is labelled per feature; only signal_card/detail and
+# (partially) partner record document lineage -- everything else is UNAVAILABLE / a per-row
+# source URL / an aggregate, and is labelled so, never invented. No pipeline logic is
+# duplicated: row-level lineage still comes from /api/lineage/doc/{id} and /api/ops/signals.
+# ============================================================================================
+
+_FEATURES = [
+    {"id": "signals", "title": "Signal feed (Overview)",
+     "purpose": "The competitive/market/tech signal cards and their detail panels -- the "
+                "headline feed on every pillar's Overview.",
+     "source_kind": "corpus", "pipeline_step": "signals",
+     "serving_table": "serving.signal_card", "serving_view": "serving_live.signal_card",
+     "extra_tables": ["serving.signal_detail"],
+     "api": {"endpoint": "/api/dataset", "keys": ["competitiveCards", "marketCards",
+             "techCards", "details"], "fields": CARD_FIELDS},
+     "ui": {"view": "overview", "component": "frontend/src/pages/overview/Overview.jsx",
+            "renders": "components/signalCard/SignalCard.jsx + detailPanel/DetailPanel.jsx"},
+     "writers": [{"file": "extraction/signals/serving_fill.py", "function": "fill / CARD_INSERT_SQL",
+                  "kind": "LLM", "model": "serving 14B (farm) via llmapi.client; parse_card classifies in code"}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "RECORDED",
+                    "recorded_cols": ["source_doc_ids", "source_run_id", "source_prop_ids"],
+                    "row_trace": "/api/ops/signals/{id} and /api/lineage/doc/{id}"},
+     "gaps": ["prop->card link is an input set, not sentence-level attribution",
+              "pre-2026-09-07 cards have null lineage (no backfill)"]},
+
+    {"id": "partnerships", "title": "Partnerships",
+     "purpose": "KSSL's own partners plus each rival's partnership network and the overlap "
+                "with KSSL (the red-line ties).",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.partner", "serving_view": "serving_live.partner",
+     "api": {"endpoint": "/api/dataset", "keys": ["KSSL_PARTNERS", "competitors[].partners"],
+             "fields": PARTNER_FIELDS},
+     "ui": {"view": "partnerships", "component": "frontend/src/pages/competitive/Partnerships.jsx",
+            "renders": "lib/partners.js SVG graph + per-tie drawer"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_partnerships",
+                  "kind": "LLM", "model": "serving 14B (farm), PART_PROMPT", "scope": "client rows plp_*, ord<REV_ORD0"},
+                 {"file": "pipeline/revive_partners.py", "function": "main",
+                  "kind": "rule/DB", "scope": "rvp_*, ord>=REV_ORD0"}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "RECORDED_PARTIAL", "recorded_cols": ["source_doc_ids"],
+                    "per_row_source": ["src", "srcnote"],
+                    "note": "enrich_serving rows record source_doc_ids; revive_partners rows "
+                            "do not. source_run_id/source_prop_ids are not on this table.",
+                    "row_trace": "/api/lineage/doc/{id} (enrichment stage)"},
+     "gaps": ["revive_partners rows carry no source_doc_ids"]},
+
+    {"id": "competitors", "title": "Competitors / Profile",
+     "purpose": "The per-competitor dossier: sector, HQ, threat, assessment, and the nested "
+                "leadership/revenue/facilities/products sub-panels.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.competitors", "serving_view": "serving_live.competitors",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitors", "compOrder"], "fields": COMP_FIELDS},
+     "ui": {"view": "profile", "component": "frontend/src/pages/competitive/Profile.jsx",
+            "renders": "lib/profile.js buildProfile"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_companies / _rebuild_companies",
+                  "kind": "LLM", "model": "serving 14B (farm), PROFILE_PROMPT", "scope": "ord<REV_ORD0"},
+                 {"file": "pipeline/revive_partners.py", "function": "main", "kind": "rule/DB", "scope": "ord>=REV_ORD0"},
+                 {"file": "pipeline/harvest/promote.py", "function": "(harvest)", "kind": "harvest",
+                  "note": "fills leadership/facilities/sales from each maker's own site, each value carrying its URL + verbatim line"}],
+     "inputs": ["extracted.proposition", "extracted.document", "maker websites (harvest)"],
+     "provenance": {"class": "UNAVAILABLE",
+                    "note": "No source_doc_ids on serving.competitors. Harvested sub-fields "
+                            "(leadership/sales/facilities) carry a per-value source URL + quote; "
+                            "the LLM profile fields carry none. Some profiles are interim agent data.",
+                    "per_row_source": ["srcs"]},
+     "gaps": ["profile/threat/assess have no recorded document lineage",
+              "leadership column is ~0% filled on live data"]},
+
+    {"id": "leadership", "title": "Leadership (Profile sub-panel)",
+     "purpose": "Board/executive cards inside a competitor's profile.",
+     "source_kind": "harvest", "pipeline_step": "enrich",
+     "serving_table": "serving.competitors", "serving_view": "serving_live.competitors",
+     "column": "leadership",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitors[].leadership"]},
+     "ui": {"view": "profile", "component": "frontend/src/pages/competitive/Profile.jsx (Leadership section)"},
+     "writers": [{"file": "pipeline/harvest/promote.py", "function": "(harvest)", "kind": "harvest",
+                  "note": "each value carries the URL and the verbatim line it was read from"}],
+     "inputs": ["maker websites"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["per-value URL + quote"],
+                    "note": "Recorded as a per-value source URL, not document lineage."},
+     "gaps": ["column is ~0% filled on live data -- empty state, not fabricated"]},
+
+    {"id": "revenue", "title": "Revenue / Sales (Profile row)",
+     "purpose": "Annual revenue / sales figure in a competitor's Company Details panel.",
+     "source_kind": "harvest", "pipeline_step": "enrich",
+     "serving_table": "serving.competitors", "serving_view": "serving_live.competitors",
+     "column": "sales",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitors[].sales"]},
+     "ui": {"view": "profile", "component": "frontend/src/pages/competitive/Profile.jsx (firstFigure)"},
+     "writers": [{"file": "pipeline/harvest/promote.py", "function": "(harvest)", "kind": "harvest"}],
+     "inputs": ["maker websites"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["per-value URL + quote"]},
+     "gaps": ["revenue_filter facet tier is unwritten (frontend Products.jsx)"]},
+
+    {"id": "products", "title": "Products",
+     "purpose": "A competitor's product catalogue with specs and product news.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.competitors", "serving_view": "serving_live.competitors",
+     "column": "products", "extra_tables": ["serving.matchup"],
+     "api": {"endpoint": "/api/dataset", "keys": ["competitors[].products", "matchups[].specs"]},
+     "ui": {"view": "products", "component": "frontend/src/pages/competitive/Products.jsx"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_companies (products) / step_matchups (specs)",
+                  "kind": "mixed", "model": "PROFILE_PROMPT for products; specs are rule/DB from propositions"}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "UNAVAILABLE", "note": "products embedded in serving.competitors; no doc lineage."},
+     "gaps": []},
+
+    {"id": "matchups", "title": "Matchups / Positioning",
+     "purpose": "Every rating-matched KSSL-vs-rival pair with the spec dossier and edge verdict.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.matchup", "serving_view": "serving_live.matchup",
+     "api": {"endpoint": "/api/dataset", "keys": ["matchups"], "fields": MATCHUP_FIELDS},
+     "ui": {"view": "positioning", "component": "frontend/src/pages/competitive/Positioning.jsx",
+            "renders": "matchupList + matchupDossier; also GapAnalysis.jsx"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_matchups",
+                  "kind": "rule/DB", "model": "extract_specs / categorise_product over propositions (no self-narration)", "scope": "matchup_id<20000"},
+                 {"file": "pipeline/revive_matchups.py", "function": "main", "kind": "rule/DB", "scope": "matchup_id>=20000"}],
+     "inputs": ["extracted.proposition", "extracted.document", "serving.competitors"],
+     "provenance": {"class": "UNAVAILABLE", "per_row_source": ["srcs", "det"],
+                    "note": "Per-row srcs/det carry the spec sources; no source_doc_ids column."},
+     "gaps": ["spec->document link not stored as lineage"]},
+
+    {"id": "structure", "title": "Structure / Ownership",
+     "purpose": "Ownership and corporate-structure ties between a competitor and other entities.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.competitor_structure", "serving_view": "serving_live.competitor_structure",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitorStructure"], "fields": STRUCT_FIELDS},
+     "ui": {"view": None, "component": None,
+            "note": "NO frontend surface: /api/dataset emits competitorStructure but no RAIL "
+                    "tab or component renders it (verified against the router + Layout switch)."},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_structure",
+                  "kind": "rule/DB", "line": 2702}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["source_url (NOT NULL)", "source_note"],
+                    "note": "Every ownership claim stores its evidence source_url; no source_doc_ids."},
+     "gaps": ["built and served but not rendered anywhere in the UI"]},
+
+    {"id": "metrics", "title": "Mention metrics (KPI strip)",
+     "purpose": "Corpus mention volume per competitor over a rolling window vs the previous "
+                "one -- the KPI tiles and the trend numbers.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.competitor_metrics", "serving_view": "serving_live.competitor_metrics",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitorMetrics"], "fields": METRIC_FIELDS},
+     "ui": {"view": "(cross-cutting)", "component": "frontend/src/components/metricsStrip/MetricsStrip.jsx"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_metrics",
+                  "kind": "rule/DB", "line": 2809, "note": "counts corpus mentions over window_days"}],
+     "inputs": ["extracted.document", "extracted.proposition (mention counts)"],
+     "provenance": {"class": "AGGREGATED",
+                    "note": "Window counts computed over the corpus; window_days travels with "
+                            "the counts so the UI cannot mislabel the units. No per-row source."},
+     "gaps": ["individual mentions are aggregated away; not drillable to documents"]},
+
+    {"id": "news", "title": "Competitor / market news",
+     "purpose": "The sourced news feed shown inside Profile, Products and Geo.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.competitor_news", "serving_view": "serving_live.competitor_news",
+     "api": {"endpoint": "/api/dataset", "keys": ["competitorNews"], "fields": NEWS_FIELDS},
+     "ui": {"view": "(cross-cutting)", "component": "lib/news.js (companyNews/productNews/marketNews)"},
+     "writers": [{"file": "extraction/signals/fill_competitor_news.py", "function": "main",
+                  "kind": "rule/DB", "note": "rows copied from existing serving.signal_card; cascaded away and refilled every enrich pass"}],
+     "inputs": ["serving.signal_card", "serving.competitors"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["url", "story_key", "continues_url"],
+                    "note": "Each article carries its own url; the underlying card has full "
+                            "lineage (trace via Signal Explorer on pl_<doc>)."},
+     "gaps": ["news_chain story_key/continues_url null on standalone articles"]},
+
+    {"id": "geo", "title": "Geo / HQ footprint",
+     "purpose": "Country <-> competitor <-> product footprint with overlap-vs-KSSL badges.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.geo_presence", "serving_view": "serving_live.geo_presence",
+     "extra_tables": ["serving.geo_comp"],
+     "api": {"endpoint": "/api/dataset", "keys": ["geoData", "geoComps"],
+             "fields": GEO_FIELDS},
+     "ui": {"view": "geo", "component": "frontend/src/pages/competitive/Geo.jsx",
+            "renders": "components/geoMap/GeoMap.jsx"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_geo",
+                  "kind": "LLM", "model": "serving 14B (farm), GEO_PROMPT", "scope": "ord<2000"},
+                 {"file": "pipeline/discover_geo.py", "function": "main", "kind": "LLM", "scope": "ord>=GEO_ORD0"}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "UNAVAILABLE", "per_row_source": ["src", "srcnote"],
+                    "note": "Per-row src URL only; no source_doc_ids."},
+     "gaps": []},
+
+    {"id": "innovation", "title": "Innovation / tech pipeline",
+     "purpose": "Innovation pipeline by technology domain with maturity, KSSL gap and sources.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.innovation", "serving_view": "serving_live.innovation",
+     "api": {"endpoint": "/api/dataset", "keys": ["innovations"], "fields": INNOV_FIELDS},
+     "ui": {"view": "innovation", "component": "frontend/src/pages/technology/Innovation.jsx"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_innovations",
+                  "kind": "LLM", "model": "serving 14B (farm), INNOV_PROMPT"}],
+     "inputs": ["extracted.proposition", "extracted.document"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["sources", "url"],
+                    "note": "Per-row source URLs; no source_doc_ids."},
+     "gaps": []},
+
+    {"id": "tenders", "title": "Tenders / market",
+     "purpose": "Open/awarded/closed procurement tenders with per-tender assessment and the "
+                "market-report roll-ups.",
+     "source_kind": "external_api", "pipeline_step": None,
+     "serving_table": "serving.tender", "serving_view": "serving_live.tender",
+     "api": {"endpoint": "/api/dataset", "keys": ["tenders"], "fields": TENDER_FIELDS},
+     "ui": {"view": "tender", "component": "frontend/src/pages/market/Tenders.jsx + MarketOverview.jsx"},
+     "writers": [{"file": "pipeline/fetch_tenders.py", "function": "write_db",
+                  "kind": "rule/API", "note": "SAM/TED/GeM/CPPP procurement APIs; CPV_MAP classification; id-prefixed sam_/ted_/gem_/cppp_. NOT corpus-derived."}],
+     "inputs": ["government procurement APIs (SAM/TED/GeM/CPPP)"],
+     "provenance": {"class": "UNAVAILABLE", "per_row_source": ["srcs", "url"],
+                    "note": "Sourced from government APIs, not the document corpus; each row "
+                            "carries its portal URL. enrich_serving.step_tenders is dead code."},
+     "gaps": ["not part of the corpus->extraction pipeline; no document lineage applies"]},
+
+    {"id": "patents", "title": "Patents",
+     "purpose": "Competitor patent filings by rival and by technology field.",
+     "source_kind": "external_api", "pipeline_step": None,
+     "serving_table": "serving.patent", "serving_view": "serving_live.patent",
+     "api": {"endpoint": "/api/dataset", "keys": ["PATENTS", "patentAssignees"], "fields": PATENT_FIELDS},
+     "ui": {"view": "patents-comp", "component": "frontend/src/pages/competitive/Patents.jsx"},
+     "writers": [{"file": "pipeline/fetch_patents_wipo.py", "function": "write_db",
+                  "kind": "rule/API", "note": "WIPO feed; area/relev/threat from IPC/CPC classification, not keywords"},
+                 {"file": "extraction/signals/patent_titles.py", "function": "translate_titles",
+                  "kind": "LLM", "model": "title translation only (title_en)"}],
+     "inputs": ["WIPO patent API"],
+     "provenance": {"class": "RECONSTRUCTED", "per_row_source": ["doc_id", "url"],
+                    "note": "Harvested rows carry a doc_id + url; the three signal-lineage "
+                            "columns do not apply (external source)."},
+     "gaps": ["comp_id/published/grant_no null on pre-detail-pass rows; title_en null until translated"]},
+
+    {"id": "sources", "title": "Source registry",
+     "purpose": "The registry of sources behind the dashboard -- the source-link chips shown "
+                "across every view.",
+     "source_kind": "corpus", "pipeline_step": "enrich",
+     "serving_table": "serving.source_registry", "serving_view": "serving_live.source_registry",
+     "extra_tables": ["serving.company_source"],
+     "api": {"endpoint": "/api/dataset", "keys": ["sourceRegistry", "companySources"], "fields": SRCREG_FIELDS},
+     "ui": {"view": "(cross-cutting)", "component": "components/sourceLink/SourceLink.jsx + lib/html.js srcChips"},
+     "writers": [{"file": "extraction/signals/enrich_serving.py", "function": "step_sources",
+                  "kind": "rule/DB", "note": "company_mentions + article_date; no model"}],
+     "inputs": ["extracted.document", "extracted.proposition", "serving.competitors"],
+     "provenance": {"class": "UNAVAILABLE", "per_row_source": ["url"],
+                    "note": "Each entry IS a source URL; there is no upstream lineage column."},
+     "gaps": []},
+]
+
+_FEATURES_BY_ID = {f["id"]: f for f in _FEATURES}
+
+
+def _feature_ground(cur, feat):
+    """Live facts for one feature: serving_live row count and recorded-lineage presence.
+    Names come from our own registry, so the interpolation is safe; every read is a SELECT."""
+    g = {"serving_view_present": False, "live_rows": None,
+         "has_source_doc_ids": False, "rows_with_doc_lineage": None}
+    view = feat.get("serving_view")
+    if view and _regclass(cur, view):
+        g["serving_view_present"] = True
+        try:
+            cur.execute("SELECT count(*) AS n FROM " + view)
+            g["live_rows"] = cur.fetchone()["n"]
+        except Exception:                                   # noqa: BLE001
+            pass
+    tbl = feat.get("serving_table") or ""
+    schema, _, table = tbl.partition(".")
+    if table and _has_column(cur, schema, table, "source_doc_ids"):
+        g["has_source_doc_ids"] = True
+        try:
+            cur.execute("SELECT count(*) AS n FROM %s WHERE source_doc_ids IS NOT NULL" % tbl)
+            g["rows_with_doc_lineage"] = cur.fetchone()["n"]
+        except Exception:                                   # noqa: BLE001
+            pass
+    return g
+
+
+@app.get("/api/ops/features")
+def ops_features(q: str = None):
+    """List every product feature with its provenance class, grounded with live row counts.
+    Optional q filters over id / title / purpose / serving table."""
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        ql = (q or "").strip().lower()
+        rows = []
+        for f in _FEATURES:
+            if ql and ql not in " ".join([
+                    f["id"], f["title"], f["purpose"], f.get("serving_table") or ""]).lower():
+                continue
+            g = _feature_ground(cur, f)
+            rows.append({
+                "id": f["id"], "title": f["title"], "purpose": f["purpose"],
+                "pipeline_step": f.get("pipeline_step"), "source_kind": f.get("source_kind"),
+                "serving_table": f.get("serving_table"),
+                "api_keys": f["api"].get("keys"),
+                "ui_view": f["ui"].get("view"),
+                "provenance_class": f["provenance"]["class"],
+                "live_rows": g["live_rows"],
+                "has_recorded_lineage": g["has_source_doc_ids"],
+                "rows_with_doc_lineage": g["rows_with_doc_lineage"]})
+        return JSONResponse({
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "read_only": True, "count": len(rows),
+            "provenance_legend": {
+                "RECORDED": "document lineage stored on the row (source_doc_ids/run/prop)",
+                "RECORDED_PARTIAL": "some rows record source_doc_ids, others do not",
+                "RECONSTRUCTED": "a per-row source URL is stored, but not full pipeline lineage",
+                "AGGREGATED": "a computed roll-up; individual sources aggregated away",
+                "UNAVAILABLE": "no source lineage recorded on the row"},
+            "features": rows})
+    finally:
+        conn.close()
+
+
+@app.get("/api/ops/features/{feature_id}")
+def ops_feature_detail(feature_id: str):
+    """One feature, end to end: purpose, the pipeline path (reusing _PIPELINE), the real
+    writer files/functions/models, input/output tables, provenance (labelled, grounded),
+    API + UI destinations, and known gaps. 404 for an unknown feature id."""
+    feat = _FEATURES_BY_ID.get(feature_id)
+    if not feat:
+        return JSONResponse(status_code=404,
+                            content={"error": "no such feature", "feature_id": feature_id,
+                                     "known": list(_FEATURES_BY_ID.keys())})
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        g = _feature_ground(cur, feat)
+
+        # The end-to-end path, reusing _PIPELINE stage metadata. Corpus features flow through
+        # ingestion->gate->extraction->(writer step); external-API features skip the corpus.
+        pipe = {p["id"]: p for p in _PIPELINE}
+        if feat.get("source_kind") in ("external_api",):
+            step_ids = [feat.get("pipeline_step") or "api"]
+            path = [{"stage": "external source", "role": "feeder",
+                     "detail": feat["inputs"][0] if feat.get("inputs") else None}]
+        elif feat.get("source_kind") == "harvest":
+            path = [{"stage": "maker-site harvest", "role": "feeder",
+                     "detail": "pipeline/harvest/promote.py; per-value URL + verbatim line"}]
+            step_ids = ["serving"]
+        else:
+            step_ids = ["ingestion", "gate", "extraction", feat.get("pipeline_step") or "signals"]
+            path = []
+        for sid in step_ids:
+            p = pipe.get(sid)
+            if p:
+                path.append({"stage": p["id"], "title": p["title"], "role": p["role"],
+                             "files": p["files"], "functions": p["functions"],
+                             "model": p.get("model")})
+        # then serving -> serving_live -> api -> ui, grounded
+        path.append({"stage": "serving_table", "table": feat.get("serving_table"),
+                     "also": feat.get("extra_tables")})
+        path.append({"stage": "serving_live_view", "view": feat.get("serving_view"),
+                     "present": g["serving_view_present"], "live_rows": g["live_rows"],
+                     "filter": "origin='pipeline'"})
+        path.append({"stage": "api", "endpoint": feat["api"]["endpoint"],
+                     "keys": feat["api"].get("keys")})
+        path.append({"stage": "ui", "view": feat["ui"].get("view"),
+                     "component": feat["ui"].get("component"),
+                     "note": feat["ui"].get("note")})
+
+        prov = dict(feat["provenance"])
+        prov["grounded"] = {"has_source_doc_ids_column": g["has_source_doc_ids"],
+                            "rows_with_doc_lineage": g["rows_with_doc_lineage"],
+                            "live_rows": g["live_rows"]}
+        return JSONResponse({
+            "id": feat["id"], "title": feat["title"], "purpose": feat["purpose"],
+            "read_only": True,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "source_kind": feat.get("source_kind"),
+            "pipeline_path": path,
+            "writers": feat["writers"],
+            "inputs": feat.get("inputs"),
+            "output_tables": [feat.get("serving_table")] + (feat.get("extra_tables") or []),
+            "serving_view": feat.get("serving_view"),
+            "api": feat["api"], "ui": feat["ui"],
+            "provenance": prov,
+            "gaps": feat.get("gaps"),
+            "row_level_trace": feat["provenance"].get("row_trace")
+                or "row-level document lineage is not recorded for this feature"})
+    finally:
+        conn.close()
+
+
+# ============================================================================================
+# DATABASE EXPLORER  (8th /ops view)
+# The database architecture, traced from the real schema and code:
+#   pipeline/code -> writer -> table -> columns -> serving_live view -> API -> frontend.
+# The registry below is EDITORIAL metadata only (type, purpose, writers, ownership rules,
+# warnings) -- everything factual (existence, columns, row count, freshness, origin split) is
+# GROUNDED live at request time from information_schema/pg_catalog, exactly like _feature_ground.
+# Serving objects that a product feature owns pull their writer/provenance detail from _FEATURES
+# rather than restating it, so there is one source of truth per fact. Read-only throughout: the
+# connection is opened readonly=True and every query is a SELECT.
+# ============================================================================================
+
+# type badges: SOURCE_OF_TRUTH | DERIVED | SERVING | REFERENCE | EXTERNAL | RUNTIME | QUEUE | PROVENANCE
+_DBOBJECTS = [
+    # ---- public: the corpus subset + the work queue (source-of-truth / feeder) --------------
+    {"schema": "public", "name": "documents", "kind": "table", "type": "SOURCE_OF_TRUTH",
+     "owner_stage": "ingestion",
+     "purpose": "The relevance-gated corpus subset copied onto VPS-B so the queue path (enqueue "
+                "-> worker -> store) runs on one box/one connection. The crawler's 81GB master "
+                "table lives at the data centre; this is the dated, gated subset we extract.",
+     "writers": [{"file": "extraction/sync_documents.py", "function": "sync_documents",
+                  "note": "copies the gated subset from the data centre corpus"}],
+     "readers": ["extraction/engine/route.py enqueue (DOC_COLS)", "extraction/engine/run_node.py"],
+     "rebuild": "additive upsert on sync; not rebuilt/truncated.",
+     "ownership": None, "provenance": "n/a (this IS the source)",
+     "depends_on": ["(data-centre corpus, off-box)"],
+     "feeds": ["public.extract_queue", "extracted.*"],
+     "freshness_col": "synced_at",
+     "absent": "no full document body beyond main_text; large crawler columns are not synced.",
+     "warnings": []},
+
+    {"schema": "public", "name": "extract_queue", "kind": "table", "type": "QUEUE",
+     "owner_stage": "gate",
+     "purpose": "The extraction work queue. select_worklist/route.enqueue add ready rows; a "
+                "worker claims one by moving state ready->leased in a single UPDATE so two "
+                "workers cannot take the same doc. reason records WHY a row is in its state.",
+     "writers": [{"file": "extraction/select_worklist.py", "function": "(INSERT ready rows)"},
+                 {"file": "extraction/engine/route.py", "function": "enqueue / claim / park",
+                  "note": "state machine: ready/leased/done/parked"}],
+     "readers": ["extraction/engine/run_node.py (claim)", "backend /api/ops/overview (queue depth)"],
+     "rebuild": "transient: rows drain as they are processed; done rows may be pruned.",
+     "ownership": None, "provenance": "n/a (control table, not served)",
+     "depends_on": ["public.documents"], "feeds": ["extracted.*"],
+     "freshness_col": None, "state_col": "state",
+     "absent": "no timestamps; ordering is by crawl_ts + class + est_out.",
+     "warnings": ["control/transient table -- not a data source; never served"]},
+
+    # ---- extracted: Layer A/B, derived from the corpus (delete-cascade by document) ----------
+    {"schema": "extracted", "name": "extraction_run", "kind": "table", "type": "DERIVED",
+     "owner_stage": "extraction",
+     "purpose": "One row per extraction run; span/proposition rows carry its run_id. Records the "
+                "model + pipeline/lexicon version each row was produced under.",
+     "writers": [{"file": "extraction/engine/store_pg.py", "function": "save_and_commit"}],
+     "readers": ["extraction/signals/*", "backend build_lineage (source_run_id)"],
+     "rebuild": "append per run.", "ownership": None,
+     "provenance": "RECORDED (this table IS the run ledger)",
+     "depends_on": ["public.extract_queue"], "feeds": ["extracted.span", "extracted.proposition"],
+     "freshness_col": "started_at", "warnings": []},
+
+    {"schema": "extracted", "name": "document", "kind": "table", "type": "DERIVED",
+     "owner_stage": "extraction",
+     "purpose": "The extracted-side copy of a document (text_sha256, n_chars/sentences, language). "
+                "spans/props FK to it; a delete cascades the whole extraction for that doc.",
+     "writers": [{"file": "extraction/engine/store_pg.py", "function": "save_and_commit"}],
+     "readers": ["extraction/signals/serving_fill.py", "extraction/signals/translate.py",
+                 "backend build_lineage"],
+     "rebuild": "re-extraction replaces a document's rows (ON DELETE CASCADE).",
+     "ownership": None, "provenance": "RECORDED (carries run linkage)",
+     "depends_on": ["public.documents"],
+     "feeds": ["extracted.span", "extracted.proposition", "serving.signal_card"],
+     "freshness_col": "first_seen", "warnings": ["ON DELETE CASCADE: dropping a doc drops its spans/props"]},
+
+    {"schema": "extracted", "name": "span", "kind": "table", "type": "DERIVED",
+     "owner_stage": "extraction",
+     "purpose": "Layer A spans: the character-anchored mentions found in a document. Propositions "
+                "and span_values ground onto these.",
+     "writers": [{"file": "extraction/engine/store_pg.py", "function": "save_and_commit"}],
+     "readers": ["extraction/signals/serving_fill.py (glance/card)", "backend build_lineage"],
+     "rebuild": "per (document_id, run_id); cascades from extracted.document.",
+     "ownership": None, "provenance": "RECORDED",
+     "depends_on": ["extracted.document", "extracted.extraction_run"],
+     "feeds": ["extracted.proposition", "extracted.span_value", "serving.signal_card"],
+     "freshness_col": None, "warnings": []},
+
+    {"schema": "extracted", "name": "proposition", "kind": "table", "type": "DERIVED",
+     "owner_stage": "extraction",
+     "purpose": "Layer A propositions: the structured statements the extractor read out of the "
+                "spans. This is the raw material every enrichment step reads.",
+     "writers": [{"file": "extraction/engine/store_pg.py", "function": "save_and_commit"}],
+     "readers": ["extraction/signals/serving_fill.py", "extraction/signals/enrich_serving.py",
+                 "backend build_lineage (source_prop_ids)"],
+     "rebuild": "per (document_id, run_id); cascades from extracted.document.",
+     "ownership": None, "provenance": "RECORDED",
+     "depends_on": ["extracted.document", "extracted.span"],
+     "feeds": ["serving.signal_card", "serving.competitors", "serving.matchup", "serving.partner"],
+     "freshness_col": None, "warnings": []},
+
+    {"schema": "extracted", "name": "span_value", "kind": "table", "type": "DERIVED",
+     "owner_stage": "extraction",
+     "purpose": "Parsed values for a span (numbers, dates, money) -- the typed reading behind a "
+                "mention, used by spec/metric extraction.",
+     "writers": [{"file": "extraction/engine/store_pg.py", "function": "save_and_commit"}],
+     "readers": ["extraction/signals/enrich_serving.py (extract_specs)"],
+     "rebuild": "cascades from extracted.span.", "ownership": None, "provenance": "RECORDED",
+     "depends_on": ["extracted.span"], "feeds": ["serving.matchup (specs)"],
+     "freshness_col": None, "warnings": []},
+
+    {"schema": "extracted", "name": "prop_arg", "kind": "table", "type": "DERIVED",
+     "owner_stage": "extraction",
+     "purpose": "Grounding of each proposition argument to the span it came from -- the link that "
+                "lets a statement be traced back to its exact mention.",
+     "writers": [{"file": "extraction/engine/store_pg.py", "function": "save_and_commit"}],
+     "readers": ["extraction/signals/*"],
+     "rebuild": "cascades from extracted.proposition/span.", "ownership": None,
+     "provenance": "RECORDED", "depends_on": ["extracted.proposition", "extracted.span"],
+     "feeds": ["serving.signal_card (evidence)"], "freshness_col": None, "warnings": []},
+
+    {"schema": "extracted", "name": "entity", "kind": "table", "type": "DERIVED",
+     "owner_stage": "extraction",
+     "purpose": "Layer B canonical entities (engine-issued ids). redirects_to folds duplicates.",
+     "writers": [{"file": "extraction/engine/store_pg.py", "function": "(Layer B)"}],
+     "readers": ["extraction/signals/* (company canonicalisation)"],
+     "rebuild": "append/merge.", "ownership": None, "provenance": "RECORDED",
+     "depends_on": ["extracted.proposition"], "feeds": ["extracted.entity_alias"],
+     "freshness_col": None, "warnings": []},
+
+    {"schema": "extracted", "name": "entity_alias", "kind": "table", "type": "DERIVED",
+     "owner_stage": "extraction",
+     "purpose": "Surface aliases per canonical entity (folded + language), so 'BHEL' and 'Bharat "
+                "Heavy Electricals' resolve to one company.",
+     "writers": [{"file": "extraction/engine/store_pg.py", "function": "(Layer B)"}],
+     "readers": ["extraction/signals/* (name matching)"],
+     "rebuild": "cascades from extracted.entity.", "ownership": None, "provenance": "RECORDED",
+     "depends_on": ["extracted.entity"], "feeds": [], "freshness_col": None, "warnings": []},
+
+    # ---- serving: interface vocab + the two owner-created, never-served tables ---------------
+    {"schema": "serving", "name": "ui_config", "kind": "table", "type": "REFERENCE",
+     "owner_stage": "serving",
+     "purpose": "Interface vocabulary (CAT_KEY, POS_CATS, REL_LABEL, chatSuggest, overviewConfig, "
+                "PATENTS.techAreas...). Describes the interface, not the world. The pipeline never "
+                "writes it; serving_live.ui_config passes it through unfiltered.",
+     "writers": [{"file": "db/seed_serving.py", "function": "(seed from reference_dataset.json)",
+                  "note": "seeded, not pipeline-written"}],
+     "readers": ["backend /api/dataset (ui config keys)"],
+     "rebuild": "seeded once; not rebuilt by any pass.", "ownership": None,
+     "provenance": "n/a (interface config, not data)",
+     "depends_on": [], "feeds": ["serving_live.ui_config", "/api/dataset"],
+     "freshness_col": "updated_at",
+     "warnings": ["not filtered by origin -- it is vocabulary, not corpus data"]},
+
+    {"schema": "serving", "name": "card", "kind": "table", "type": "DERIVED",
+     "owner_stage": "extraction",
+     "purpose": "The extraction-side card projection (spans/statements/card_text per document+run), "
+                "written additively by the extraction engine. NOT served to the UI -- it has no "
+                "serving_live view -- it is an internal artefact the signal step reads from.",
+     "writers": [{"file": "extraction/engine/card_writer.py", "function": "card_writer.py --init",
+                  "note": "owns the table; CREATE TABLE IF NOT EXISTS at startup, never a migration"}],
+     "readers": ["extraction/signals/serving_fill.py"],
+     "rebuild": "additive per (document_id, run_id).", "ownership": None,
+     "provenance": "RECORDED (document_id + run_id on every row)",
+     "depends_on": ["extracted.proposition", "extracted.span"], "feeds": ["serving.signal_card"],
+     "freshness_col": "built_at",
+     "warnings": ["created by its owning process, not by a migration -- absent on a DB never --init'd",
+                  "not served: no serving_live.card view exists"]},
+
+    {"schema": "serving", "name": "signal_seen", "kind": "table", "type": "RUNTIME",
+     "owner_stage": "signals",
+     "purpose": "De-dupe ledger for the signal step (which cards have already been emitted). Owned "
+                "and created by serving_fill.py; not served.",
+     "writers": [{"file": "extraction/signals/serving_fill.py", "function": "fill",
+                  "note": "owns the table; CREATE TABLE IF NOT EXISTS at startup"}],
+     "readers": ["extraction/signals/serving_fill.py"],
+     "rebuild": "append-only ledger.", "ownership": None, "provenance": "n/a (control table)",
+     "depends_on": ["serving.signal_card"], "feeds": [],
+     "freshness_col": None,
+     "warnings": ["created by its owning process, not by a migration", "not served: no view"]},
+
+    {"schema": "serving", "name": "client_product", "kind": "table", "type": "REFERENCE",
+     "owner_stage": "serving",
+     "purpose": "KSSL's OWN products/specs, the client workbook supplied 2026-09-05 row-for-row. "
+                "origin='reference' so an enrich pass must never rebuild the client's own "
+                "statement. Read by revive_matchups to fill the KSSL side of a comparison; not "
+                "served directly (no serving_live view).",
+     "writers": [{"file": "db/migrations/2026-09-05_client_product.sql", "function": "(seed)",
+                  "note": "client workbook import; origin='reference'"}],
+     "readers": ["pipeline/revive_matchups.py (KSSL side of specs)"],
+     "rebuild": "seeded; the pipeline is forbidden from rebuilding reference rows.",
+     "ownership": "origin='reference' is immutable to the pipeline",
+     "provenance": "n/a (client-supplied reference)", "depends_on": [],
+     "feeds": ["serving.matchup (KSSL advantages)"], "freshness_col": "updated_at",
+     "warnings": ["not served: no serving_live.client_product view"]},
+
+    {"schema": "serving", "name": "competitor_product", "kind": "table", "type": "REFERENCE",
+     "owner_stage": "enrich",
+     "purpose": "The other side of a comparison: products from the audited 50-company workbook. "
+                "origin='pipeline' (a floor the corpus should grow past), gated by "
+                "source_tiers.publishable with product_maker set. Not served directly.",
+     "writers": [{"file": "db/migrations/2026-09-06_competitor_product.sql", "function": "(seed)"},
+                 {"file": "extraction/signals/enrich_serving.py", "function": "(product fill)",
+                  "note": "corpus rows grow past the workbook floor"}],
+     "readers": ["pipeline/revive_matchups.py"],
+     "rebuild": "seeded floor + pipeline growth.", "ownership": None,
+     "provenance": "UNAVAILABLE (no source_doc_ids)", "depends_on": ["extracted.proposition"],
+     "feeds": ["serving.matchup"], "freshness_col": "updated_at",
+     "warnings": ["not served: no serving_live.competitor_product view"]},
+
+    # ---- serving base tables that a product feature OWNS: writer/provenance come from _FEATURES.
+    # Only the DB-architecture facts (type, ownership/range, rebuild, warnings) live here.
+    {"schema": "serving", "name": "competitors", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "competitors",
+     "purpose": "The per-competitor dossier row (sector/HQ/threat/assessment + nested "
+                "leadership/revenue/facilities/products). Backs the Profile page.",
+     "rebuild": "DESTRUCTIVE: step_companies deletes every origin='pipeline' row and re-inserts "
+                "after minutes of LLM calls (holds a lock -- do not ALTER mid-pass).",
+     "ownership": "two writers by ord range: enrich step_companies ord<REV_ORD0; "
+                  "revive_partners ord>=REV_ORD0. Harvest fills leadership/sales/facilities.",
+     "warnings": ["multiple writers (ord split)", "delete+insert rebuild each pass",
+                  "no document lineage (source_doc_ids absent)"]},
+
+    {"schema": "serving", "name": "signal_card", "kind": "table", "type": "SERVING",
+     "owner_stage": "signals", "feature": "signals",
+     "purpose": "Signal cards (competitive/market/tech lanes) -- the headline feed. The ONE serving "
+                "table that records full document lineage.",
+     "rebuild": "append by serving_fill.fill (signal_seen de-dupes).",
+     "ownership": "single writer (serving_fill).",
+     "warnings": ["pre-2026-09-07 rows have null lineage (no backfill)"]},
+
+    {"schema": "serving", "name": "signal_detail", "kind": "table", "type": "SERVING",
+     "owner_stage": "signals", "feature": "signals",
+     "purpose": "The detail panel per card (keyed by card id). Carries the same lineage columns "
+                "as signal_card.",
+     "rebuild": "written alongside signal_card.", "ownership": "single writer (serving_fill).",
+     "warnings": []},
+
+    {"schema": "serving", "name": "partner", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "partnerships",
+     "purpose": "KSSL's partners and each rival's partnership network (the red-line overlap ties).",
+     "rebuild": "DESTRUCTIVE per pass for pipeline rows.",
+     "ownership": "two writers: enrich step_partnerships (plp_*, ord<REV_ORD0, RECORDS "
+                  "source_doc_ids) vs revive_partners (rvp_*, ord>=REV_ORD0, NO lineage).",
+     "warnings": ["multiple writers (id/ord split)", "RECORDED_PARTIAL: revive_partners rows "
+                  "carry no source_doc_ids"]},
+
+    {"schema": "serving", "name": "matchup", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "matchups",
+     "purpose": "Every rating-matched KSSL-vs-rival pair with the spec dossier and edge verdict.",
+     "rebuild": "rebuilt per pass by range.",
+     "ownership": "two writers by matchup_id range: step_matchups <20000; revive_matchups >=20000.",
+     "warnings": ["multiple writers (id split)", "spec->document link not stored as lineage"]},
+
+    {"schema": "serving", "name": "competitor_structure", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "structure",
+     "purpose": "Ownership/corporate-structure edges (parent/subsidiary) behind the structure graph.",
+     "rebuild": "rebuilt per enrich pass.", "ownership": "single writer (step_structure).",
+     "warnings": ["source_url is NOT NULL -- an uncitable ownership claim cannot be stored",
+                  "built and served but NO frontend surface renders it"]},
+
+    {"schema": "serving", "name": "competitor_metrics", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "metrics",
+     "purpose": "Corpus mention volume per company over a rolling window (KPI strip). No LLM -- "
+                "company_mentions() counts over dated documents; window_days travels with counts.",
+     "rebuild": "DESTRUCTIVE: rebuilt every enrich pass by step_metrics.",
+     "ownership": "single writer.",
+     "warnings": ["AGGREGATED: individual mentions rolled up, not drillable to documents",
+                  "no share-price column, by design"]},
+
+    {"schema": "serving", "name": "competitor_news", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "news",
+     "purpose": "Per-company sourced news feed (Profile/Products/Geo). Every row is a signal card "
+                "the pipeline already produced, re-projected with its own url.",
+     "rebuild": "DESTRUCTIVE: cascaded away and refilled every enrich pass (FK cascade -- do not "
+                "ALTER mid-pass).", "ownership": "single writer (fill_competitor_news).",
+     "warnings": ["delete+refill each pass (FK cascade)",
+                  "is_trending never set true; newest row serves the top slot"]},
+
+    {"schema": "serving", "name": "geo_presence", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "geo",
+     "purpose": "Country<->competitor<->product footprint with overlap-vs-KSSL badges.",
+     "rebuild": "rebuilt per pass by range.",
+     "ownership": "two writers by ord: step_geo ord<2000; discover_geo ord>=GEO_ORD0.",
+     "warnings": ["multiple writers (ord split)", "per-row src URL only; no source_doc_ids"]},
+
+    {"schema": "serving", "name": "geo_comp", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "geo",
+     "purpose": "The list of companies shown on the geo tab (incl. KSSL). extra_table of the geo "
+                "feature.",
+     "rebuild": "rebuilt per pass.", "ownership": "written alongside geo_presence.",
+     "warnings": []},
+
+    {"schema": "serving", "name": "innovation", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "innovation",
+     "purpose": "Innovation pipeline by technology domain with maturity, KSSL gap and sources.",
+     "rebuild": "rebuilt per pass by step_innovations.", "ownership": "single writer.",
+     "warnings": ["per-row source URLs; no source_doc_ids"]},
+
+    {"schema": "serving", "name": "tender", "kind": "table", "type": "EXTERNAL",
+     "owner_stage": None, "feature": "tenders",
+     "purpose": "Procurement tenders (open/awarded/closed) with per-tender assessment. Sourced "
+                "from government APIs, NOT the corpus.",
+     "rebuild": "refreshed by fetch_tenders; id-prefixed so a tender keeps identity across refreshes.",
+     "ownership": "id-prefixed by portal: sam_/ted_/gem_/cppp_. `id` is text (runtime ALTER "
+                  "from integer -- schema drift caught by schema_snapshot.txt).",
+     "warnings": ["EXTERNAL: no corpus/document lineage applies",
+                  "enrich_serving.step_tenders is dead code"]},
+
+    {"schema": "serving", "name": "patent", "kind": "table", "type": "EXTERNAL",
+     "owner_stage": None, "feature": "patents",
+     "purpose": "Competitor patent filings by rival and tech field. Stored flat; byArea/byAssignee "
+                "are API roll-ups. Sourced from WIPO, not the corpus.",
+     "rebuild": "refreshed by fetch_patents_wipo; titles translated later (title_en).",
+     "ownership": "two writers: fetch_patents_wipo (harvest) + patent_titles (title_en only).",
+     "warnings": ["EXTERNAL: harvested rows carry doc_id+url; signal-lineage columns do not apply",
+                  "comp_id/published/grant_no null on pre-detail rows"]},
+
+    {"schema": "serving", "name": "source_registry", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "sources",
+     "purpose": "The registry of sources behind the dashboard -- the source-link chips.",
+     "rebuild": "rebuilt per pass by step_sources (no model).", "ownership": "single writer.",
+     "warnings": ["each entry IS a source URL; no upstream lineage column"]},
+
+    {"schema": "serving", "name": "company_source", "kind": "table", "type": "SERVING",
+     "owner_stage": "enrich", "feature": "sources",
+     "purpose": "company -> list of source urls (extra_table of the sources feature).",
+     "rebuild": "rebuilt per pass.", "ownership": "written alongside source_registry.",
+     "warnings": []},
+
+    # ---- metrics: runtime observability (how long each stage takes / where a doc is) ----------
+    {"schema": "metrics", "name": "stage_run", "kind": "table", "type": "RUNTIME",
+     "owner_stage": "serving",
+     "purpose": "One row per (run, stage[, doc]): wall-clock ms, item/token counts, ok. Every "
+                "stage on every host reports here through the tunnel, so latency is a query.",
+     "writers": [{"file": "pipeline/stage_timer.py", "function": "stage_timer",
+                  "note": "written by every stage on every host"}],
+     "readers": ["backend /api/ops/runs, /api/ops/overview", "metrics.stage_summary/doc_journey"],
+     "rebuild": "append-only.", "ownership": None, "provenance": "n/a (telemetry)",
+     "depends_on": [], "feeds": ["metrics.stage_summary", "metrics.doc_journey", "metrics.adhoc_summary"],
+     "freshness_col": "started_at", "warnings": []},
+
+    {"schema": "metrics", "name": "stage_order", "kind": "table", "type": "REFERENCE",
+     "owner_stage": "serving",
+     "purpose": "Canonical stage names + display order/label/host/unit. A stage not in this table "
+                "is a typo -- the timer refuses to write it.",
+     "writers": [{"file": "db/05_metrics.sql", "function": "(seed INSERT ... ON CONFLICT)"}],
+     "readers": ["metrics.stage_summary", "backend /api/ops/pipeline (labels)"],
+     "rebuild": "seeded/idempotent upsert.", "ownership": None, "provenance": "n/a (reference)",
+     "depends_on": [], "feeds": ["metrics.stage_summary"], "freshness_col": None, "warnings": []},
+
+    {"schema": "metrics", "name": "stage_summary", "kind": "view", "type": "DERIVED",
+     "owner_stage": "serving",
+     "purpose": "Per-stage roll-up: runs, failures, mean/median/p95 seconds, items, tokens, "
+                "tok/s. Median over mean so one wedged host doesn't define the stage.",
+     "writers": [{"file": "db/05_metrics.sql", "function": "CREATE OR REPLACE VIEW"}],
+     "readers": ["backend /api/ops/pipeline"],
+     "rebuild": "view over stage_order + stage_run.", "ownership": None,
+     "provenance": "n/a (aggregate)", "depends_on": ["metrics.stage_order", "metrics.stage_run"],
+     "feeds": ["/api/ops/pipeline"], "freshness_col": None, "warnings": ["AGGREGATED view"]},
+
+    {"schema": "metrics", "name": "doc_journey", "kind": "view", "type": "DERIVED",
+     "owner_stage": "serving",
+     "purpose": "One document's whole journey: entered->surfaced end-to-end seconds and where the "
+                "time went (crawl/select/extract/llm/serving ms).",
+     "writers": [{"file": "db/05_metrics.sql", "function": "CREATE OR REPLACE VIEW"}],
+     "readers": ["backend ops (doc timeline)"],
+     "rebuild": "view over stage_run.", "ownership": None, "provenance": "n/a (aggregate)",
+     "depends_on": ["metrics.stage_run"], "feeds": [], "freshness_col": None,
+     "warnings": ["AGGREGATED view"]},
+
+    {"schema": "metrics", "name": "adhoc_job", "kind": "table", "type": "RUNTIME",
+     "owner_stage": "serving",
+     "purpose": "The 'give it an article and watch' queue: the VPS writes a job row, a data-centre "
+                "worker polls it (the one network direction that already exists). Tracks "
+                "queued->running->done/failed and the card it produced.",
+     "writers": [{"file": "backend/app.py", "function": "bench_submit (/api/bench/submit)"},
+                 {"file": "(data-centre bench worker)", "function": "claim/update status"}],
+     "readers": ["backend /api/bench/runs, /api/bench/run/{id}", "metrics.adhoc_summary"],
+     "rebuild": "append per submission; status updated in place.", "ownership": None,
+     "provenance": "n/a (job control)", "depends_on": [], "feeds": ["metrics.adhoc_summary"],
+     "freshness_col": "submitted", "warnings": []},
+
+    {"schema": "metrics", "name": "adhoc_summary", "kind": "view", "type": "DERIVED",
+     "owner_stage": "serving",
+     "purpose": "One row per submitted article with its stage timings folded in, so screen and DB "
+                "cannot drift. Backs the bench watch page.",
+     "writers": [{"file": "db/06_bench.sql", "function": "CREATE OR REPLACE VIEW"}],
+     "readers": ["backend /api/bench/runs"],
+     "rebuild": "view over adhoc_job + stage_run.", "ownership": None, "provenance": "n/a (aggregate)",
+     "depends_on": ["metrics.adhoc_job", "metrics.stage_run"], "feeds": ["/api/bench/runs"],
+     "freshness_col": None, "warnings": ["AGGREGATED view"]},
+
+    # ---- provenance: append-only event log (observability, deliberately out of serving scope) --
+    {"schema": "provenance", "name": "event", "kind": "table", "type": "PROVENANCE",
+     "owner_stage": "api",
+     "purpose": "Append-only pipeline events: what happened to a document as it moved through the "
+                "pipeline (gated/extracted/record_rejected/card_written/enriched/served/error). "
+                "Answers 'why didn't this document appear?'.",
+     "writers": [{"file": "extraction/signals/provenance.py", "function": "emit",
+                  "note": "INSERT-only; cached singleton connection per process"}],
+     "readers": ["backend /api/ops/events, /api/ops/runs, /api/lineage/doc/{id}"],
+     "rebuild": "APPEND-ONLY: only ever INSERTs; no backfill, so a doc predating instrumentation "
+                "simply has no events.",
+     "ownership": None, "provenance": "RECORDED (this table IS the provenance)",
+     "depends_on": ["(all pipeline stages emit here)"],
+     "feeds": ["/api/ops/events", "/api/lineage/*", "Signal Explorer"],
+     "freshness_col": "ts",
+     "absent": "no rows for documents that predate 2026-09-07 instrumentation (not a gap -- honest).",
+     "warnings": ["out of the serving/serving_live snapshot scope on purpose (observability, not data)"]},
+]
+
+# serving_live.* views: mechanically derived from each SERVING base table (origin='pipeline').
+# Generated rather than hand-listed so the two never drift; 03_serving_live.sql is the writer.
+_SERVING_LIVE_BASES = ["competitors", "competitor_news", "competitor_structure",
+                       "competitor_metrics", "signal_card", "signal_detail", "matchup",
+                       "tender", "patent", "geo_presence", "geo_comp", "innovation",
+                       "partner", "source_registry", "company_source"]
+for _b in _SERVING_LIVE_BASES:
+    _base = next((o for o in _DBOBJECTS if o["schema"] == "serving" and o["name"] == _b), None)
+    _DBOBJECTS.append({
+        "schema": "serving_live", "name": _b, "kind": "view", "type": "DERIVED",
+        "owner_stage": "serving", "feature": (_base or {}).get("feature"),
+        "purpose": "origin='pipeline' filtered view of serving.%s -- the ONLY rows served to the "
+                   "UI (reference/agent-interim rows are filtered out). Read by /api/dataset." % _b,
+        "writers": [{"file": "db/03_serving_live.sql", "function": "CREATE OR REPLACE VIEW",
+                     "note": "filters serving.%s WHERE origin='pipeline'" % _b}],
+        "readers": ["backend /api/dataset (_dataset)"],
+        "rebuild": "view; reflects its base table live.", "ownership": None,
+        "provenance": "inherits serving.%s" % _b, "depends_on": ["serving.%s" % _b],
+        "feeds": ["/api/dataset"], "freshness_col": "updated_at",
+        "warnings": ["a row with origin!='pipeline' is filtered OUT here and never served"]})
+# ui_config passes through unfiltered -- interface vocabulary, not corpus data.
+_DBOBJECTS.append({
+    "schema": "serving_live", "name": "ui_config", "kind": "view", "type": "REFERENCE",
+    "owner_stage": "serving", "purpose": "Pass-through view of serving.ui_config (NO origin filter "
+    "-- it is interface vocabulary, not data).",
+    "writers": [{"file": "db/03_serving_live.sql", "function": "CREATE OR REPLACE VIEW"}],
+    "readers": ["backend /api/dataset"], "rebuild": "view.", "ownership": None,
+    "provenance": "n/a", "depends_on": ["serving.ui_config"], "feeds": ["/api/dataset"],
+    "freshness_col": "updated_at", "warnings": ["unfiltered -- vocabulary, not corpus data"]})
+
+_DBOBJECTS_BY_KEY = {"%s.%s" % (o["schema"], o["name"]): o for o in _DBOBJECTS}
+
+# Which product features touch an object (as serving_table, extra_table or serving_view).
+def _features_for_object(schema, name):
+    key = "%s.%s" % (schema, name)
+    out = []
+    for f in _FEATURES:
+        if key in ([f.get("serving_table")] + (f.get("extra_tables") or []) + [f.get("serving_view")]):
+            out.append({"id": f["id"], "title": f["title"]})
+    return out
+
+
+def _dbobj_ground(cur, obj):
+    """Live facts for one DB object: existence, real kind, columns (name+type), row count,
+    freshness, and (serving base tables) the origin split. Names come from our own registry,
+    so the string interpolation is safe; every statement is a SELECT."""
+    key = "%s.%s" % (obj["schema"], obj["name"])
+    g = {"present": False, "kind": None, "row_count": None, "columns": [],
+         "freshness": None, "origin_split": None, "state_split": None}
+    # existence + real relkind (r=table, v=view, m=matview)
+    cur.execute("""SELECT c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                   WHERE n.nspname=%s AND c.relname=%s""", (obj["schema"], obj["name"]))
+    r = cur.fetchone()
+    if not r:
+        return g
+    g["present"] = True
+    g["kind"] = {"r": "table", "v": "view", "m": "materialized view",
+                 "p": "partitioned table"}.get(r["relkind"], r["relkind"])
+    cur.execute("""SELECT column_name, data_type FROM information_schema.columns
+                   WHERE table_schema=%s AND table_name=%s ORDER BY ordinal_position""",
+                (obj["schema"], obj["name"]))
+    g["columns"] = [{"name": c["column_name"], "type": c["data_type"]} for c in cur.fetchall()]
+    colnames = {c["name"] for c in g["columns"]}
+    try:
+        cur.execute("SELECT count(*) AS n FROM %s" % key)
+        g["row_count"] = cur.fetchone()["n"]
+    except Exception:                                                     # noqa: BLE001
+        pass
+    fc = obj.get("freshness_col")
+    if not fc and "updated_at" in colnames:               # every serving.* table carries it
+        fc = "updated_at"
+    if fc and fc in colnames:
+        try:
+            cur.execute("SELECT max(%s) AS m FROM %s" % (fc, key))
+            m = cur.fetchone()["m"]
+            g["freshness"] = m.isoformat() if hasattr(m, "isoformat") else m
+        except Exception:                                                 # noqa: BLE001
+            pass
+    if "origin" in colnames:
+        try:
+            cur.execute("SELECT origin, count(*) AS n FROM %s GROUP BY origin ORDER BY origin" % key)
+            g["origin_split"] = {row["origin"]: row["n"] for row in cur.fetchall()}
+        except Exception:                                                 # noqa: BLE001
+            pass
+    sc = obj.get("state_col")
+    if sc and sc in colnames:
+        try:
+            cur.execute("SELECT %s AS s, count(*) AS n FROM %s GROUP BY %s ORDER BY 2 DESC"
+                        % (sc, key, sc))
+            g["state_split"] = {row["s"]: row["n"] for row in cur.fetchall()}
+        except Exception:                                                 # noqa: BLE001
+            pass
+    return g
+
+
+def _dbobj_warnings(obj, g):
+    """Static warnings from the registry, plus any the live grounding surfaces."""
+    w = list(obj.get("warnings") or [])
+    if not g["present"]:
+        w.append("NOT PRESENT on this database")
+    elif obj["kind"] != g["kind"] and g["kind"]:
+        w.append("registry says %s but live object is a %s" % (obj["kind"], g["kind"]))
+    if g.get("row_count") == 0:
+        w.append("empty (0 rows) -- honest empty state, not an error")
+    return w
+
+
+@app.get("/api/ops/database")
+def ops_database(q: str = None, schema: str = None, type: str = None,
+                 owner: str = None, feature: str = None):
+    """Every important schema object with its type, owner stage, associated feature and a live
+    row count. Filter by q (id/purpose), schema, type badge, owner stage, or feature id."""
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        ql = (q or "").strip().lower()
+        schemas, rows = {}, []
+        for o in _DBOBJECTS:
+            if schema and o["schema"] != schema:
+                continue
+            if type and o["type"] != type.upper():
+                continue
+            if owner and (o.get("owner_stage") or "") != owner:
+                continue
+            feats = _features_for_object(o["schema"], o["name"])
+            if feature and feature not in [f["id"] for f in feats]:
+                continue
+            if ql and ql not in " ".join([
+                    o["schema"], o["name"], o["purpose"], o["type"]]).lower():
+                continue
+            g = _dbobj_ground(cur, o)
+            schemas[o["schema"]] = schemas.get(o["schema"], 0) + 1
+            rows.append({
+                "object": "%s.%s" % (o["schema"], o["name"]),
+                "schema": o["schema"], "name": o["name"], "kind": g["kind"] or o["kind"],
+                "type": o["type"], "owner_stage": o.get("owner_stage"),
+                "purpose": o["purpose"], "present": g["present"],
+                "row_count": g["row_count"], "freshness": g["freshness"],
+                "origin_split": g["origin_split"],
+                "features": feats,
+                "n_warnings": len(_dbobj_warnings(o, g))})
+        return JSONResponse({
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "read_only": True, "count": len(rows), "by_schema": schemas,
+            "type_legend": {
+                "SOURCE_OF_TRUTH": "authoritative input; not derived from anything on this box",
+                "DERIVED": "computed from upstream rows (extraction output or a view)",
+                "SERVING": "directly powers the UI via a serving_live view",
+                "REFERENCE": "seeded/interface config; the pipeline does not rebuild it",
+                "EXTERNAL": "sourced from an outside API (no corpus/document lineage)",
+                "RUNTIME": "observability/job-control telemetry",
+                "QUEUE": "transient work-control table",
+                "PROVENANCE": "append-only event log"},
+            "objects": rows})
+    finally:
+        conn.close()
+
+
+@app.get("/api/ops/database/{schema}/{object}")
+def ops_database_detail(schema: str, object: str):
+    """One object end to end: purpose/type, live columns (with meanings where known), row count +
+    freshness, origin/state split, writers + readers, upstream/downstream dependencies, ownership/
+    range rules, provenance, associated features, and warnings (multiple writers, rebuild, missing
+    lineage, stale/empty). 404 for an unknown object."""
+    o = _DBOBJECTS_BY_KEY.get("%s.%s" % (schema, object))
+    if not o:
+        return JSONResponse(status_code=404,
+                            content={"error": "no such object", "object": "%s.%s" % (schema, object),
+                                     "known": sorted(_DBOBJECTS_BY_KEY.keys())})
+    conn = _ops_conn()
+    try:
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        g = _dbobj_ground(cur, o)
+        feats = _features_for_object(o["schema"], o["name"])
+        # writers/provenance: for a feature-owned serving object, pull the real writers +
+        # provenance from _FEATURES rather than restating them (single source of truth).
+        writers = list(o.get("writers") or [])
+        provenance = {"class": o.get("provenance")}
+        if o.get("feature") and o["feature"] in _FEATURES_BY_ID:
+            f = _FEATURES_BY_ID[o["feature"]]
+            if not writers:
+                writers = f.get("writers") or []
+            provenance = dict(f["provenance"])
+        # annotate live columns with meanings where the registry has them
+        meanings = o.get("key_columns") or {}
+        cols = [{**c, "meaning": meanings.get(c["name"])} for c in g["columns"]]
+        # downstream: registry feeds + anything that declares this object upstream
+        key = "%s.%s" % (o["schema"], o["name"])
+        downstream = list(o.get("feeds") or [])
+        for other in _DBOBJECTS:
+            ok = "%s.%s" % (other["schema"], other["name"])
+            if key in (other.get("depends_on") or []) and ok not in downstream:
+                downstream.append(ok)
+        return JSONResponse({
+            "object": key, "schema": o["schema"], "name": o["name"],
+            "kind": g["kind"] or o["kind"], "type": o["type"],
+            "read_only": True,
+            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "present": g["present"], "owner_stage": o.get("owner_stage"),
+            "purpose": o["purpose"],
+            "row_count": g["row_count"], "freshness": g["freshness"],
+            "origin_split": g["origin_split"], "state_split": g["state_split"],
+            "columns": cols,
+            "writers": writers, "readers": o.get("readers") or [],
+            "depends_on": o.get("depends_on") or [],
+            "downstream": downstream,
+            "ownership": o.get("ownership"),
+            "rebuild": o.get("rebuild"),
+            "provenance": provenance,
+            "features": feats,
+            "intentionally_absent": o.get("absent"),
+            "warnings": _dbobj_warnings(o, g)})
+    finally:
+        conn.close()
