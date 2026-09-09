@@ -74,16 +74,23 @@ def candidates(src, since, want, dated_only):
     """Small-column scan of the corpus: (document_id, url, source_id, language, title, published_at,
     fetched_at, text_len) for recent, length-banded rows. NEVER selects the body text here -- that
     detoasts an 81 GB table; body() fetches it per chosen row instead."""
-    where = ["fetched_at >= %s", "text_len BETWEEN %s AND %s"]
+    # SCAN ON ingested_at, NOT fetched_at. The corpus indexes document_id, url, source_id,
+    # node_id, pushed_at and ingested_at -- fetched_at has NO index, so filtering and ordering
+    # on it seq-scans 1.97M rows and blows the statement timeout below. That took this sync
+    # down completely on 2026-09-09: every feeder cycle logged QueryCanceled and nothing
+    # reached VPS-B, while the crawler kept adding ~50k documents a day. The two columns are
+    # written within seconds of each other, so the window this selects is unchanged.
+    where = ["ingested_at >= %s", "text_len BETWEEN %s AND %s"]
     args = [since, MIN_TEXT, MAX_TEXT]
     if dated_only:
         where.append("published_at IS NOT NULL AND published_at <> ''")
     with src.cursor() as c:
-        c.execute("SET statement_timeout='30s'")
+        # 30s was tuned for an indexed scan; keep headroom for a cold cache on a busy DC.
+        c.execute("SET statement_timeout='180s'")
         c.execute(
             "SELECT document_id, url, source_id, language, title, published_at, fetched_at, text_len "
             "FROM documents WHERE " + " AND ".join(where) +
-            " ORDER BY fetched_at DESC LIMIT %s",
+            " ORDER BY ingested_at DESC LIMIT %s",
             args + [want * CAND_FACTOR])
         return c.fetchall()
 
@@ -160,7 +167,17 @@ def _demo():
     csrc = inspect.getsource(candidates)
     assert "main_text" not in csrc and "html" not in csrc, \
         "candidate scan must not touch big TOAST columns"
-    print("ok  dated+length gate, idempotent upsert, no big-column scan")
+    # The corpus has no index on fetched_at. Filtering or ordering the candidate scan by it
+    # seq-scans ~2M rows and dies on the statement timeout -- silently, every cycle, which is
+    # exactly how this sync stopped feeding VPS-B on 2026-09-09. Pin the indexed column here
+    # so a future edit cannot quietly reintroduce it.
+    body = csrc.split('"""', 2)[-1]
+    assert "ingested_at >=" in body and "ORDER BY ingested_at" in body, \
+        "candidate scan must filter AND order on ingested_at (the indexed column)"
+    assert "fetched_at >=" not in body and "ORDER BY fetched_at" not in body, \
+        "fetched_at carries no index on the corpus -- do not scan on it"
+    print("ok  dated+length gate, idempotent upsert, no big-column scan, "
+          "candidate scan stays on the indexed column")
 
 
 if __name__ == "__main__":
