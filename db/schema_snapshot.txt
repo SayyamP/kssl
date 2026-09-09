@@ -153,6 +153,7 @@ serving.matchup.origin text NOT NULL
 serving.matchup.product_news jsonb
 serving.matchup.reason text
 serving.matchup.revenue_filter text
+serving.matchup.source_doc_ids ARRAY
 serving.matchup.specs jsonb
 serving.matchup.srcs jsonb
 serving.matchup.updated_at timestamp with time zone NOT NULL DEFAULT now()

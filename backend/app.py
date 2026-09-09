@@ -921,20 +921,37 @@ def build_lineage(cur, document_id):
             identifier=_LANE_TO_UI.get(lane, "(unknown lane -> no mapped page)"),
             method="lane->page mapping lives in frontend code, not in data"))
 
-    # ENRICHMENT. RECORDED when serving.partner.source_doc_ids lists this document
-    # (2026-09-07 lineage columns); otherwise fall back to the URL-string reconstruction.
-    partner_lineage = rec_of(one(
-        "SELECT to_jsonb(p) AS rec FROM serving.partner p "
-        "WHERE p.source_doc_ids IS NOT NULL AND %s = ANY(p.source_doc_ids)", (did,))) \
-        if _has_column(cur, "serving", "partner", "source_doc_ids") else None
-    if partner_lineage:
-        stages.append(_lstep(
-            "enrichment", "recorded",
-            "serving.partner.source_doc_ids (written by enrich_serving.py)",
-            identifier=did, record=partner_lineage,
-            downstream_ref="/api/dataset partner[]",
-            note="Authoritative: this document is listed in this partner row's "
-                 "source_doc_ids (multi-document ties keep every contributing id)."))
+    # ENRICHMENT. RECORDED when an enrichment row lists this document in source_doc_ids
+    # (2026-09-07 partner lineage; 2026-09-09 matchup lineage). A document can feed both a
+    # partner tie and a matchup, so both are surfaced; otherwise fall back to URL match.
+    recorded_enrich = []
+    if _has_column(cur, "serving", "partner", "source_doc_ids"):
+        partner_lineage = rec_of(one(
+            "SELECT to_jsonb(p) AS rec FROM serving.partner p "
+            "WHERE p.source_doc_ids IS NOT NULL AND %s = ANY(p.source_doc_ids)", (did,)))
+        if partner_lineage:
+            recorded_enrich.append(_lstep(
+                "enrichment", "recorded",
+                "serving.partner.source_doc_ids (written by enrich_serving.py)",
+                identifier=did, record=partner_lineage,
+                downstream_ref="/api/dataset partner[]",
+                note="Authoritative: this document is listed in this partner row's "
+                     "source_doc_ids (multi-document ties keep every contributing id)."))
+    if _has_column(cur, "serving", "matchup", "source_doc_ids"):
+        matchup_lineage = rec_of(one(
+            "SELECT to_jsonb(m) AS rec FROM serving.matchup m "
+            "WHERE m.source_doc_ids IS NOT NULL AND %s = ANY(m.source_doc_ids) "
+            "ORDER BY matchup_id LIMIT 1", (did,)))
+        if matchup_lineage:
+            recorded_enrich.append(_lstep(
+                "enrichment", "recorded",
+                "serving.matchup.source_doc_ids (written by enrich_serving.py)",
+                identifier=did, record=matchup_lineage,
+                downstream_ref="/api/dataset matchups[]",
+                note="Authoritative: this document contributed specs to this matchup row "
+                     "(multi-document matchups keep every contributing id)."))
+    if recorded_enrich:
+        stages.extend(recorded_enrich)
         return _finish(did, stages)
 
     # URL-string reconstruction (no recorded link for this document's enrichment).
@@ -1674,9 +1691,14 @@ _FEATURES = [
                   "kind": "rule/DB", "model": "extract_specs / categorise_product over propositions (no self-narration)", "scope": "matchup_id<20000"},
                  {"file": "pipeline/revive_matchups.py", "function": "main", "kind": "rule/DB", "scope": "matchup_id>=20000"}],
      "inputs": ["extracted.proposition", "extracted.document", "serving.competitors"],
-     "provenance": {"class": "UNAVAILABLE", "per_row_source": ["srcs", "det"],
-                    "note": "Per-row srcs/det carry the spec sources; no source_doc_ids column."},
-     "gaps": ["spec->document link not stored as lineage"]},
+     "provenance": {"class": "RECORDED_PARTIAL", "recorded_cols": ["source_doc_ids"],
+                    "per_row_source": ["srcs", "det"],
+                    "note": "step_matchups records source_doc_ids -- every corpus document "
+                            "whose propositions built the specs (2026-09-09 matchup lineage "
+                            "migration; populates on the next enrich pass). revive_matchups "
+                            "rows (matchup_id>=20000) and reference rows carry none.",
+                    "row_trace": "/api/lineage/doc/{id} (enrichment stage)"},
+     "gaps": ["revive_matchups rows (matchup_id>=20000) carry no source_doc_ids"]},
 
     {"id": "structure", "title": "Structure / Ownership",
      "purpose": "Ownership and corporate-structure ties between a competitor and other entities.",
