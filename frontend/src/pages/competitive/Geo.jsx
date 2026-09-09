@@ -3,7 +3,7 @@ import { marketNews } from "../../lib/news";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import ScopeChat from "../../components/scopeChat/ScopeChat";
 import GeoMap, { servedGeoCountries } from "../../components/geoMap/GeoMap";
-import { useAppState, useHeaderReport } from "../../state/AppState";
+import { useAppState, useHeaderReport, useCompetitiveState } from "../../state/AppState";
 import { geoLookupCompetitors } from "../../lib/geo";
 import { useData } from "../../state/DataProvider";
 import { srcChips, attr, escAll } from "../../lib/html";
@@ -32,26 +32,14 @@ export default function Geo() {
   const { setScope } = useAppState();
   const clientName =
     (data.client && (data.client.short || data.client.name)) || "KSSL";
-  const getSavedGeo = () => {
-    try {
-      const s = localStorage.getItem("kssl_geo_state");
-      return s ? JSON.parse(s) : {};
-    } catch (e) {
-      return {};
-    }
-  };
-  const savedGeo = getSavedGeo();
-
-  const [comp, setComp] = useState(savedGeo.comp || null);
-  const [country, setCountry] = useState(savedGeo.country || null);
-  const [showDetail, setShowDetail] = useState(!!savedGeo.showDetail);
+  const [comp, setComp] = useCompetitiveState("geo", "comp", null);
+  const [country, setCountry] = useCompetitiveState("geo", "country", null);
+  const [showDetail, setShowDetail] = useCompetitiveState("geo", "showDetail", false);
   const [menu, setMenu] = useState(null); // 'comp' | 'country' | null
   const [menuQuery, setMenuQuery] = useState("");
-  const [back, setBack] = useState(savedGeo.back || null); // {mode, arg}
-  const [pair, setPair] = useState(savedGeo.pair || null); // {cid, country}
-  const [prodIndex, setProdIndex] = useState(
-    savedGeo.prodIndex !== undefined ? savedGeo.prodIndex : null,
-  );
+  const [back, setBack] = useState(null); // {mode, arg}
+  const [pair, setPair] = useCompetitiveState("geo", "pair", null);
+  const [prodIndex, setProdIndex] = useCompetitiveState("geo", "prodIndex", null);
   const [activeGeoNewsArticle, setActiveGeoNewsArticle] = useState(null);
   const rootRef = useRef(null);
 
@@ -68,15 +56,6 @@ export default function Geo() {
     if (!cid || !ctName) return [];
     return marketNews(data, cid, ctName);
   }, [comp, country, pair, data]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "kssl_geo_state",
-        JSON.stringify({ comp, country, showDetail, pair, prodIndex, back }),
-      );
-    } catch (e) {}
-  }, [comp, country, showDetail, pair, prodIndex, back]);
-
   const closeDetail = () => {
     setShowDetail(false);
     setPair(null);
@@ -84,9 +63,6 @@ export default function Geo() {
     setCountry(null);
     setBack(null);
     setProdIndex(null);
-    try {
-      localStorage.removeItem("kssl_geo_state");
-    } catch (e) {}
   };
 
   // clicking outside closes whichever menu is open
@@ -110,7 +86,6 @@ export default function Geo() {
      with two exceptions this effect used to trample:
        - its MOUNT run. An effect with these deps fires once after the first render,
          and that run cleared the pair, the Back door and the open product just
-         restored from localStorage: a drill into "Adani Defence in India" came back
          from a reload, or from a detour to Patents, as the competitor's country list.
        - a click that sets a selection AND a pair in one go (a map marker: country +
          top competitor's products). The pair landed, the effect saw the country
@@ -268,7 +243,6 @@ export default function Geo() {
      rather than the dropdowns. The Back button clears the pair to come back out. */
   const relList = () => {
     if (pair) {
-      // `pair` is rehydrated from localStorage: a company dropped from a later
       // dataset would otherwise take the whole panel down on mount
       const c = data.geoComps.find((x) => x.id === pair.cid);
       const ovPanel = !c
@@ -474,20 +448,13 @@ export default function Geo() {
       const nOv = c.isBf
         ? cs.filter((ct) => geo.geoRivalsIn(ct).length).length
         : cs.filter((ct) => geo.geoOverlap(resolved.cid, ct)).length;
-      /* "meets KSSL in 0 of them" used to print for EVERY rival, because the overlap
-         test has no left-hand side when no client footprint is served (see
-         clientFootprintKnown in lib/geo.js). Zero there measures nothing — it is the
-         absence of a comparison, not a finding of separation, so the line says so. */
-      const meetsLine = geo.clientFootprintKnown
-        ? ` · meets ${clientName} in ${nOv} of them`
-        : ` · overlap with ${clientName} not assessed — no ${clientName} footprint on file`;
       return {
         kind: c.isBf ? "Own markets" : "Competitor markets",
         name: c.name,
         sub: `Supplies ${cs.length} market${cs.length !== 1 ? "s" : ""}${
           c.isBf
             ? ` · ${nOv} contested by a rival offering, ${cs.length - nOv} with none on file`
-            : meetsLine
+            : ` · meets ${clientName} in ${nOv} of them`
         } — select one for products`,
       };
     }
@@ -503,17 +470,7 @@ export default function Geo() {
       const ovs = geo.geoRivalsIn(resolved.country);
       const nSpec = ovs.filter((o) => o.tier === "spec").length;
       const nCat = ovs.length - nSpec;
-      /* "KSSL absent" with a warning triangle fired on 100% of countries: the served
-         footprint tables carry no client rows at all, so `bf` is false everywhere and
-         the header was reporting a data gap as a market retreat. A missing footprint
-         table cannot say KSSL is absent from any one country — only that nothing is
-         on file about where it is. */
-      const presence = geo.clientFootprintKnown
-        ? bf
-          ? ` · ${clientName} present`
-          : ` · ${clientName} absent ⚠`
-        : ` · ${clientName} presence not established — no footprint on file`;
-      let sub = `${rivals} competitor${rivals !== 1 ? "s" : ""} active${presence}`;
+      let sub = `${rivals} competitor${rivals !== 1 ? "s" : ""} active${bf ? ` · ${clientName} present` : ` · ${clientName} absent ⚠`}`;
       if (bf)
         sub += ovs.length
           ? ` · ${nSpec} contest ${clientName} on rating-matched models${nCat ? `, ${nCat} on category only` : ""}`

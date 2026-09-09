@@ -14,12 +14,12 @@
   .pill:hover{color:var(--d-txt-2);background:var(--d-bg-1)}
   .pill.active{color:var(--d-txt);background:var(--d-bg-1)}
   .pill.active::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--d-txt)}
-  .pill .dot{width:5px;height:5px;border-radius:50%;background:var(--d-txt-4);margin-right:9px}
-  .pill.active .dot{background:var(--d-txt)}
+  .pill .dot{display:none;width:5px;height:5px;border-radius:50%;background:var(--d-txt);margin-right:9px}
+  .pill.active .dot{display:inline-block;background:var(--d-txt)}
 
   .topright{display:flex;align-items:center;gap:0;margin-left:auto}
-  .statusbox{display:flex;flex-direction:column;justify-content:center;padding:0 18px;border-left:1px solid var(--d-line);height:100%}
-  .statusbox .k{font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--d-txt-3);text-transform:uppercase}
+  .statusbox{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;padding:0 18px;border-left:1px solid var(--d-line);height:100%;white-space:nowrap}
+  .statusbox .k{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--d-txt-3);text-transform:uppercase}
   .statusbox .v{font-family:var(--mono);font-size:12px;color:var(--d-txt);font-weight:500;display:flex;align-items:center;gap:6px}
   .statusbox.client{justify-content:center}
   .statusbox.client .v{font-family:var(--sans);font-size:14px;font-weight:600;letter-spacing:-.01em}

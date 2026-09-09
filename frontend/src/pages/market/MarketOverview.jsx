@@ -48,7 +48,6 @@ const SECTIONS = [
 const SECTION_KEY = "kssl_market_section";
 const savedSection = () => {
   try {
-    const s = localStorage.getItem(SECTION_KEY);
     return SECTIONS.some((x) => x.id === s) ? s : "active";
   } catch (e) {
     return "active";
@@ -114,7 +113,6 @@ function PieChart({ rows, total, colorOf, onPick, examples }) {
               title={examples ? examples(r.key) : undefined}
               type={onPick ? "button" : undefined}
             >
-              <span className="ovp-dot" style={{ background: colorOf(r.key) }} />
               <span className="ovp-lab">{r.key}</span>
               <span className="ovp-val">
                 {fmt(r.n)}
@@ -210,7 +208,6 @@ export default function MarketOverview() {
     setCountry("all");
     setCat(null);
     try {
-      localStorage.setItem(SECTION_KEY, id);
     } catch (e) {}
   };
 

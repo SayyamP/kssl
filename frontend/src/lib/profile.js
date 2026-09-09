@@ -16,7 +16,6 @@
 
 import { unescapeEntities } from "./html.js";
 import { companyCountries, companyOrigin } from "./countryFacet.js";
-import { compareCards } from "./overview.js";
 
 /* These fields are rendered as TEXT, not injected as HTML, so an entity in the record
    ("Defence &amp; Aerospace" on Kongsberg) reaches the screen as the five literal
@@ -300,15 +299,9 @@ export function buildProfile(d, cid) {
   const name = txt(c.name) || cid;
   const nk = nameKey(name);
 
-  /* "everywhere", per the operator -- this list is the other place signal cards are
-     sequenced, and it was in serve order (signal_card.ord), which is a storage order:
-     rivals first, then coarse month. So a company's own page could open on a low-severity
-     card from the same month as a high-severity one. The SAME comparator as the feed,
-     not a second rule that happens to agree today. */
   const cards = []
     .concat(d.competitiveCards || [], d.marketCards || [], d.techCards || [])
-    .filter((x) => nameKey(x.company) === nk)
-    .sort(compareCards(d));
+    .filter((x) => nameKey(x.company) === nk);
 
   const matchups = Object.entries(d.matchups || {})
     .filter(([, m]) => nameKey(m.compBy) === nk)
@@ -323,15 +316,10 @@ export function buildProfile(d, cid) {
 
   const presence = (d.geoPresence || []).filter((g) => nameKey(g.comp) === nk);
 
-  /* .records, NOT the index entry. adaptPatents builds byCompetitor[cid] as
-     { stats, records } -- an OBJECT -- so this handed the panel a thing whose .length
-     is undefined, the Patents section counted `undefined` rows for every rival that has
-     filings, and profileSelfCheck's "patents is object, not an array" threw on the
-     first such rival. DataProvider catches that, so the whole self-check suite has been
-     ending in a logged error and never reaching "self-checks complete". A rival with NO
-     filings took the `|| []` branch and looked fine, which is why this survived: it is
-     broken exactly where there is data. */
-  const patents = (((d.PATENTS && d.PATENTS.byCompetitor) || {})[cid] || {}).records || [];
+  const patentEntry = ((d.PATENTS && d.PATENTS.byCompetitor) || {})[cid];
+  const patents = Array.isArray(patentEntry)
+    ? patentEntry
+    : (patentEntry && patentEntry.records) || [];
 
   const sources = (d.companySources || {})[name] || [];
 

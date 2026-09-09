@@ -149,6 +149,31 @@ export function AppStateProvider({ children }) {
     setSearchQuery("");
   }, [view]);
 
+  /* Per-view persistent state for the Competitive pillar. Retained when navigating between
+     views within the Competitive pillar; reset when switching away to another pillar. */
+  const [compPageState, setCompPageState] = useState({});
+
+  useEffect(() => {
+    if (pillar !== "competitive") {
+      setCompPageState({});
+    }
+  }, [pillar]);
+
+  const setCompPageStateValue = useCallback((viewKey, key, value) => {
+    setCompPageState((prev) => {
+      const viewState = prev[viewKey] || {};
+      const nextVal = typeof value === "function" ? value(viewState[key]) : value;
+      if (viewState[key] === nextVal) return prev;
+      return {
+        ...prev,
+        [viewKey]: {
+          ...viewState,
+          [key]: nextVal,
+        },
+      };
+    });
+  }, []);
+
   const value = useMemo(
     () => ({
       pillar,
@@ -167,8 +192,10 @@ export function AppStateProvider({ children }) {
       setSearchQuery,
       headerReport,
       setHeaderReport,
+      compPageState,
+      setCompPageStateValue,
     }),
-    [pillar, view, setPillar, chatCtx, scoped, setScope, jumpTo, pending, takePending, searchQuery, headerReport],
+    [pillar, view, setPillar, chatCtx, scoped, setScope, jumpTo, pending, takePending, searchQuery, headerReport, compPageState, setCompPageStateValue],
   );
 
   return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
@@ -178,6 +205,21 @@ export function useAppState() {
   const value = useContext(AppStateContext);
   if (!value) throw new Error("useAppState must be used within AppStateProvider");
   return value;
+}
+
+export function useCompetitiveState(viewKey, key, initialValue) {
+  const { compPageState, setCompPageStateValue } = useAppState();
+  const value =
+    compPageState && compPageState[viewKey] && compPageState[viewKey][key] !== undefined
+      ? compPageState[viewKey][key]
+      : initialValue;
+  const setValue = useCallback(
+    (val) => {
+      setCompPageStateValue(viewKey, key, val);
+    },
+    [viewKey, key, setCompPageStateValue],
+  );
+  return [value, setValue];
 }
 
 /* A view publishes its report with this. `report` must be memoised by the caller --

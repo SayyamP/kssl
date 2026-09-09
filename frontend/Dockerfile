@@ -37,30 +37,5 @@ COPY --from=build /app/dist /srv
 # being rewritten to the root app's index.html. Without the middle term, /ops/
 # fell through to the SPA and showed the main app; /ops/index.html worked but
 # the bare directory URL did not.
-# CACHE THE HASHED FILES, NEVER THE FILE THAT NAMES THEM.
-#
-# Nothing here set a cache header, so index.html was cached by whatever heuristic the
-# browser and the CDN in front of it chose. index.html is the ONLY unhashed file --
-# vite renames the bundle on every build, so /assets/index-<hash>.js is a new URL each
-# time and can never be served stale. Caching the one file that NAMES those bundles
-# pins a viewer to the previous build's asset names, so a deploy that succeeded in
-# every other respect still shows the old app until somebody hard-reloads.
-#
-# Measured on staging 2026-09-08: the severity badge shipped, the served bundle
-# contained `sevtag`, the served CSS contained `.sevtag.high`, and /api/dataset
-# returned a severity on 477 of 939 cards -- and the page showed none of it. That is
-# indistinguishable from a failed deploy, and the natural next move is to deploy
-# again, which looks broken too.
-#
-# Mutually exclusive matchers rather than a default plus an override, so there is no
-# question of which rule wins for a hashed asset.
-#
-# The header values are quoted with a BARE " and not \" -- the printf format is
-# single-quoted, so a double quote needs no escaping and `\"` is not a printf escape
-# at all: it reaches the Caddyfile as a literal backslash, Caddy refuses to parse the
-# file, and the container never starts. The health gate caught exactly that on
-# staging and rolled back, which is the system working -- but the check that was
-# supposed to catch it first had rendered this line in bash, where \" DOES collapse
-# to a quote. Render it the way the image does, or the test agrees with the bug.
-RUN printf ':80 {\n\troot * /srv\n\tencode gzip\n\t@assets path /assets/*\n\t@rest not path /assets/*\n\theader @assets Cache-Control "public, max-age=31536000, immutable"\n\theader @rest Cache-Control "no-cache"\n\ttry_files {path} {path}/index.html /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
+RUN printf ':80 {\n\troot * /srv\n\tencode gzip\n\ttry_files {path} {path}/index.html /index.html\n\tfile_server\n}\n' > /etc/caddy/Caddyfile
 EXPOSE 80

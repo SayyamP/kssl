@@ -106,7 +106,7 @@ export default function TopBar() {
               }
             }}
           >
-            <span className="dot" />
+            {pillar === p ? <span className="dot" /> : null}
             {PILLAR_LABEL[p]}
           </div>
         ))}

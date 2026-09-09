@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
-import { useAppState } from "../../state/AppState";
+import { useAppState, useCompetitiveState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import {
   gapCategories,
@@ -16,14 +16,8 @@ import {
 export default function GapAnalysis() {
   const { data } = useData();
   const { jumpTo } = useAppState();
-  const getSavedGap = () => {
-    try {
-      return localStorage.getItem("kssl_gap_cat") || null;
-    } catch (e) { return null; }
-  };
-
   const [query, setQuery] = useState("");
-  const [cat, setCat] = useState(getSavedGap);
+  const [cat, setCat] = useCompetitiveState("gap-competitive", "cat", null);
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
 
   const cats = useMemo(() => gapCategories(data.matchups), [data.matchups]);
@@ -38,11 +32,9 @@ export default function GapAnalysis() {
 
   useEffect(() => {
     if (!cats.length) {
-      // no served categories: a stale localStorage name must not sit in the eyebrow
       if (cat) {
         setCat(null);
         try {
-          localStorage.removeItem("kssl_gap_cat");
         } catch (e) {}
       }
       return;
@@ -52,7 +44,6 @@ export default function GapAnalysis() {
 
   useEffect(() => {
     try {
-      if (cat) localStorage.setItem("kssl_gap_cat", cat);
     } catch (e) {}
   }, [cat]);
 

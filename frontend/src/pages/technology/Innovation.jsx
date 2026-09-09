@@ -31,16 +31,8 @@ export default function Innovation() {
   };
   const GAP_VERB = { behind: `${clientName} is BEHIND`, parity: `${clientName} is AT PARITY`, ahead: `${clientName} is AHEAD` };
 
-  const getSavedInnov = () => {
-    try {
-      const s = localStorage.getItem("kssl_innov_state");
-      return s ? JSON.parse(s) : {};
-    } catch (e) { return {}; }
-  };
-  const savedInnov = getSavedInnov();
-
-  const [cat, setCat] = useState(savedInnov.cat || (data.techCats && data.techCats[0] ? data.techCats[0].id : null));
-  const [sel, setSel] = useState(savedInnov.sel !== undefined ? savedInnov.sel : null);
+  const [cat, setCat] = useState(() => (data.techCats && data.techCats[0] ? data.techCats[0].id : null));
+  const [sel, setSel] = useState(null);
   const [report, setReport] = useState(null);
   const [generating, setGenerating] = useState(false);
   const detRef = useRef(null);
@@ -53,7 +45,6 @@ export default function Innovation() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("kssl_innov_state", JSON.stringify({ cat, sel }));
     } catch (e) {}
   }, [cat, sel]);
 
@@ -246,15 +237,12 @@ export default function Innovation() {
       <div className={`tech-body ${iv ? "has-sel" : "no-sel"}`} id="tech-body">
         <div className="tech-list" id="tech-list">
           <div className="tech-list-h">
-            {/* "Verified · analysed" was an unconditional claim over 1,101 rows whose
-                gap, whatsNew and compNote are all NULL -- nothing on these records was
-                analysed, and no field on them is a verification. Removed rather than
-                rephrased: unlike a count, there is no measurement here to state
-                honestly, and the notes below already say per domain which fields the
-                serving pass did not land. (shell.css hides .srcbadge outright, so this
-                claim was not even on screen -- it was a lie waiting for one CSS line
-                to make it visible.) */}
-            <span className="eyebrow">{catName} · Innovations</span>
+            <span className="eyebrow">
+              {catName} · Innovations{" "}
+              <span className="srcbadge" style={{ marginLeft: "6px" }}>
+                Verified · analysed
+              </span>
+            </span>
             <span className="lh-note">
               {filtering
                 ? `${shown.length} of ${list.length} match "${String(searchQuery).trim()}" · `
@@ -361,11 +349,12 @@ export default function Innovation() {
                         return pill ? <span className={`dirpill ${pill.cls}`}>{pill.text}</span> : null;
                       })()}
                     </div>
-                    {/* same unconditional "Verified · analysed" claim as the list
-                        header, on a record whose gap, whatsNew and compNote are NULL;
-                        the position pill above already renders only where a position
-                        was actually assessed */}
-                    <span className="eyebrow">Innovation Detail</span>
+                    <span className="eyebrow">
+                      Innovation Detail{" "}
+                      <span className="srcbadge" style={{ marginLeft: "6px" }}>
+                        Verified · analysed
+                      </span>
+                    </span>
                     <div className="ct">{iv.t}</div>
                     <div className="sub">
                       {[

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { useAppState, useHeaderReport } from "../../state/AppState";
+import { useAppState, useHeaderReport, useCompetitiveState } from "../../state/AppState";
 import { revenueOptions } from "../../lib/revenueFacet";
 import { useData } from "../../state/DataProvider";
 import { companyNews, productNews, feedSplit } from "../../lib/news";
@@ -8,7 +8,7 @@ import { productSpecs, specValueWithUnit } from "../../lib/specs";
 import { unescapeEntities } from "../../lib/html";
 import { companyCountries, facetOptionsByName } from "../../lib/countryFacet";
 import Thumb from "../../components/thumb/Thumb.jsx";
-import SourceLink from "../../components/sourceLink/SourceLink.jsx";
+import SourceLink, { SourceChip } from "../../components/sourceLink/SourceLink.jsx";
 const cleanCompanyName = (rawName) => {
   if (!rawName) return "";
   let name = unescapeEntities(String(rawName)).split("(")[0].split("-")[0].trim();
@@ -185,41 +185,19 @@ export default function Products() {
   }, [data, clientCid]);
 
   const firstCompCid = useMemo(() => (companyRoster[0] ? companyRoster[0].cid : ""), [companyRoster]);
-  /* Remembered, as the other sidebars remember theirs: this page reset to the first
-     company on every reload and every detour to another rail row. A saved id the
-     served roster no longer carries falls back to the first row. */
-  const [selectedCid, setSelectedCidState] = useState(() => {
-    try {
-      const saved = localStorage.getItem(PRODUCTS_KEY);
-      if (saved && (saved === clientCid || companyRoster.some((r) => r.cid === saved))) return saved;
-    } catch (e) {}
-    return firstCompCid;
-  });
-  const setSelectedCid = (next) => {
-    setSelectedCidState(next);
-    try {
-      if (next) localStorage.setItem(PRODUCTS_KEY, next);
-      else localStorage.removeItem(PRODUCTS_KEY);
-    } catch (e) {}
-  };
+  const [selectedCid, setSelectedCid] = useCompetitiveState("products", "selectedCid", "");
   /* The revenue facet, from the rows -- like the two selects above it. It was three
      fixed options over a roster on which revenue_filter is null for every company
      (0 of 42 live, 0 of 28 sample), so each one emptied the list. With no tier on
      file there are no options, and the control is not drawn. */
   const sidebarRevenue = useMemo(() => revenueOptions(companyRoster), [companyRoster]);
-  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [selectedProduct, setSelectedProduct] = useCompetitiveState("products", "selectedProduct", null);
   const [productSearch, setProductSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
 
   // Product News category filter pill & open detail article state
   const [prodNewsFilter, setProdNewsFilter] = useState("All");
   const [activeProdArticle, setActiveProdArticle] = useState(null);
-
-  useEffect(() => {
-    if (!selectedCid && firstCompCid) {
-      setSelectedCid(firstCompCid);
-    }
-  }, [selectedCid, firstCompCid]);
 
   // Reset product news state when product changes
   useEffect(() => {
@@ -535,7 +513,7 @@ export default function Products() {
     }
     const groups = Object.entries(groupedProducts);
     return {
-      title: `${selectedCompany.name} Product Portfolio`,
+      title: selectedCompany.name,
       subtitle:
         `${filteredCompanyProducts.length} of ${companyProducts.length} products` +
         (productSearch ? ` matching "${productSearch}"` : "") +
@@ -677,7 +655,7 @@ export default function Products() {
 
       {/* 2. RIGHT PANE: LINE-BY-LINE PRODUCTS LIST OR WHITE BACKGROUND SPECS TAB */}
       <div className="cp-body" style={{ padding: "20px", background: "var(--d-bg)" }}>
-        {selectedProduct ? (
+        {!selectedCid ? null : selectedProduct ? (
           activeProdArticle ? (
             /* ============ WHITE BACKGROUND ARTICLE DETAIL VIEW ============ */
             <div
@@ -1026,11 +1004,24 @@ export default function Products() {
                         </p>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "8px", paddingTop: "10px", borderTop: "1px solid var(--d-line)" }}>
                           <span style={{ fontSize: "11px", color: "var(--d-txt-3)", fontWeight: "600" }}>
-                            <span className="src-dot"></span>{topProdStory.source}
+                            <span className="src-dot"></span>
+                            <SourceChip url={topProdStory.url} source={topProdStory.source} />
                           </span>
-                          <span style={{ fontSize: "12px", color: "#f87171", fontWeight: "600" }}>
-                            Read Full Article →
-                          </span>
+                          {topProdStory.url ? (
+                            <a
+                              href={topProdStory.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ fontSize: "12px", color: "#f87171", fontWeight: "600", textDecoration: "underline" }}
+                            >
+                              Read Full Article ↗
+                            </a>
+                          ) : (
+                            <span style={{ fontSize: "12px", color: "#f87171", fontWeight: "600" }}>
+                              Read Full Article →
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1065,7 +1056,7 @@ export default function Products() {
                             {item.title}
                           </div>
                           <span style={{ fontSize: "11px", color: "var(--d-txt-3)", marginTop: "auto" }}>
-                            {item.source} ✓
+                            <SourceChip url={item.url} source={item.source} /> ✓
                           </span>
                         </div>
                       </div>
@@ -1152,7 +1143,7 @@ export default function Products() {
             >
               <div>
                 <h2 style={{ fontSize: "16px", fontWeight: "700", color: "var(--d-txt)", margin: 0 }}>
-                  {selectedCompany.name} Product Portfolio
+                  {selectedCompany.name}
                 </h2>
               </div>
 
@@ -1248,9 +1239,6 @@ export default function Products() {
                           </span>
 
                           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-                            <span style={{ fontSize: "11.5px", color: "var(--d-txt-3)", fontFamily: "var(--mono)" }}>
-                              {p.category}
-                            </span>
                             <span style={{ fontSize: "12px", color: "var(--fav-badge)", fontFamily: "var(--mono)", fontWeight: "600" }}>
                               View Specs
                             </span>

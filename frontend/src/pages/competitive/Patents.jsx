@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import { useData } from "../../state/DataProvider";
-import { useAppState, useHeaderReport } from "../../state/AppState";
+import { useAppState, useHeaderReport, useCompetitiveState } from "../../state/AppState";
 import {
   searchPatents,
   patCompBody,
@@ -17,19 +17,11 @@ export default function Patents() {
   const { data } = useData();
   const { setScope, takePending } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
-  const getSavedPat = () => {
-    try {
-      const s = localStorage.getItem("kssl_pat_state");
-      return s ? JSON.parse(s) : {};
-    } catch (e) { return {}; }
-  };
-  const savedPat = getSavedPat();
-
-  const [lens, setLens] = useState(savedPat.lens || "rival");
+  const [lens, setLens] = useCompetitiveState("patents-comp", "lens", "rival");
   const [compQuery, setCompQuery] = useState("");
   const [techQuery, setTechQuery] = useState("");
-  const [cid, setCid] = useState(savedPat.cid || data.compOrder[0]);
-  const [catFilter, setCatFilter] = useState(savedPat.catFilter || "");
+  const [cid, setCid] = useCompetitiveState("patents-comp", "cid", "");
+  const [catFilter, setCatFilter] = useState("");
   const [compRes, setCompRes] = useState(null);
 
   useEffect(() => {
@@ -45,12 +37,11 @@ export default function Patents() {
      all reading 0 while 21 filings sat under the rival lens. The configured areas,
      then the tracked categories, remain the fallbacks when nothing is indexed. */
   const areas = useMemo(() => patentAreas(data.PATENTS, data.techCats), [data]);
-  const [area, setArea] = useState(savedPat.area || areas[0] || null);
+  const [area, setArea] = useState(() => (areas && areas[0] ? areas[0] : null));
   const [techRes, setTechRes] = useState(null);
 
   useEffect(() => {
     try {
-      localStorage.setItem("kssl_pat_state", JSON.stringify({ lens, cid, area, catFilter }));
     } catch (e) {}
   }, [lens, cid, area, catFilter]);
 
@@ -91,17 +82,9 @@ export default function Patents() {
      under the category filter in force, with the search status stated -- an empty
      list says whether it is empty or still loading. */
   const report = useMemo(() => {
-    /* THE EXPORT READS LIKE THE CARD. The card leads with the English title where the
-       translation step has produced one; a Copy/Export that pasted the German original
-       instead would put a different filing in front of the reader than the one they were
-       looking at. The office's own title travels in the second column, because that is
-       the string that finds the record again in its register. */
     const recRow = (r) => [
-      r.title_en || r.title || r.id || "untitled",
-      [r.assignee, r.title_en && r.title_en !== r.title ? r.title : "", r.status,
-       r.grant_no ? `Grant ${r.grant_no}` : "", r.granted || r.filed, r.jurisdiction]
-        .filter(Boolean)
-        .join(" · "),
+      r.title || r.id || "untitled",
+      [r.assignee, r.status, r.granted || r.filed, r.jurisdiction].filter(Boolean).join(" · "),
     ];
     const res = lens === "rival" ? compRes : techRes;
     const recs = res ? res.results || [] : [];
@@ -273,7 +256,11 @@ export default function Patents() {
             )}
           </div>
         </div>
-        <div className="pat-canvas">
+
+        {!cid ? (
+          <div className="pat-canvas" style={{ background: "transparent", border: "none" }} />
+        ) : (
+          <div className="pat-canvas">
           <div className="pat-head">
             <span className="eyebrow">{`${(data.competitors[cid] || {}).name || cid} · patent portfolio`}</span>
             <span className="pat-sub">Patents filed and granted to this competitor</span>
@@ -305,9 +292,10 @@ export default function Patents() {
             onMount={applyCatFilter}
           />
         </div>
-        </>
         )}
-      </div>
+        </>
+      )}
+    </div>
 
       <div className="pat-pane" data-lens="field" style={{ display: lens === "field" ? "" : "none" }}>
         <div className="mu-list">

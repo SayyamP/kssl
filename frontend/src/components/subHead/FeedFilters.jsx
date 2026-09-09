@@ -57,7 +57,6 @@ export default function FeedFilters({ filters, active, onFilter, seqMode, onSeq,
               title={empty ? `No signals carry ${f.l}` : undefined}
               type="button"
             >
-              {f.c ? <span className="sw" style={{ background: f.c }} /> : null}
               {f.l}
               {n === undefined ? null : <span className="fcount"> {n}</span>}
             </button>

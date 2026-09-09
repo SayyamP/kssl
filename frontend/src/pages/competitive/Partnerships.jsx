@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import HtmlBlock from "../../components/htmlBlock/HtmlBlock";
 import ScopeChat from "../../components/scopeChat/ScopeChat";
-import { useAppState, useHeaderReport } from "../../state/AppState";
+import { useAppState, useHeaderReport, useCompetitiveState } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { formatSectorName, formatCompanyName } from "../../lib/profile";
 import { companyCountries, facetOptionsByName } from "../../lib/countryFacet";
@@ -19,27 +19,16 @@ export default function Partnerships() {
   const { data, partners } = useData();
   const { setScope, searchQuery } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
-  const getSavedPart = () => {
-    try {
-      const s = localStorage.getItem("kssl_part_state");
-      return s ? JSON.parse(s) : {};
-    } catch (e) { return {}; }
-  };
-  const savedPart = getSavedPart();
+
   /* A saved selection outlives the dataset that produced it: the stored id can be
      from an older export, or the client itself (which this list no longer shows).
      Restore it only if the row is still here, or the drawer renders an id with no
      competitor behind it and throws on the first field it reads. */
-  const savedCid =
-    savedPart.cid && data.competitors[savedPart.cid] && savedPart.cid !== (data.client?.id || "KSSL")
-      ? savedPart.cid
-      : null;
-
-  const [cid, setCid] = useState(savedCid);
+  const [cid, setCid] = useCompetitiveState("partnerships", "cid", null);
   const [query, setQuery] = useState("");
   const [hq, setHq] = useState("");
-  const [tie, setTie] = useState(savedCid ? savedPart.tie || null : null); // a partner row id, or null for the competitor read
-  const [mode, setMode] = useState(savedPart.mode || "syn"); // 'syn' | 'field'
+  const [tie, setTie] = useCompetitiveState("partnerships", "tie", null);
+  const [mode, setMode] = useCompetitiveState("partnerships", "mode", "syn"); // 'syn' | 'field'
   const [relCardIndex, setRelCardIndex] = useState(null);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [panCenter, setPanCenter] = useState(null);
@@ -71,8 +60,6 @@ export default function Partnerships() {
 
   useEffect(() => {
     try {
-      if (cid) localStorage.setItem("kssl_part_state", JSON.stringify({ cid, tie, mode }));
-      else localStorage.removeItem("kssl_part_state");
     } catch (e) {}
   }, [cid, tie, mode]);
 
@@ -590,12 +577,13 @@ export default function Partnerships() {
               html={drawerBody()}
               id="pg-r-body"
             />
-            {/* REMOVED ON REQUEST: the "What an overlapping <kind> partner costs KSSL"
-                explainer that used to sit under the drawer. It was generic interpretation
-                keyed off the overlap kind -- the same two paragraphs for every rival that
-                shared a partner of that kind -- and it said nothing the drawer above does
-                not already state about THIS rival. partners.overlapDefsHtml and OV_DEF are
-                left intact, so restoring it is putting this element back. */}
+            {/* moved here from under the graph: the canvas states the relation, the side
+                states what it means. Renders nothing when this rival shares no partner. */}
+            <HtmlBlock
+              className="pg-ov-side"
+              html={c ? partners.overlapDefsHtml(c, cid, clientName) : ""}
+              id="pg-ov-side"
+            />
           </div>
         </div>
       </div>

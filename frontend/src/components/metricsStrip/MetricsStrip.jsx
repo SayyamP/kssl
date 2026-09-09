@@ -95,7 +95,6 @@ export default function MetricsStrip({ metrics, active, onPick, inert = false })
           }
         >
           <span className="ml">
-            {m.dot ? <span className="d" style={{ background: m.dot }} /> : null}
             {m.l}
           </span>
           <span className="mv">
