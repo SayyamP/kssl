@@ -24,16 +24,11 @@ export default function Partnerships() {
      from an older export, or the client itself (which this list no longer shows).
      Restore it only if the row is still here, or the drawer renders an id with no
      competitor behind it and throws on the first field it reads. */
-  const savedCid =
-    savedPart.cid && data.competitors[savedPart.cid] && savedPart.cid !== (data.client?.id || "KSSL")
-      ? savedPart.cid
-      : null;
-
-  const [cid, setCid] = useState(savedCid);
+  const [cid, setCid] = useState(null);
   const [query, setQuery] = useState("");
   const [hq, setHq] = useState("");
-  const [tie, setTie] = useState(savedCid ? savedPart.tie || null : null); // a partner row id, or null for the competitor read
-  const [mode, setMode] = useState(savedPart.mode || "syn"); // 'syn' | 'field'
+  const [tie, setTie] = useState(null);
+  const [mode, setMode] = useState("syn"); // 'syn' | 'field'
   const [relCardIndex, setRelCardIndex] = useState(null);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [panCenter, setPanCenter] = useState(null);

@@ -32,25 +32,14 @@ export default function Geo() {
   const { setScope } = useAppState();
   const clientName =
     (data.client && (data.client.short || data.client.name)) || "KSSL";
-  const getSavedGeo = () => {
-    try {
-      return s ? JSON.parse(s) : {};
-    } catch (e) {
-      return {};
-    }
-  };
-  const savedGeo = getSavedGeo();
-
-  const [comp, setComp] = useState(savedGeo.comp || null);
-  const [country, setCountry] = useState(savedGeo.country || null);
-  const [showDetail, setShowDetail] = useState(!!savedGeo.showDetail);
+  const [comp, setComp] = useState(null);
+  const [country, setCountry] = useState(null);
+  const [showDetail, setShowDetail] = useState(false);
   const [menu, setMenu] = useState(null); // 'comp' | 'country' | null
   const [menuQuery, setMenuQuery] = useState("");
-  const [back, setBack] = useState(savedGeo.back || null); // {mode, arg}
-  const [pair, setPair] = useState(savedGeo.pair || null); // {cid, country}
-  const [prodIndex, setProdIndex] = useState(
-    savedGeo.prodIndex !== undefined ? savedGeo.prodIndex : null,
-  );
+  const [back, setBack] = useState(null); // {mode, arg}
+  const [pair, setPair] = useState(null); // {cid, country}
+  const [prodIndex, setProdIndex] = useState(null);
   const [activeGeoNewsArticle, setActiveGeoNewsArticle] = useState(null);
   const rootRef = useRef(null);
 

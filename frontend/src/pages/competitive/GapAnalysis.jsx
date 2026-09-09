@@ -16,13 +16,8 @@ import {
 export default function GapAnalysis() {
   const { data } = useData();
   const { jumpTo } = useAppState();
-  const getSavedGap = () => {
-    try {
-    } catch (e) { return null; }
-  };
-
   const [query, setQuery] = useState("");
-  const [cat, setCat] = useState(getSavedGap);
+  const [cat, setCat] = useState(null);
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
 
   const cats = useMemo(() => gapCategories(data.matchups), [data.matchups]);
