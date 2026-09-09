@@ -31,7 +31,7 @@ export default function Sidebar() {
         )}
       </span>
       <span className="nm">{item.label}</span>
-      <span className={`tdot${item.overview ? "" : " none"}`} />
+      <span className="tdot none" />
       <span className="ct">{counts[item.view] ?? "—"}</span>
     </div>
   );

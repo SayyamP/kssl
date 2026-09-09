@@ -195,7 +195,7 @@ function Chart({ title, note, empty, show, children }) {
 export default function MarketOverview() {
   const { data } = useData();
   const { setScope, takePending } = useAppState();
-  const [section, setSectionRaw] = useState("active");
+  const [section, setSectionRaw] = useState(savedSection);
   const [rows, setRows] = useState(TABLE_PAGE);
   const [country, setCountry] = useState("all");
   const [cat, setCat] = useState(null);
@@ -203,8 +203,15 @@ export default function MarketOverview() {
   const setSection = (id) => {
     setSectionRaw(id);
     setRows(TABLE_PAGE);
+    /* the options are the new section's rows; a country or category picked in another
+       section may not exist in this one, and a filter matching nothing must not be
+       silently kept. Both are reset -- the country alone was, and a category carried
+       across tabs was still filtering the awarded list. */
     setCountry("all");
     setCat(null);
+    try {
+      localStorage.setItem(SECTION_KEY, id);
+    } catch (e) {}
   };
 
   /* A metric tile on the Market overview ("Already concluded", "Markets tracked")

@@ -16,8 +16,14 @@ import {
 export default function GapAnalysis() {
   const { data } = useData();
   const { jumpTo } = useAppState();
+  const getSavedGap = () => {
+    try {
+      return localStorage.getItem("kssl_gap_cat") || null;
+    } catch (e) { return null; }
+  };
+
   const [query, setQuery] = useState("");
-  const [cat, setCat] = useState(null);
+  const [cat, setCat] = useState(getSavedGap);
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
 
   const cats = useMemo(() => gapCategories(data.matchups), [data.matchups]);
@@ -32,11 +38,23 @@ export default function GapAnalysis() {
 
   useEffect(() => {
     if (!cats.length) {
-      if (cat) setCat(null);
+      // no served categories: a stale localStorage name must not sit in the eyebrow
+      if (cat) {
+        setCat(null);
+        try {
+          localStorage.removeItem("kssl_gap_cat");
+        } catch (e) {}
+      }
       return;
     }
     if (!cat || !cats.some((c) => c.cat === cat)) setCat(cats[0].cat);
   }, [cats, cat]);
+
+  useEffect(() => {
+    try {
+      if (cat) localStorage.setItem("kssl_gap_cat", cat);
+    } catch (e) {}
+  }, [cat]);
 
   const rivals = useMemo(
     () => (cat ? gapRivals(data.matchups, cat, clientName) : []),

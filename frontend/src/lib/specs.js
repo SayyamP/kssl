@@ -148,52 +148,7 @@ export function productSpecs(specs, side, labelOf) {
   return out;
 }
 
-export const SHOW_POSITIONING_SOURCES = false;
-/* Kept as the old name so the four call sites below read unchanged. */
-const SHOW_SPEC_SOURCES = SHOW_POSITIONING_SOURCES;
-
-/* THE SAME REQUEST, THE OTHER TWO PANELS.
-   Sources come off Positioning in three different shapes, and turning one off left the
-   other two on:
-     Spec Comparison   srcLine() under each value                -- off since TASKS #8
-     Competitor Detail a "Sources" row appended by srcKvRow      -- 95 of 117 matchups
-     Advantages        an inline <a class="adv-src"> per line    -- every line
-   All three now read one switch, so they cannot drift apart again, and flipping it to
-   true restores the provenance in all three exactly as it was.
-
-   Stripping is DISPLAY ONLY and deliberately narrow: serving.matchup keeps srcs, and
-   the anchors stay in the stored advantage strings. Only an <a> carrying the pipeline's
-   own adv-src class is removed, so inline emphasis inside an advantage survives -- and
-   a source rendered any other way stays visible rather than being silently swallowed. */
-export function advantageText(html) {
-  if (SHOW_POSITIONING_SOURCES) return html;
-  return String(html == null ? "" : html)
-    .replace(/\s*<a[^>]*class\s*=\s*"[^"]*adv-src[^"]*"[^>]*>[\s\S]*?<\/a>/gi, "")
-    .replace(/[ 	]+$/g, "")
-    .trim();
-}
-
-/* THE PAGE MUST NOT PROMISE A CITATION IT DOES NOT SHOW.
-
-   revive_matchups.py closes every pairing-logic paragraph with "Every number below
-   names the page it came from." That was true while the spec panel printed a source
-   line under each value; it has been false since SHOW_SPEC_SOURCES went to false for
-   TASKS #8, and the sentence has sat over a comparison with no visible provenance ever
-   since -- on every matchup, in the dossier, in the Products drawer and in the
-   exported report.
-
-   The sentence is dropped rather than the switch flipped back, because turning the
-   source lines on would silently reverse the client's own request. Flip
-   SHOW_SPEC_SOURCES to true and the sentence survives untouched, so the copy and the
-   panel can no longer disagree. The deeper fix is upstream and not ours to make: a
-   pipeline should not be writing claims about what a UI displays. */
-export function pairingReason(reason) {
-  const s = String(reason == null ? "" : reason);
-  if (SHOW_SPEC_SOURCES || !s) return s;
-  return s
-    .replace(/\s*Every\s+number\s+below\s+names\s+the\s+page\s+it\s+came\s+from\.\s*/gi, " ")
-    .trim();
-}
+const SHOW_SPEC_SOURCES = false;
 
 function srcLine(urls, why, tier) {
   if (!SHOW_SPEC_SOURCES) return "";
@@ -217,17 +172,7 @@ function specRowQual(s) {
   const cpv = s.cp || s.p;
   const kpv = s.kp || s.p;
   const has = (v) => v != null && v !== "" && v !== "—";
-  /* "not sourced" and "nobody published one" are two different facts about an empty
-     rival column, and the panel used to print the first over both. `noCounterpart` is
-     set by extraction/signals/spec_join.py on a value KSSL publishes and the rival
-     simply does not state -- 27 of the 28 specifications on the CQB Carbine's own page.
-     Saying "not sourced" there reads as a failure of ours; it is an absence of theirs,
-     and either way it scores for nobody (cn stays null, so the row never becomes a
-     bar). */
-  const missing = s.noCounterpart
-    ? '<span class="sb-nosrc">no counterpart published</span>'
-    : '<span class="sb-nosrc">not sourced</span>';
-  const cv = has(s.cv) ? specValueWithUnit(s.cv, s.u) : missing;
+  const cv = has(s.cv) ? specValueWithUnit(s.cv, s.u) : '<span class="sb-nosrc">not sourced</span>';
   const kv = has(s.kv) ? specValueWithUnit(s.kv, s.u) : '<span class="sb-nosrc">not sourced</span>';
   return (
     `<div class="specbar"><div class="sb-label">${s.l}</div>` +
@@ -305,9 +250,7 @@ export function specPanelHtml(m) {
         const cKnown = s.cv != null && s.cv !== "" && s.cv !== "—";
         const cChip = cKnown
           ? `<div class="sb-chip comp">${specValueWithUnit(s.cv, s.u)}</div>`
-          : s.noCounterpart
-            ? '<div class="sb-chip comp undisc">no counterpart published</div>'
-            : '<div class="sb-chip comp undisc">not sourced</div>';
+          : '<div class="sb-chip comp undisc">not sourced</div>';
         const kChip = kvKnown(s)
           ? `<div class="sb-chip bf">${specValueWithUnit(s.kv, s.u)}${dot}</div>`
           : '<div class="sb-chip bf undisc">KSSL — not sourced</div>';

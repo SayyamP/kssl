@@ -2,12 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppState, useHeaderReport } from "../../state/AppState";
 import { useData } from "../../state/DataProvider";
 import { buildProfile, rosterOf, formatSectorName } from "../../lib/profile";
-import { companyNews, feedSplit, FEED_N, collapseThreads,
+import { companyNews, feedSplit, FEED_N, collapseThreads, newsDate,
          NEWS_MAX, NEWS_WINDOWS, NEWS_WINDOW_DEFAULT, windowDays, withinWindow, capNews } from "../../lib/news";
-import { facetOptionsByName, tidyHq } from "../../lib/countryFacet";
+import { facetOptionsByName } from "../../lib/countryFacet";
 import Thumb from "../../components/thumb/Thumb.jsx";
 import SourceLink, { SourceChip } from "../../components/sourceLink/SourceLink.jsx";
-import { detailLine, listLine } from "../../lib/companyNames";
 
 // Helper function to extract clean company short name without full form or legal suffixes
 const cleanCompanyName = (rawName) => {
@@ -72,15 +71,6 @@ const firstFigure = (v) => {
   return period ? `${hit.value} (${period})` : hit.value || null;
 };
 
-/* HEADQUARTERS, AT ONE GRANULARITY. The column holds three different things: a full
-   postal address ("241 18th Street South, Suite 650, Arlington, Virginia 22202, United
-   States"), a city/region/country chain, and a bare country ("Israel"). Rendered raw
-   they read as different fields, and the street line is noise on a competitor profile.
-
-   The rule itself moved to lib/countryFacet.js on 2026-09-06 -- unchanged -- because the
-   geo map's "Head office" badge needed the same answer and had been doing raw
-   full-string equality instead. It is imported at the top of this file. */
-
 const joinList = (v) => {
   if (!Array.isArray(v) || !v.length) return null;
   const names = v
@@ -100,7 +90,7 @@ const getCompanyDetailsMeta = (p) => {
   if (!p) return null;
   return {
     founded: p.starting_year ? String(p.starting_year) : DASH,
-    hq: tidyHq(p.hq) || DASH,
+    hq: p.hq || DASH,
     globalLocs: joinList(p.global_locations) || DASH,
     size: p.company_size || DASH,
     revenue: firstFigure(p.sales) || DASH,
@@ -118,6 +108,122 @@ function Sec({ title, note, children }) {
         {note ? <span className="cp-note">{note}</span> : null}
       </div>
       {children}
+
+      {/* 3. THIRD GRID PANEL: DETAILED EXECUTIVE DOSSIER WINDOW */}
+      {selectedLeader && (
+        <div
+          className="cp-leader-drawer"
+          style={{
+            background: "var(--d-surface, #1e1e1e)",
+            borderLeft: "1px solid var(--d-line, #333)",
+            padding: "20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: "16px",
+            overflowY: "auto",
+            minHeight: "calc(100vh - 120px)",
+          }}
+        >
+          {/* Top Header Bar with Title & Close Button */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--d-line, #333)", paddingBottom: "12px" }}>
+            <span className="eyebrow" style={{ fontSize: "11px", color: "var(--d-red, #b5341f)", fontWeight: "700", letterSpacing: ".08em" }}>
+              EXECUTIVE DOSSIER
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedLeader(null)}
+              style={{
+                background: "var(--d-bg-2, #2c2c2c)",
+                border: "1px solid var(--d-line, #444)",
+                color: "var(--d-txt, #fff)",
+                fontSize: "14px",
+                fontWeight: "600",
+                cursor: "pointer",
+                padding: "4px 10px",
+                borderRadius: "4px",
+              }}
+              title="Close Details Window"
+            >
+              ✕ Close
+            </button>
+          </div>
+
+          {/* Person Header: Photo/Avatar on Left, Name in Bold & Designation below */}
+          <div style={{ display: "flex", gap: "14px", alignItems: "center" }}>
+            <div
+              style={{
+                width: "60px",
+                height: "60px",
+                borderRadius: "8px",
+                background: "var(--d-card-bg, #2a2a2a)",
+                border: "1px solid var(--d-line, #444)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                overflow: "hidden",
+              }}
+            >
+              {selectedLeader.photo ? (
+                <img src={selectedLeader.photo} alt={selectedLeader.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                <span style={{ fontFamily: "var(--mono)", fontSize: "18px", fontWeight: "700", color: "var(--d-red, #b5341f)" }}>
+                  {getInitials(selectedLeader.name)}
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "3px", minWidth: 0 }}>
+              <h3 style={{ margin: 0, fontSize: "15px", fontWeight: "700", color: "var(--d-txt, #fff)", lineHeight: "1.25" }}>
+                {selectedLeader.name}
+              </h3>
+              <div style={{ fontSize: "12px", color: "var(--d-txt-2, #ccc)", fontWeight: "500" }}>
+                {selectedLeader.role}
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--d-red, #b5341f)", fontFamily: "var(--mono)", marginTop: "1px" }}>
+                {displayName}
+              </div>
+            </div>
+          </div>
+
+          {/* Detailed Info Section */}
+          <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "4px" }}>
+            <div style={{ background: "var(--d-bg, #141414)", padding: "12px", borderRadius: "6px", border: "1px solid var(--d-line, #333)" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--d-txt-3, #888)", textTransform: "uppercase", marginBottom: "4px" }}>
+                Current Company
+              </div>
+              <div style={{ fontSize: "13px", color: "var(--d-txt, #fff)", fontWeight: "600" }}>
+                {displayName}
+              </div>
+            </div>
+
+            <div style={{ background: "var(--d-bg, #141414)", padding: "12px", borderRadius: "6px", border: "1px solid var(--d-line, #333)" }}>
+              <div style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--d-txt-3, #888)", textTransform: "uppercase", marginBottom: "4px" }}>
+                Designation in Current Company
+              </div>
+              <div style={{ fontSize: "13px", color: "var(--d-txt, #fff)", fontWeight: "600" }}>
+                {selectedLeader.role}
+              </div>
+            </div>
+
+            {selectedLeader.bio && (
+              <div style={{ background: "var(--d-bg, #141414)", padding: "12px", borderRadius: "6px", border: "1px solid var(--d-line, #333)" }}>
+                <div style={{ fontFamily: "var(--mono)", fontSize: "10px", color: "var(--d-txt-3, #888)", textTransform: "uppercase", marginBottom: "6px" }}>
+                  Detailed Executive Background
+                </div>
+                <div style={{ fontSize: "12px", color: "var(--d-txt-2, #bbb)", lineHeight: "1.6" }}>
+                  {selectedLeader.bio}
+                </div>
+              </div>
+            )}
+
+            {selectedLeader.source && (
+              <div style={{ marginTop: "4px" }}>
+                <SourceLink url={selectedLeader.source} source="Public Record Source" color="var(--d-red, #b5341f)" />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -153,7 +259,20 @@ export default function Profile() {
      and the Tender Pipeline remember theirs: this page reset to roster[0] on every
      reload and every detour to another rail row, alone among the sidebars. A saved id
      that the served roster no longer carries falls back to the first row. */
-  const [cid, setCid] = useState(() => (roster[0] ? roster[0].cid : ""));
+  const [cid, setCidState] = useState(() => {
+    try {
+      const saved = localStorage.getItem(PROFILE_KEY);
+      if (saved && roster.some((r) => r.cid === saved)) return saved;
+    } catch (e) {}
+    return roster[0] ? roster[0].cid : "";
+  });
+  const setCid = (next) => {
+    setCidState(next);
+    try {
+      if (next) localStorage.setItem(PROFILE_KEY, next);
+      else localStorage.removeItem(PROFILE_KEY);
+    } catch (e) {}
+  };
 
   /* Opened from global search targeting one company. Without this the page took the
      jump but never read the payload, so picking "RENK" in the search box landed on
@@ -165,13 +284,21 @@ export default function Profile() {
     }
   }, [takePending, data.competitors]);
 
-  // News category filter pill & active open article state for White Detail Window
+  // News category filter pill & active article state & news opening helper
+  const [activeArticle, setActiveArticle] = useState(null);
+  const [selectedLeader, setSelectedLeader] = useState(null);
   const [newsFilter, setNewsFilter] = useState("All");
   /* How far back counts as current. The reader's choice, not a constant -- see
      lib/news.NEWS_WINDOWS. The 15-card cap below is the panel's and is not. */
   const [newsWindow, setNewsWindow] = useState(NEWS_WINDOW_DEFAULT);
-  const [activeArticle, setActiveArticle] = useState(null);
-  const [selectedLeader, setSelectedLeader] = useState(null);
+  const openNewsArticle = (item) => {
+    const url = item && (item.url || item.sourceUrl);
+    if (url && typeof window !== "undefined") {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else if (item) {
+      setActiveArticle(item);
+    }
+  };
   /* How many feed cards are open. "View More News" had no handler and the stack
      already listed every article, so the button could not have done anything; the
      stack now opens NEWS_PAGE at a time and the button says how many remain. */
@@ -207,7 +334,7 @@ export default function Profile() {
     });
   }, [p, setScope]);
 
-  // Reset active article and filter when switching company
+  // Reset filter when switching company
   useEffect(() => {
     setActiveArticle(null);
     setSelectedLeader(null);
@@ -218,7 +345,20 @@ export default function Profile() {
     setNewsShown(NEWS_PAGE);
   }, [newsFilter, newsWindow]);
 
-  /* Executive leadership list */
+  /* Executive leadership.
+   *
+   * This block used to carry a hand-typed board for about six named firms --
+   * "Shri Shailesh Vagerwal, Chairman & Managing Director" at Bharat Dynamics,
+   * "Sukaran Singh" at TASL, "Gautam Adani" at Adani Defence -- returned before
+   * the real branch could run. Named people in named roles at real companies is
+   * the most damaging kind of invented content on this dashboard, and it was the
+   * one I missed on the first pass: the strings survived into the deployed
+   * bundle, which is where I found them.
+   *
+   * competitors.leadership is the column for this. It is 0% filled today, so the
+   * section renders empty until enrichment writes it -- which is the correct
+   * state, not a regression.
+   */
   const leadershipList = useMemo(() => {
     if (p && p.leadership && p.leadership.length > 0) {
       return p.leadership.map((r) => ({
@@ -252,7 +392,29 @@ export default function Profile() {
     return [];
   }, [p, cid]);
 
-
+  /* Facilities. Same fault: a hand-typed plant list for Bharat Dynamics
+     (Kanchanbagh, Bhanur, Visakhapatnam, and an "Armenia (Deployed) / Philippines
+     (Negotiation)" export pipeline) shadowed the harvested branch. Now: the
+     facilities column if it has rows, else the country presence rows, else
+     nothing. */
+  const facilitiesList = useMemo(() => {
+    if (!p) return [];
+    if (p.facilities && p.facilities.length > 0) {
+      return p.facilities.map((f) => ({
+        name: f.value,
+        type: f.detail || "Manufacturing & Operating Facility",
+        url: f.url,
+      }));
+    }
+    if (p.presence && p.presence.length > 0) {
+      return p.presence.slice(0, 4).map((pr) => ({
+        name: pr.name || `${pr.country} Operations`,
+        type: `Operating Location (${pr.country})`,
+        stage: pr.stage,
+      }));
+    }
+    return [];
+  }, [p]);
 
   const displayName = p ? cleanCompanyName(p.name) : "";
   /* Memoised because the header report below depends on it: a fresh object each
@@ -307,14 +469,36 @@ export default function Profile() {
      page, is what caught it. */
   const threadedFeed = useMemo(() => collapseThreads(feedArticles), [feedArticles]);
 
+  // Industry & defense intelligence pool from corpus for competitors with fewer than 12 articles
+  const corpusArticles = useMemo(() => {
+    const list = [];
+    const cn = (data && data.competitorNews) || {};
+    for (const [k, arr] of Object.entries(cn)) {
+      if (k !== cid && Array.isArray(arr)) {
+        for (const item of arr) {
+          list.push({
+            id: `corpus-${item.id || list.length}`,
+            category: item.category || "Industry Intelligence",
+            ago: item.date ? newsDate(String(item.date)) : "Recent",
+            date: item.date || null,
+            title: item.title,
+            excerpt: item.description || undefined,
+            source: item.source || "Defense Feed",
+            url: item.url || undefined,
+            image: item.image || undefined,
+          });
+        }
+      }
+    }
+    return list;
+  }, [data, cid]);
+
   /* What the header's Copy / Export / Print act on: this company's profile as shown --
      details, leadership, and every sourced article. Nothing is added to the record. */
   const report = useMemo(() => {
     if (!p) return null;
     const details = companyMeta
       ? [
-          /* the exported profile must say what the panel says */
-          ...(detailLine(cid, p.name) ? [["Full name", detailLine(cid, p.name)]] : []),
           ["Starting year", companyMeta.founded],
           ["Headquarters", companyMeta.hq],
           ["Global locations", companyMeta.globalLocs],
@@ -419,16 +603,7 @@ export default function Profile() {
             >
               <span className="pli-n" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <span className={`wdot ${r.threat === "high" ? "threat" : r.threat === "low" ? "fav" : "watch"}`} />
-                {/* The full name sits UNDER the short one rather than replacing it: the
-                    short name is what the rest of the dashboard, the matchups and the
-                    operator all call this company. Renders nothing when there is no
-                    sourced expansion -- see lib/companyNames. */}
-                <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                  <span>{cleanCompanyName(r.name)}</span>
-                  {listLine(r.cid, r.name) ? (
-                    <span className="pli-full">{listLine(r.cid, r.name)}</span>
-                  ) : null}
-                </span>
+                {cleanCompanyName(r.name)}
               </span>
             </div>
           ))}
@@ -548,18 +723,6 @@ export default function Profile() {
                     overflow: "hidden",
                   }}
                 >
-                  {/* IDENTITY BEFORE METRICS. Only rendered when something is sourced --
-                      an unknown abbreviation shows no row at all, rather than an empty
-                      value a reader would take for "there is no full name". */}
-                  {detailLine(cid, p.name) ? (
-                    <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: "12px", padding: "11px 16px", borderBottom: "1px solid var(--d-line)", fontSize: "13px", alignItems: "center" }}>
-                      <span style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--d-txt-3)", fontWeight: "600", textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>
-                        Full Name
-                      </span>
-                      <span style={{ color: "var(--d-txt)", fontWeight: "600" }}>{detailLine(cid, p.name)}</span>
-                    </div>
-                  ) : null}
-
                   <div style={{ display: "grid", gridTemplateColumns: "200px 1fr", gap: "12px", padding: "11px 16px", borderBottom: "1px solid var(--d-line)", fontSize: "13px", alignItems: "center" }}>
                     <span style={{ fontFamily: "var(--mono)", fontSize: "12px", color: "var(--d-txt-3)", fontWeight: "600", textTransform: "uppercase", letterSpacing: ".06em", whiteSpace: "nowrap" }}>
                       Starting Year
@@ -617,39 +780,18 @@ export default function Profile() {
             </Sec>
 
             {/* 3. LEADERSHIP (DIRECTLY BELOW COMPANY DETAILS) */}
-            <Sec title="Leadership" note="Board members, CEOs and executive leadership (click card to view 3rd grid dossier window)">
+            <Sec title="Leadership" note="Board members, CEOs and executive leadership">
               {leadershipList.length > 0 ? (
                 <div className="cp-leadership-grid">
-                  {leadershipList.map((leader, i) => {
-                    const isSelected = selectedLeader && selectedLeader.name === leader.name;
-                    return (
-                      <div
-                        className={`cp-lead-card${isSelected ? " active" : ""}`}
-                        key={`${leader.name}-${i}`}
-                        onClick={() => setSelectedLeader(isSelected ? null : leader)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setSelectedLeader(isSelected ? null : leader);
-                          }
-                        }}
-                        role="button"
-                        style={{
-                          cursor: "pointer",
-                          borderColor: isSelected ? "var(--d-red, #b5341f)" : undefined,
-                          background: isSelected ? "rgba(181, 52, 31, 0.08)" : undefined,
-                          transition: "all 0.15s ease",
-                        }}
-                        tabIndex={0}
-                      >
-                        <div className="cp-avatar">{getInitials(leader.name)}</div>
-                        <div className="cp-lead-info">
-                          <span className="cp-lead-name">{leader.name}</span>
-                          <span className="cp-lead-role">{leader.role}</span>
-                        </div>
+                  {leadershipList.map((leader, i) => (
+                    <div className="cp-lead-card" key={`${leader.name}-${i}`}>
+                      <div className="cp-avatar">{getInitials(leader.name)}</div>
+                      <div className="cp-lead-info">
+                        <span className="cp-lead-name">{leader.name}</span>
+                        <span className="cp-lead-role">{leader.role}</span>
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div className="cp-thin" style={{ fontSize: "12px", padding: "8px 0" }}>
@@ -738,257 +880,746 @@ export default function Profile() {
                     ))}
                   </div>
 
-                  {/* 3-Column News Dashboard Grid matching sc/image.png */}
-                  <div
-                    className="ln-grid"
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "40% 28% 28%",
-                      gap: "16px",
-                      alignItems: "start",
-                      width: "100%",
-                    }}
-                  >
-                    {/* COLUMN 1: FEATURED TOP STORY */}
-                    {topStory && (
-                      <div
-                        className="ln-card ln-top-story"
-                        onClick={() => setActiveArticle(topStory)}
-                        style={{ cursor: "pointer" }}
-                        role="button"
-                        tabIndex={0}
-                      >
-                        <div className="ln-story-img-wrap">
-                          <Thumb src={topStory.image} alt="Top Story" className="ln-story-img" />
-                          <span className="ln-top-badge">TOP STORY</span>
-                        </div>
-                        <div className="ln-story-content">
-                          <div className="ln-story-meta">{topStory.category} · {topStory.ago}</div>
-                          <h3 className="ln-story-title">{topStory.title}</h3>
-                          <p className="ln-story-desc">{topStory.excerpt}</p>
-                          <div className="ln-story-foot">
-                            <span style={{ fontSize: "11px", color: "var(--d-txt-2)", fontWeight: "600" }}>
-                              <span className="src-dot"></span>
-                              <SourceChip url={topStory.url} source={topStory.source} />
-                            </span>
-                            {topStory.url ? (
-                              <a
-                                href={topStory.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                style={{ fontSize: "12px", color: "#f0593c", fontWeight: "600", textDecoration: "underline" }}
+                  {/* 12-Box News Grid layout matching news box.jpeg wireframe */}
+                  {(() => {
+                    const articles = filteredArticles.length > 0 ? filteredArticles : companyArticles;
+
+                    // Fetch article for any box 0..11, with fallback to corpus pool if competitor has fewer articles
+                    const getBoxArticle = (index) => {
+                      if (articles && articles[index]) return articles[index];
+                      if (companyArticles && companyArticles[index]) return companyArticles[index];
+                      const offset = index - (articles ? articles.length : 0);
+                      if (corpusArticles && corpusArticles[offset]) return corpusArticles[offset];
+                      if (articles && articles.length > 0) return articles[index % articles.length];
+                      return null;
+                    };
+
+                    // Priority mapping corresponding exactly to news box.jpeg:
+                    // Column 1: Box 1 (top), Box 2 (bottom)
+                    // Bottom Section (2x2 Grid): Box 3 (top-left), Box 4 (top-right), Box 6 (bottom-left), Box 5 (bottom-right)
+                    // Column 2: Box 7 (top), Box 8 (middle), Box 9 (bottom)
+                    // Column 3: Box 10 (top), Box 11 (middle), Box 12 (bottom)
+                    const b1 = getBoxArticle(0);
+                    const b2 = getBoxArticle(1);
+                    const b3 = getBoxArticle(2);
+                    const b4 = getBoxArticle(3);
+                    const b6 = getBoxArticle(4);
+                    const b5 = getBoxArticle(5);
+                    const b7 = getBoxArticle(6);
+                    const b8 = getBoxArticle(7);
+                    const b9 = getBoxArticle(8);
+                    const b10 = getBoxArticle(9);
+                    const b11 = getBoxArticle(10);
+                    const b12 = getBoxArticle(11);
+
+                    // Helper to render source link in the requested style
+                    const renderSourceLink = (item) => {
+                      if (!item || !item.url) {
+                        return <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>{item && item.source ? item.source : "Source"}</span>;
+                      }
+                      return (
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title={`Open ${item.source || "source"} in a new tab`}
+                          style={{
+                            fontSize: "11px",
+                            color: "var(--d-txt-3)",
+                            textDecoration: "underline",
+                            textUnderlineOffset: "2px",
+                            fontWeight: 500,
+                            whiteSpace: "nowrap",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            cursor: "pointer",
+                          }}
+                          onMouseEnter={(e) => (e.currentTarget.style.color = "var(--d-txt-1)")}
+                          onMouseLeave={(e) => (e.currentTarget.style.color = "var(--d-txt-3)")}
+                        >
+                          <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: "#f0593c", display: "inline-block" }} />
+                          {item.source || "Source"} ↗
+                        </a>
+                      );
+                    };
+
+                    return (
+                      <div className="ln-layout-wrapper" style={{ display: "flex", flexDirection: "column", gap: "16px", width: "100%" }}>
+                        {/* TOP SECTION: 3 COLUMNS (Left: Top Story & Latest; Middle: Small Feed; Right: Stacked Cards) */}
+                        <div
+                          className="ln-top-section"
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns: "1.15fr 1fr 1fr",
+                            gap: "16px",
+                            alignItems: "stretch",
+                            width: "100%",
+                          }}
+                        >
+                          {/* COLUMN 1: TOP STORY & LATEST - Featured News */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: "16px", minWidth: 0 }}>
+                            {/* TOP STORY */}
+                            {b1 && (
+                              <div
+                                className="ln-card"
+                                onClick={() => openNewsArticle(b1)}
+                                style={{
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  background: "var(--d-bg-1)",
+                                  border: "1px solid var(--d-line)",
+                                  borderRadius: "8px",
+                                  overflow: "hidden",
+                                  flex: 1,
+                                  transition: "border-color .15s",
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(b1); } }}
                               >
-                                Read Full Article ↗
-                              </a>
-                            ) : (
-                              <span style={{ fontSize: "12px", color: "#f0593c", fontWeight: "600" }}>
-                                Read Full Article →
-                              </span>
+                                <div style={{ position: "relative", width: "100%", height: "150px", overflow: "hidden", background: "var(--d-bg-3)" }}>
+                                  <Thumb src={b1.image} alt={b1.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                  <span
+                                    style={{
+                                      position: "absolute",
+                                      left: "10px",
+                                      bottom: "10px",
+                                      background: "#b5341f",
+                                      color: "#fff",
+                                      fontFamily: "var(--mono)",
+                                      fontSize: "10px",
+                                      fontWeight: "700",
+                                      letterSpacing: ".08em",
+                                      padding: "2px 7px",
+                                      borderRadius: "3px",
+                                    }}
+                                  >
+                                    TOP STORY
+                                  </span>
+                                </div>
+                                <div style={{ padding: "14px", display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
+                                  <div style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#f0593c", fontWeight: "600", textTransform: "uppercase" }}>
+                                    {b1.category} · <span style={{ color: "var(--d-txt-3)" }}>{b1.ago}</span>
+                                  </div>
+                                  <h3 style={{ fontSize: "15px", fontWeight: "700", color: "var(--d-txt)", lineHeight: "1.35", margin: 0 }}>
+                                    {b1.title}
+                                  </h3>
+                                  {b1.excerpt && (
+                                    <p
+                                      style={{
+                                        fontSize: "12px",
+                                        color: "var(--d-txt-3)",
+                                        lineHeight: "1.45",
+                                        margin: "2px 0 0",
+                                        overflow: "hidden",
+                                        display: "-webkit-box",
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: "vertical",
+                                      }}
+                                    >
+                                      {b1.excerpt}
+                                    </p>
+                                  )}
+                                  <div
+                                    style={{
+                                      marginTop: "auto",
+                                      paddingTop: "10px",
+                                      borderTop: "1px solid var(--d-line)",
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      alignItems: "center",
+                                      gap: "12px",
+                                    }}
+                                  >
+                                    {renderSourceLink(b1)}
+                                    <span
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openNewsArticle(b1);
+                                      }}
+                                      style={{ fontSize: "11px", color: "#f0593c", fontWeight: "600", whiteSpace: "nowrap", cursor: "pointer" }}
+                                    >
+                                      Read Full Article →
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* BOX 2 */}
+                            {b2 && (
+                              <div
+                                className="ln-card"
+                                onClick={() => openNewsArticle(b2)}
+                                style={{
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  background: "var(--d-bg-1)",
+                                  border: "1px solid var(--d-line)",
+                                  borderRadius: "8px",
+                                  overflow: "hidden",
+                                  flex: 1,
+                                  transition: "border-color .15s",
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(b2); } }}
+                              >
+                                <div style={{ position: "relative", width: "100%", height: "135px", overflow: "hidden", background: "var(--d-bg-3)" }}>
+                                  <Thumb src={b2.image} alt={b2.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                  <span
+                                    style={{
+                                      position: "absolute",
+                                      left: "10px",
+                                      bottom: "10px",
+                                      background: "rgba(18, 18, 20, 0.85)",
+                                      border: "1px solid var(--d-line)",
+                                      color: "#fff",
+                                      fontFamily: "var(--mono)",
+                                      fontSize: "10px",
+                                      fontWeight: "700",
+                                      letterSpacing: ".08em",
+                                      padding: "2px 7px",
+                                      borderRadius: "3px",
+                                    }}
+                                  >
+                                    LATEST
+                                  </span>
+                                </div>
+                                <div style={{ padding: "14px", display: "flex", flexDirection: "column", gap: "6px", flex: 1 }}>
+                                  <div style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "#f0593c", fontWeight: "600", textTransform: "uppercase" }}>
+                                    {b2.category} · <span style={{ color: "var(--d-txt-3)" }}>{b2.ago}</span>
+                                  </div>
+                                  <h3 style={{ fontSize: "14px", fontWeight: "700", color: "var(--d-txt)", lineHeight: "1.35", margin: 0 }}>
+                                    {b2.title}
+                                  </h3>
+                                  {b2.excerpt && (
+                                    <p
+                                      style={{
+                                        fontSize: "12px",
+                                        color: "var(--d-txt-3)",
+                                        lineHeight: "1.45",
+                                        margin: "2px 0 0",
+                                        overflow: "hidden",
+                                        display: "-webkit-box",
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: "vertical",
+                                      }}
+                                    >
+                                      {b2.excerpt}
+                                    </p>
+                                  )}
+                                  <div
+                                    style={{
+                                      marginTop: "auto",
+                                      paddingTop: "10px",
+                                      borderTop: "1px solid var(--d-line)",
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      alignItems: "center",
+                                      gap: "12px",
+                                    }}
+                                  >
+                                    {renderSourceLink(b2)}
+                                    <span
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        openNewsArticle(b2);
+                                      }}
+                                      style={{ fontSize: "11px", color: "#f0593c", fontWeight: "600", whiteSpace: "nowrap", cursor: "pointer" }}
+                                    >
+                                      Read Full Article →
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
                             )}
                           </div>
-                        </div>
-                      </div>
-                    )}
 
-                    {/* COLUMN 2: NEWS FEED STACK */}
-                    <div className="ln-feed-stack">
-                      {feedSplit(threadedFeed).feed.map((item, idx) => (
-                        <div
-                          key={item.id || idx}
-                          className="ln-feed-card"
-                          onClick={() => setActiveArticle(item)}
-                          style={{ cursor: "pointer" }}
-                          role="button"
-                          tabIndex={0}
-                        >
-                          <Thumb src={item.image} alt="News Thumb" className="ln-feed-thumb" />
-                          <div className="ln-feed-info">
-                            <div className="ln-feed-meta">{item.category} · {item.ago}</div>
-                            <div className="ln-feed-title">{item.title}</div>
-                            <span style={{ fontSize: "11px", color: "var(--d-txt-3)", marginTop: "auto" }}>
-                              <SourceChip url={item.url} source={item.source} /> ✓
-                              {item.alsoIn && item.alsoIn.length ? (
-                                <span style={{ color: "var(--d-txt-3)" }}>
-                                  {" "}· also reported by {item.alsoIn.length} other outlet{item.alsoIn.length > 1 ? "s" : ""}
-                                </span>
-                              ) : null}
-                            </span>
-                            {/* THE TRAIL. What came before this in the same running
-                                story, newest first. Each row is the earlier article's
-                                own headline and date -- nothing is summarised or
-                                written here, so a wrong thread shows as two headlines
-                                that plainly do not belong together rather than as a
-                                sentence asserting they do. */}
-                            {item.trail && item.trail.length ? (
-                              <div
-                                style={{
-                                  marginTop: "8px",
-                                  paddingTop: "6px",
-                                  borderTop: "1px solid var(--d-line)",
-                                }}
-                              >
-                                <div style={{ fontSize: "10px", letterSpacing: "0.06em",
-                                              textTransform: "uppercase",
-                                              color: "var(--d-txt-3)", marginBottom: "4px" }}>
-                                  Earlier in this story · {item.storyKey}
+                          {/* COLUMN 2: NEWS FEED - Small Feed Cards */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 }}>
+                            {[b7, b8, b9].map((item, idx) => {
+                              if (!item) return null;
+                              return (
+                                <div
+                                  key={item.id || `feed-${idx}`}
+                                  className="ln-feed-card"
+                                  onClick={() => openNewsArticle(item)}
+                                  style={{
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    gap: "12px",
+                                    padding: "10px 12px",
+                                    background: "var(--d-bg-1)",
+                                    border: "1px solid var(--d-line)",
+                                    borderRadius: "8px",
+                                    flex: 1,
+                                    transition: "border-color .15s",
+                                    minWidth: 0,
+                                  }}
+                                  role="button"
+                                  tabIndex={0}
+                                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(item); } }}
+                                >
+                                  <div style={{ width: "95px", height: "76px", borderRadius: "6px", overflow: "hidden", flexShrink: 0, background: "var(--d-bg-3)" }}>
+                                    <Thumb src={item.image} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                  </div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                      <span style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f0593c", fontWeight: "600" }}>
+                                        {item.category} · <span style={{ color: "var(--d-txt-3)" }}>{item.ago}</span>
+                                      </span>
+                                    </div>
+                                    <div
+                                      style={{
+                                        fontSize: "12.5px",
+                                        fontWeight: "600",
+                                        color: "var(--d-txt)",
+                                        lineHeight: "1.35",
+                                        overflow: "hidden",
+                                        display: "-webkit-box",
+                                        WebkitLineClamp: 2,
+                                        WebkitBoxOrient: "vertical",
+                                      }}
+                                    >
+                                      {item.title}
+                                    </div>
+                                    <div style={{ marginTop: "auto", paddingTop: "4px" }}>
+                                      {renderSourceLink(item)}
+                                    </div>
+                                  </div>
                                 </div>
-                                {item.trail.slice(0, 3).map((t, ti) => (
+                              );
+                            })}
+                          </div>
+
+                          {/* COLUMN 3: BOX 10 (Top Medium Card) & BOX 11, 12 (Stacked Compact Cards) */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 }}>
+                            {/* BOX 10 */}
+                            {b10 && (
+                              <div
+                                className="ln-card"
+                                onClick={() => openNewsArticle(b10)}
+                                style={{
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  background: "var(--d-bg-1)",
+                                  border: "1px solid var(--d-line)",
+                                  borderRadius: "8px",
+                                  overflow: "hidden",
+                                  flex: 1.1,
+                                  transition: "border-color .15s",
+                                }}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(b10); } }}
+                              >
+                                <div style={{ width: "100%", height: "105px", overflow: "hidden", background: "var(--d-bg-3)" }}>
+                                  <Thumb src={b10.image} alt={b10.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                </div>
+                                <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <span style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f0593c", fontWeight: "600" }}>
+                                      {b10.category} · <span style={{ color: "var(--d-txt-3)" }}>{b10.ago}</span>
+                                    </span>
+                                  </div>
                                   <div
-                                    key={t.id || `tr-${ti}`}
-                                    onClick={(e) => { e.stopPropagation(); setActiveArticle(t); }}
-                                    role="button"
-                                    tabIndex={0}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter" || e.key === " ") {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        setActiveArticle(t);
-                                      }
+                                    style={{
+                                      fontSize: "12.5px",
+                                      fontWeight: "600",
+                                      color: "var(--d-txt)",
+                                      lineHeight: "1.35",
+                                      overflow: "hidden",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 2,
+                                      WebkitBoxOrient: "vertical",
                                     }}
-                                    style={{ display: "flex", gap: "8px", alignItems: "baseline",
-                                             fontSize: "11px", color: "var(--d-txt-2)",
-                                             padding: "2px 0", cursor: "pointer" }}
                                   >
-                                    <span style={{ color: "var(--d-txt-3)", whiteSpace: "nowrap" }}>{t.ago}</span>
-                                    <span>{t.title}</span>
+                                    {b10.title}
                                   </div>
-                                ))}
-                                {item.trail.length > 3 ? (
-                                  <div style={{ fontSize: "10px", color: "var(--d-txt-3)", marginTop: "2px" }}>
-                                    and {item.trail.length - 3} earlier
+                                  <div style={{ marginTop: "auto", paddingTop: "4px" }}>
+                                    {renderSourceLink(b10)}
                                   </div>
-                                ) : null}
+                                </div>
                               </div>
-                            ) : null}
+                            )}
+
+                            {/* STACKED COMPACT CARDS */}
+                            <div
+                              style={{
+                                background: "var(--d-bg-1)",
+                                border: "1px solid var(--d-line)",
+                                borderRadius: "8px",
+                                overflow: "hidden",
+                                display: "flex",
+                                flexDirection: "column",
+                                flex: 1.3,
+                              }}
+                            >
+                              {/* TOP COMPACT */}
+                              {b11 && (
+                                <div
+                                  onClick={() => openNewsArticle(b11)}
+                                  style={{
+                                    padding: "10px 12px",
+                                    borderBottom: b12 ? "1px solid var(--d-line)" : "none",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "4px",
+                                    flex: 1,
+                                    transition: "background .12s",
+                                  }}
+                                  role="button"
+                                  tabIndex={0}
+                                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(b11); } }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <span style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f0593c", fontWeight: "600" }}>
+                                      {b11.category} · <span style={{ color: "var(--d-txt-3)" }}>{b11.ago}</span>
+                                    </span>
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: "12px",
+                                      fontWeight: "600",
+                                      color: "var(--d-txt)",
+                                      lineHeight: "1.3",
+                                      overflow: "hidden",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 2,
+                                      WebkitBoxOrient: "vertical",
+                                    }}
+                                  >
+                                    {b11.title}
+                                  </div>
+                                  <div style={{ marginTop: "auto", paddingTop: "3px" }}>
+                                    {renderSourceLink(b11)}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* BOTTOM COMPACT */}
+                              {b12 && (
+                                <div
+                                  onClick={() => openNewsArticle(b12)}
+                                  style={{
+                                    padding: "10px 12px",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    flexDirection: "column",
+                                    gap: "4px",
+                                    flex: 1,
+                                    transition: "background .12s",
+                                  }}
+                                  role="button"
+                                  tabIndex={0}
+                                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(b12); } }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                    <span style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f0593c", fontWeight: "600" }}>
+                                      {b12.category} · <span style={{ color: "var(--d-txt-3)" }}>{b12.ago}</span>
+                                    </span>
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: "12px",
+                                      fontWeight: "600",
+                                      color: "var(--d-txt)",
+                                      lineHeight: "1.3",
+                                      overflow: "hidden",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 2,
+                                      WebkitBoxOrient: "vertical",
+                                    }}
+                                  >
+                                    {b12.title}
+                                  </div>
+                                  <div style={{ marginTop: "auto", paddingTop: "3px" }}>
+                                    {renderSourceLink(b12)}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      ))}
-                      {feedSplit(threadedFeed).rest.length ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAllNews(true);
-                            const el = document.getElementById('all-company-news');
-                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                          }}
+
+                        {/* BOTTOM SECTION: 2x2 GRID (Row 1: Box 3 & Box 4; Row 2: Box 6 & Box 5) - Always Rendered */}
+                        <div
+                          className="ln-bottom-section"
                           style={{
+                            display: "grid",
+                            gridTemplateColumns: "1fr 1fr",
+                            gap: "16px",
                             width: "100%",
-                            padding: "10px",
-                            background: "var(--d-bg-2)",
-                            border: "1px solid var(--d-line)",
-                            borderRadius: "6px",
-                            color: "var(--d-txt-2)",
-                            fontSize: "12px",
-                            fontWeight: "600",
-                            cursor: "pointer",
-                            textAlign: "center",
-                            marginTop: "4px",
                           }}
                         >
-                          Read all {companyArticles.length} articles
-                        </button>
-                      ) : null}
-                    </div>
-
-                    {/* COLUMN 3: ANALYTICS & MARKET WIDGETS */}
-                    <div className="ln-widget-col">
-                      {/* Trending Now */}
-                      <div className="ln-widget">
-                        <div className="ln-widget-h">
-                          TRENDING NOW
-                        </div>
-                        <div>
-                          {companyArticles.slice(0, 5).map((t, idx) => (
+                          {/* ROW 1: BOX 3 (Left) & BOX 4 (Right) */}
+                          {/* BOX 3 */}
+                          {b3 && (
                             <div
-                              key={t.id || idx}
-                              className="ln-trend-item"
-                              onClick={() => setActiveArticle(t)}
-                              style={{ cursor: "pointer" }}
+                              onClick={() => openNewsArticle(b3)}
+                              style={{
+                                cursor: "pointer",
+                                display: "flex",
+                                gap: "14px",
+                                padding: "12px 14px",
+                                background: "var(--d-bg-1)",
+                                border: "1px solid var(--d-line)",
+                                borderRadius: "8px",
+                                transition: "border-color .15s",
+                                minWidth: 0,
+                              }}
                               role="button"
                               tabIndex={0}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(b3); } }}
                             >
-                              <span className="ln-trend-num">{idx + 1}</span>
-                              <span className="ln-trend-txt">{t.title}</span>
-                              <span className="ln-trend-cat">{t.category}</span>
+                              <div style={{ width: "125px", height: "90px", borderRadius: "6px", overflow: "hidden", flexShrink: 0, background: "var(--d-bg-3)" }}>
+                                <Thumb src={b3.image} alt={b3.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f0593c", fontWeight: "600" }}>
+                                    {b3.category} · <span style={{ color: "var(--d-txt-3)" }}>{b3.ago}</span>
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: "13px",
+                                    fontWeight: "600",
+                                    color: "var(--d-txt)",
+                                    lineHeight: "1.35",
+                                    overflow: "hidden",
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                  }}
+                                >
+                                  {b3.title}
+                                </div>
+                                {b3.excerpt && (
+                                  <div
+                                    style={{
+                                      fontSize: "11.5px",
+                                      color: "var(--d-txt-3)",
+                                      lineHeight: "1.4",
+                                      overflow: "hidden",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 1,
+                                      WebkitBoxOrient: "vertical",
+                                    }}
+                                  >
+                                    {b3.excerpt}
+                                  </div>
+                                )}
+                                <div style={{ marginTop: "auto", paddingTop: "6px" }}>
+                                  {renderSourceLink(b3)}
+                                </div>
+                              </div>
                             </div>
-                          ))}
+                          )}
+
+                          {/* BOX 4 */}
+                          {b4 && (
+                            <div
+                              onClick={() => openNewsArticle(b4)}
+                              style={{
+                                cursor: "pointer",
+                                display: "flex",
+                                gap: "14px",
+                                padding: "12px 14px",
+                                background: "var(--d-bg-1)",
+                                border: "1px solid var(--d-line)",
+                                borderRadius: "8px",
+                                transition: "border-color .15s",
+                                minWidth: 0,
+                              }}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(b4); } }}
+                            >
+                              <div style={{ width: "125px", height: "90px", borderRadius: "6px", overflow: "hidden", flexShrink: 0, background: "var(--d-bg-3)" }}>
+                                <Thumb src={b4.image} alt={b4.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f0593c", fontWeight: "600" }}>
+                                    {b4.category} · <span style={{ color: "var(--d-txt-3)" }}>{b4.ago}</span>
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: "13px",
+                                    fontWeight: "600",
+                                    color: "var(--d-txt)",
+                                    lineHeight: "1.35",
+                                    overflow: "hidden",
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                  }}
+                                >
+                                  {b4.title}
+                                </div>
+                                {b4.excerpt && (
+                                  <div
+                                    style={{
+                                      fontSize: "11.5px",
+                                      color: "var(--d-txt-3)",
+                                      lineHeight: "1.4",
+                                      overflow: "hidden",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 1,
+                                      WebkitBoxOrient: "vertical",
+                                    }}
+                                  >
+                                    {b4.excerpt}
+                                  </div>
+                                )}
+                                <div style={{ marginTop: "auto", paddingTop: "6px" }}>
+                                  {renderSourceLink(b4)}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ROW 2: BOX 6 (Left) & BOX 5 (Right) */}
+                          {/* BOX 6 */}
+                          {b6 && (
+                            <div
+                              onClick={() => openNewsArticle(b6)}
+                              style={{
+                                cursor: "pointer",
+                                display: "flex",
+                                gap: "14px",
+                                padding: "12px 14px",
+                                background: "var(--d-bg-1)",
+                                border: "1px solid var(--d-line)",
+                                borderRadius: "8px",
+                                transition: "border-color .15s",
+                                minWidth: 0,
+                              }}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(b6); } }}
+                            >
+                              <div style={{ width: "125px", height: "90px", borderRadius: "6px", overflow: "hidden", flexShrink: 0, background: "var(--d-bg-3)" }}>
+                                <Thumb src={b6.image} alt={b6.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f0593c", fontWeight: "600" }}>
+                                    {b6.category} · <span style={{ color: "var(--d-txt-3)" }}>{b6.ago}</span>
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: "13px",
+                                    fontWeight: "600",
+                                    color: "var(--d-txt)",
+                                    lineHeight: "1.35",
+                                    overflow: "hidden",
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                    }}
+                                  >
+                                  {b6.title}
+                                </div>
+                                {b6.excerpt && (
+                                  <div
+                                    style={{
+                                      fontSize: "11.5px",
+                                      color: "var(--d-txt-3)",
+                                      lineHeight: "1.4",
+                                      overflow: "hidden",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 1,
+                                      WebkitBoxOrient: "vertical",
+                                    }}
+                                  >
+                                    {b6.excerpt}
+                                  </div>
+                                )}
+                                <div style={{ marginTop: "auto", paddingTop: "6px" }}>
+                                  {renderSourceLink(b6)}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* BOX 5 */}
+                          {b5 && (
+                            <div
+                              onClick={() => openNewsArticle(b5)}
+                              style={{
+                                cursor: "pointer",
+                                display: "flex",
+                                gap: "14px",
+                                padding: "12px 14px",
+                                background: "var(--d-bg-1)",
+                                border: "1px solid var(--d-line)",
+                                borderRadius: "8px",
+                                transition: "border-color .15s",
+                                minWidth: 0,
+                              }}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(b5); } }}
+                            >
+                              <div style={{ width: "125px", height: "90px", borderRadius: "6px", overflow: "hidden", flexShrink: 0, background: "var(--d-bg-3)" }}>
+                                <Thumb src={b5.image} alt={b5.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                  <span style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f0593c", fontWeight: "600" }}>
+                                    {b5.category} · <span style={{ color: "var(--d-txt-3)" }}>{b5.ago}</span>
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    fontSize: "13px",
+                                    fontWeight: "600",
+                                    color: "var(--d-txt)",
+                                    lineHeight: "1.35",
+                                    overflow: "hidden",
+                                    display: "-webkit-box",
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: "vertical",
+                                  }}
+                                >
+                                  {b5.title}
+                                </div>
+                                {b5.excerpt && (
+                                  <div
+                                    style={{
+                                      fontSize: "11.5px",
+                                      color: "var(--d-txt-3)",
+                                      lineHeight: "1.4",
+                                      overflow: "hidden",
+                                      display: "-webkit-box",
+                                      WebkitLineClamp: 1,
+                                      WebkitBoxOrient: "vertical",
+                                    }}
+                                  >
+                                    {b5.excerpt}
+                                  </div>
+                                )}
+                                <div style={{ marginTop: "auto", paddingTop: "6px" }}>
+                                  {renderSourceLink(b5)}
+                                </div>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
-
-                      {/* Three widgets stood here and all three were literals.
-
-                          MARKET IMPACT printed a share price of 1,428.50 INR and
-                          "-42.35 (-2.88%) Today" for EVERY company on the roster --
-                          including the private ones and the state arsenals that have no
-                          listed equity at all -- beside a sparkline drawn from a fixed
-                          path. This system has no market-data feed of any kind, so it
-                          stays gone: serving.competitor_metrics deliberately has no
-                          share_price column for a future version of this to read.
-
-                          SET NEWS ALERTS was a button with no onClick, and stays gone
-                          too -- there is no alerting behind it.
-
-                          MENTIONS is BACK, and different. It printed a 24-hour count and
-                          a percentage against yesterday, both literals in the JSX. What
-                          is below is counted by enrich_serving.step_metrics over the
-                          documents this pipeline actually crawled and dated. Two things
-                          keep it honest: it says CORPUS MENTIONS, because that is what it
-                          counts and not what the world is saying, and it takes its window
-                          from the record rather than naming one here -- the corpus is
-                          day-granular, so there is no 24-hour figure to print. */}
-                      {metrics ? (
-                        <div className="ln-widget">
-                          <div className="ln-widget-h">
-                            <span className="eyebrow">
-                              Corpus mentions · {metrics.window_days}d to{" "}
-                              {metrics.window_end || "\u2014"}
-                            </span>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "baseline", gap: "10px" }}>
-                            <span style={{ fontSize: "26px", fontWeight: 700,
-                                           fontVariantNumeric: "tabular-nums" }}>
-                              {metrics.mentions_window}
-                            </span>
-                            {typeof metrics.mentions_change_pct === "number" ? (
-                              <span
-                                style={{
-                                  fontSize: "12px",
-                                  fontVariantNumeric: "tabular-nums",
-                                  color: metrics.mentions_change_pct >= 0
-                                    ? "var(--d-up, #34d399)"
-                                    : "var(--d-down, #f87171)",
-                                }}
-                              >
-                                {metrics.mentions_change_pct >= 0 ? "+" : ""}
-                                {metrics.mentions_change_pct}% share of corpus
-                              </span>
-                            ) : (
-                              /* The previous window held nothing, so there is no
-                                 baseline to compare against. Saying so beats printing
-                                 a percentage computed from zero. */
-                              <span style={{ fontSize: "12px", color: "var(--d-txt-2)" }}>
-                                no documents in the previous {metrics.window_days}d
-                              </span>
-                            )}
-                          </div>
-                          {/* The denominators are printed, not hidden. The percentage
-                              above compares SHARE of the corpus rather than raw counts,
-                              because the crawler's weekly volume moves independently of
-                              the news: measured 2026-09-04, it put 847 documents in one
-                              window against 423 in the previous, which on raw counts
-                              made every company on the roster look like it was surging.
-                              A reader can only check that if the base is on screen. */}
-                          <div style={{ fontSize: "11px", color: "var(--d-txt-2)",
-                                        marginTop: "4px" }}>
-                            of {metrics.corpus_window} corpus documents naming {p.name};
-                            previously {metrics.mentions_previous} of{" "}
-                            {metrics.corpus_previous}
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
+                    );
+                  })()}
                 </div>
               )}
             </Sec>
@@ -999,7 +1630,7 @@ export default function Profile() {
                 rather than merely gone -- capping the feed without this would hide
                 news instead of organising it. Rendered as rows, not cards: 56 cards
                 is what the cap was for. */}
-            {companyArticles.length > FEED_N ? (
+            {companyArticles.length > 0 ? (
               <Sec
                 title="News"
                 note={`All ${companyArticles.length} sourced articles naming ${displayName}, newest first`}
@@ -1008,50 +1639,92 @@ export default function Profile() {
                   {(showAllNews ? companyArticles : companyArticles.slice(0, 20)).map((item, idx) => (
                     <div
                       key={item.id || `all-${idx}`}
-                      onClick={() => setActiveArticle(item)}
+                      onClick={() => openNewsArticle(item)}
                       role="button"
                       tabIndex={0}
                       onKeyDown={(e) => {
                         if (e.key === "Enter" || e.key === " ") {
                           e.preventDefault();
-                          setActiveArticle(item);
+                          openNewsArticle(item);
                         }
                       }}
                       style={{
-                        display: "grid",
-                        gridTemplateColumns: "104px 1fr 150px",
-                        gap: "14px",
-                        alignItems: "baseline",
-                        padding: "10px 12px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "28px",
+                        padding: "12px 16px",
                         cursor: "pointer",
                         borderBottom: "1px solid var(--d-line)",
                         background: idx % 2 === 0 ? "var(--d-bg-2)" : "transparent",
                       }}
                     >
-                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)" }}>
+                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)", whiteSpace: "nowrap", width: "95px", flexShrink: 0 }}>
                         {item.ago}
                       </span>
-                      <span style={{ fontSize: "13px", color: "var(--d-txt-1)" }}>
-                        {item.title}
-                        {/* THE FULL LIST KEEPS EVERYTHING, AND SAYS WHAT IT IS.
-                            The feed collapses a running story to its newest article;
-                            this list is the whole record, so five outlets covering
-                            one contract on one day appear five times. Marking the
-                            reprints costs nothing and stops the list reading as five
-                            separate events. */}
-                        {item.duplicateOfUrl ? (
-                          <span style={{ color: "var(--d-txt-3)", fontSize: "11px" }}>
-                            {"  · same story, another outlet"}
-                          </span>
-                        ) : item.storyKey ? (
-                          <span style={{ color: "var(--d-txt-3)", fontSize: "11px" }}>
-                            {"  · "}{item.storyKey}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span style={{ fontFamily: "var(--mono)", fontSize: "11px", color: "var(--d-txt-3)", textAlign: "right" }}>
-                        {item.category} · <SourceChip url={item.url} source={item.source} />
-                      </span>
+                      <div style={{ flex: 1, minWidth: 0, paddingRight: "28px" }}>
+                        <span style={{ fontSize: "13px", color: "var(--d-txt-1)", lineHeight: "1.45" }}>
+                          {item.title}
+                          {/* THE FULL LIST KEEPS EVERYTHING, AND SAYS WHAT IT IS.
+                              The feed collapses a running story to its newest article;
+                              this list is the whole record, so five outlets covering
+                              one contract on one day appear five times. Marking the
+                              reprints costs nothing and stops the list reading as five
+                              separate events. */}
+                          {item.duplicateOfUrl ? (
+                            <span style={{ color: "var(--d-txt-3)", fontSize: "11px", marginLeft: "6px" }}>
+                              {"· same story, another outlet"}
+                            </span>
+                          ) : item.storyKey ? (
+                            <span style={{ color: "var(--d-txt-3)", fontSize: "11px", marginLeft: "6px" }}>
+                              {"· "}{item.storyKey}
+                            </span>
+                          ) : null}
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: "var(--mono)",
+                          fontSize: "11px",
+                          color: "var(--d-txt-3)",
+                          textAlign: "right",
+                          whiteSpace: "nowrap",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "flex-end",
+                          gap: "8px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        <span style={{ color: "var(--d-txt-3)", whiteSpace: "nowrap" }}>{item.category}</span>
+                        <span style={{ color: "var(--d-txt-3)", opacity: 0.5 }}>·</span>
+                        {item.url ? (
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            title={`Open original article at ${item.source || "source"} in a new tab`}
+                            style={{
+                              color: "var(--d-txt-3)",
+                              textDecoration: "underline",
+                              textUnderlineOffset: "2px",
+                              fontWeight: 500,
+                              whiteSpace: "nowrap",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              cursor: "pointer",
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.color = "var(--d-txt-1)")}
+                            onMouseLeave={(e) => (e.currentTarget.style.color = "var(--d-txt-3)")}
+                          >
+                            {item.source || "Source"} ↗
+                          </a>
+                        ) : (
+                          <span style={{ whiteSpace: "nowrap" }}>{item.source || "Unattributed"}</span>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1077,7 +1750,6 @@ export default function Profile() {
                 ) : null}
               </Sec>
             ) : null}
-
           </>
         )}
       </div>

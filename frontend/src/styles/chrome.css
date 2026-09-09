@@ -18,8 +18,8 @@
   .pill.active .dot{background:var(--d-txt)}
 
   .topright{display:flex;align-items:center;gap:0;margin-left:auto}
-  .statusbox{display:flex;flex-direction:column;justify-content:center;padding:0 18px;border-left:1px solid var(--d-line);height:100%}
-  .statusbox .k{font-family:var(--mono);font-size:9px;letter-spacing:.16em;color:var(--d-txt-3);text-transform:uppercase}
+  .statusbox{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;padding:0 18px;border-left:1px solid var(--d-line);height:100%;white-space:nowrap}
+  .statusbox .k{font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--d-txt-3);text-transform:uppercase}
   .statusbox .v{font-family:var(--mono);font-size:12px;color:var(--d-txt);font-weight:500;display:flex;align-items:center;gap:6px}
   .statusbox.client{justify-content:center}
   .statusbox.client .v{font-family:var(--sans);font-size:14px;font-weight:600;letter-spacing:-.01em}

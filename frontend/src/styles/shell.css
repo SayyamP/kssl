@@ -133,14 +133,7 @@
   .dirtag.threat{color:var(--threat-badge);border:1px solid rgba(240,89,60,.55)}
   .dirtag.watch{color:var(--watch-badge);border:1px solid rgba(224,160,32,.55)}
   .dirtag.fav{color:var(--fav-badge);border:1px solid rgba(63,168,106,.55)}
-  .sevtag{font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;white-space:nowrap}
-  .sevtag.high{color:var(--threat-badge)}
-  .sevtag.medium{color:var(--watch-badge)}
-  .sevtag.low{color:var(--d-txt-4)}
-  /* not a fourth rating -- the absence of one. Italic and dim so it cannot be read as a
-     band on the same scale as high/medium/low. */
-  .sevtag.unassessed{color:var(--d-txt-4);opacity:.7;font-style:italic;text-transform:none;letter-spacing:0}
-  .ago{font-family:var(--mono);font-size:10px;color:var(--d-txt-4)}
+  .ago{font-family:var(--mono);font-size:10px;color:var(--d-txt);white-space:nowrap}
 
   .syn{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--synthetic);font-size:0;line-height:0;color:transparent;vertical-align:middle;flex-shrink:0;border:none;padding:0}
   .syn::after{content:"";display:none}

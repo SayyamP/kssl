@@ -32,16 +32,50 @@ export default function Geo() {
   const { setScope } = useAppState();
   const clientName =
     (data.client && (data.client.short || data.client.name)) || "KSSL";
-  const [comp, setComp] = useState(null);
-  const [country, setCountry] = useState(null);
-  const [showDetail, setShowDetail] = useState(false);
+  const getSavedGeo = () => {
+    try {
+      const s = localStorage.getItem("kssl_geo_state");
+      return s ? JSON.parse(s) : {};
+    } catch (e) {
+      return {};
+    }
+  };
+  const savedGeo = getSavedGeo();
+
+  const [comp, setComp] = useState(savedGeo.comp || null);
+  const [country, setCountry] = useState(savedGeo.country || null);
+  const [showDetail, setShowDetail] = useState(!!savedGeo.showDetail);
   const [menu, setMenu] = useState(null); // 'comp' | 'country' | null
   const [menuQuery, setMenuQuery] = useState("");
-  const [back, setBack] = useState(null); // {mode, arg}
-  const [pair, setPair] = useState(null); // {cid, country}
-  const [prodIndex, setProdIndex] = useState(null);
+  const [back, setBack] = useState(savedGeo.back || null); // {mode, arg}
+  const [pair, setPair] = useState(savedGeo.pair || null); // {cid, country}
+  const [prodIndex, setProdIndex] = useState(
+    savedGeo.prodIndex !== undefined ? savedGeo.prodIndex : null,
+  );
   const [activeGeoNewsArticle, setActiveGeoNewsArticle] = useState(null);
   const rootRef = useRef(null);
+
+  /* Three invented market stories used to be returned here for every
+     company-country pair -- "$120M Export Contract for 18 Platform Units", a
+     "CAIRO / NEW DELHI" dateline, attributed to a "Ministry of Defence / Official
+     Export Filings", a "Defence Procurement Directorate" and a "Bilateral Trade &
+     Export Credit Bureau", none of which issued anything. They are replaced by the
+     company's real pipeline news filtered to the articles that name this country;
+     when none do, the panel shows nothing rather than something untrue. */
+  const geoNewsArticles = useMemo(() => {
+    const cid = comp || (pair ? pair.cid : null);
+    const ctName = country || (pair ? pair.country : null);
+    if (!cid || !ctName) return [];
+    return marketNews(data, cid, ctName);
+  }, [comp, country, pair, data]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "kssl_geo_state",
+        JSON.stringify({ comp, country, showDetail, pair, prodIndex, back }),
+      );
+    } catch (e) {}
+  }, [comp, country, showDetail, pair, prodIndex, back]);
 
   const closeDetail = () => {
     setShowDetail(false);
@@ -440,20 +474,13 @@ export default function Geo() {
       const nOv = c.isBf
         ? cs.filter((ct) => geo.geoRivalsIn(ct).length).length
         : cs.filter((ct) => geo.geoOverlap(resolved.cid, ct)).length;
-      /* "meets KSSL in 0 of them" used to print for EVERY rival, because the overlap
-         test has no left-hand side when no client footprint is served (see
-         clientFootprintKnown in lib/geo.js). Zero there measures nothing — it is the
-         absence of a comparison, not a finding of separation, so the line says so. */
-      const meetsLine = geo.clientFootprintKnown
-        ? ` · meets ${clientName} in ${nOv} of them`
-        : ` · overlap with ${clientName} not assessed — no ${clientName} footprint on file`;
       return {
         kind: c.isBf ? "Own markets" : "Competitor markets",
         name: c.name,
         sub: `Supplies ${cs.length} market${cs.length !== 1 ? "s" : ""}${
           c.isBf
             ? ` · ${nOv} contested by a rival offering, ${cs.length - nOv} with none on file`
-            : meetsLine
+            : ` · meets ${clientName} in ${nOv} of them`
         } — select one for products`,
       };
     }
@@ -469,17 +496,7 @@ export default function Geo() {
       const ovs = geo.geoRivalsIn(resolved.country);
       const nSpec = ovs.filter((o) => o.tier === "spec").length;
       const nCat = ovs.length - nSpec;
-      /* "KSSL absent" with a warning triangle fired on 100% of countries: the served
-         footprint tables carry no client rows at all, so `bf` is false everywhere and
-         the header was reporting a data gap as a market retreat. A missing footprint
-         table cannot say KSSL is absent from any one country — only that nothing is
-         on file about where it is. */
-      const presence = geo.clientFootprintKnown
-        ? bf
-          ? ` · ${clientName} present`
-          : ` · ${clientName} absent ⚠`
-        : ` · ${clientName} presence not established — no footprint on file`;
-      let sub = `${rivals} competitor${rivals !== 1 ? "s" : ""} active${presence}`;
+      let sub = `${rivals} competitor${rivals !== 1 ? "s" : ""} active${bf ? ` · ${clientName} present` : ` · ${clientName} absent ⚠`}`;
       if (bf)
         sub += ovs.length
           ? ` · ${nSpec} contest ${clientName} on rating-matched models${nCat ? `, ${nCat} on category only` : ""}`

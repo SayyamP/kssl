@@ -17,11 +17,19 @@ export default function Patents() {
   const { data } = useData();
   const { setScope, takePending } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
-  const [lens, setLens] = useState("rival");
+  const getSavedPat = () => {
+    try {
+      const s = localStorage.getItem("kssl_pat_state");
+      return s ? JSON.parse(s) : {};
+    } catch (e) { return {}; }
+  };
+  const savedPat = getSavedPat();
+
+  const [lens, setLens] = useState(savedPat.lens || "rival");
   const [compQuery, setCompQuery] = useState("");
   const [techQuery, setTechQuery] = useState("");
-  const [cid, setCid] = useState(data.compOrder[0]);
-  const [catFilter, setCatFilter] = useState("");
+  const [cid, setCid] = useState(savedPat.cid || data.compOrder[0]);
+  const [catFilter, setCatFilter] = useState(savedPat.catFilter || "");
   const [compRes, setCompRes] = useState(null);
 
   useEffect(() => {
@@ -37,8 +45,14 @@ export default function Patents() {
      all reading 0 while 21 filings sat under the rival lens. The configured areas,
      then the tracked categories, remain the fallbacks when nothing is indexed. */
   const areas = useMemo(() => patentAreas(data.PATENTS, data.techCats), [data]);
-  const [area, setArea] = useState(areas[0] || null);
+  const [area, setArea] = useState(savedPat.area || areas[0] || null);
   const [techRes, setTechRes] = useState(null);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("kssl_pat_state", JSON.stringify({ lens, cid, area, catFilter }));
+    } catch (e) {}
+  }, [lens, cid, area, catFilter]);
 
   /* Selection triggers the search, through the same seam a live backend would use. */
   useEffect(() => {
@@ -77,17 +91,9 @@ export default function Patents() {
      under the category filter in force, with the search status stated -- an empty
      list says whether it is empty or still loading. */
   const report = useMemo(() => {
-    /* THE EXPORT READS LIKE THE CARD. The card leads with the English title where the
-       translation step has produced one; a Copy/Export that pasted the German original
-       instead would put a different filing in front of the reader than the one they were
-       looking at. The office's own title travels in the second column, because that is
-       the string that finds the record again in its register. */
     const recRow = (r) => [
-      r.title_en || r.title || r.id || "untitled",
-      [r.assignee, r.title_en && r.title_en !== r.title ? r.title : "", r.status,
-       r.grant_no ? `Grant ${r.grant_no}` : "", r.granted || r.filed, r.jurisdiction]
-        .filter(Boolean)
-        .join(" · "),
+      r.title || r.id || "untitled",
+      [r.assignee, r.status, r.granted || r.filed, r.jurisdiction].filter(Boolean).join(" · "),
     ];
     const res = lens === "rival" ? compRes : techRes;
     const recs = res ? res.results || [] : [];

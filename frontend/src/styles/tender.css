@@ -30,9 +30,6 @@
   .tp-fbar .sortnote{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--d-txt-4)}
   .tp-sum{padding:10px 22px;font-family:var(--mono);font-size:11px;color:var(--d-txt-3);border-bottom:1px solid var(--d-line)}
   .tp-sum b{color:var(--d-txt);font-weight:600}
-  /* the once-per-list 'not assessed' note: same row treatment, muted and italic, so it
-     reads as a caveat about the list rather than another count of it */
-  .tp-sum.tp-sum-note{color:var(--d-txt-4);font-style:italic;padding-top:0;line-height:1.5}
 
   .tcard{border-bottom:1px solid var(--d-line);padding:15px 22px;cursor:pointer;transition:background .1s;position:relative;background:var(--d-bg-1)}
   .tcard:hover{background:var(--d-bg-2)}
@@ -46,7 +43,7 @@
   .tcard .meta .sep{color:var(--d-txt-4)}.tcard .meta .val{color:#fff;font-weight:500}
   /* The fixed parameter grid: the same eight cells on every card, in the same order.
      A cell holds a stored value or the classed unresolved state -- muted italic, the
-     treatment used for a value the notice never published -- so absent and blank never
+     treatment the fit bar already gives "not assessed" -- so absent and blank never
      look alike. auto-fill keeps the order and wraps by width; long buyer names wrap
      inside their cell, so the list never scrolls sideways. */
   .tcard .tpgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:7px 14px;margin-bottom:9px}
@@ -59,12 +56,9 @@
   .tcard .fittrack{flex:1;max-width:140px;height:4px;background:var(--d-bg-3)}
   .tcard .fittrack i{display:block;height:100%;background:var(--fav)}.tcard .fittrack i.mid{background:var(--watch)}.tcard .fittrack i.low{background:var(--threat)}
   .tcard .fitpct{font-family:var(--mono);font-size:10px;color:var(--d-txt-2)}
-  /* a tier word is a grade, not a length: no track is drawn for it, so it needs no
-     alignment with one */
-  .tcard .fitpct.grade{color:var(--d-txt-2);text-transform:lowercase}
-  /* An unscored tender used to render this row with a dashed empty track reading
-     "not assessed". The row is now omitted entirely and the list says it once
-     (.tp-sum-note above), so those two states have no markup left to style. */
+  /* an unscored tender must not look like a scored 'weak' one: no fill, muted italic */
+  .tcard .fittrack.na{background:transparent;border-top:1px dashed var(--d-txt-4);height:0;align-self:center}
+  .tcard .fitpct.na{color:var(--d-txt-4);font-style:italic;text-transform:none}
   .tp-list-empty{padding:50px 22px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--d-txt-4)}
   .tcard .syn{background:var(--synthetic)}
 
