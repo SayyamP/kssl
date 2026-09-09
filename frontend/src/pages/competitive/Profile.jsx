@@ -153,20 +153,7 @@ export default function Profile() {
      and the Tender Pipeline remember theirs: this page reset to roster[0] on every
      reload and every detour to another rail row, alone among the sidebars. A saved id
      that the served roster no longer carries falls back to the first row. */
-  const [cid, setCidState] = useState(() => {
-    try {
-      const saved = localStorage.getItem(PROFILE_KEY);
-      if (saved && roster.some((r) => r.cid === saved)) return saved;
-    } catch (e) {}
-    return roster[0] ? roster[0].cid : "";
-  });
-  const setCid = (next) => {
-    setCidState(next);
-    try {
-      if (next) localStorage.setItem(PROFILE_KEY, next);
-      else localStorage.removeItem(PROFILE_KEY);
-    } catch (e) {}
-  };
+  const [cid, setCid] = useState(() => (roster[0] ? roster[0].cid : ""));
 
   /* Opened from global search targeting one company. Without this the page took the
      jump but never read the payload, so picking "RENK" in the search box landed on
@@ -252,29 +239,7 @@ export default function Profile() {
     }));
   }, [p]);
 
-  /* Facilities. Same fault: a hand-typed plant list for Bharat Dynamics
-     (Kanchanbagh, Bhanur, Visakhapatnam, and an "Armenia (Deployed) / Philippines
-     (Negotiation)" export pipeline) shadowed the harvested branch. Now: the
-     facilities column if it has rows, else the country presence rows, else
-     nothing. */
-  const facilitiesList = useMemo(() => {
-    if (!p) return [];
-    if (p.facilities && p.facilities.length > 0) {
-      return p.facilities.map((f) => ({
-        name: f.value,
-        type: f.detail || "Manufacturing & Operating Facility",
-        url: f.url,
-      }));
-    }
-    if (p.presence && p.presence.length > 0) {
-      return p.presence.slice(0, 4).map((pr) => ({
-        name: pr.name || `${pr.country} Operations`,
-        type: `Operating Location (${pr.country})`,
-        stage: pr.stage,
-      }));
-    }
-    return [];
-  }, [p]);
+
 
   const displayName = p ? cleanCompanyName(p.name) : "";
   /* Memoised because the header report below depends on it: a fresh object each
@@ -772,9 +737,21 @@ export default function Profile() {
                               <span className="src-dot"></span>
                               <SourceChip url={topStory.url} source={topStory.source} />
                             </span>
-                            <span style={{ fontSize: "12px", color: "#f0593c", fontWeight: "600" }}>
-                              Read Full Article →
-                            </span>
+                            {topStory.url ? (
+                              <a
+                                href={topStory.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ fontSize: "12px", color: "#f0593c", fontWeight: "600", textDecoration: "underline" }}
+                              >
+                                Read Full Article ↗
+                              </a>
+                            ) : (
+                              <span style={{ fontSize: "12px", color: "#f0593c", fontWeight: "600" }}>
+                                Read Full Article →
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1067,44 +1044,6 @@ export default function Profile() {
               </Sec>
             ) : null}
 
-            {/* 5. FACILITIES (RENDERED IN ROWS, NOT CARDS) */}
-            <Sec title="Facilities & Operating Units" note="Physical manufacturing plants, operating units & hardware assignment">
-              {facilitiesList.length > 0 ? (
-                <div
-                  className="cp-facilities-rows"
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    background: "var(--d-bg-1)",
-                    border: "1px solid var(--d-line)",
-                    borderRadius: "6px",
-                    overflow: "hidden",
-                  }}
-                >
-                  {facilitiesList.map((fac, i, arr) => (
-                    <div
-                      key={`${fac.name}-${i}`}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "280px 1fr",
-                        gap: "14px",
-                        padding: "12px 18px",
-                        borderBottom: i < arr.length - 1 ? "1px solid var(--d-line)" : "none",
-                        fontSize: "13px",
-                        alignItems: "center",
-                      }}
-                    >
-                      <span style={{ color: "var(--d-txt)", fontWeight: "600" }}>{fac.name}</span>
-                      <span style={{ color: "var(--d-txt-2)", fontSize: "12.5px" }}>{fac.type}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="cp-thin" style={{ fontSize: "12px", padding: "8px 0" }}>
-                  No dedicated manufacturing plant or facility locations published.
-                </div>
-              )}
-            </Sec>
           </>
         )}
       </div>

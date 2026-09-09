@@ -77,7 +77,7 @@ def main():
     conn.autocommit = False
     cur = conn.cursor()
 
-    cur.execute("TRUNCATE " + ", ".join(OWNED_TABLES))
+    cur.execute("TRUNCATE " + ", ".join(OWNED_TABLES) + " CASCADE")
 
     # ---- ui_config: every global without a table, plus PATENTS aux pieces ----
     ui_rows = [(k, Json(v)) for k, v in data.items() if k not in TABLE_BACKED]

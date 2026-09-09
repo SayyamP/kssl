@@ -31,16 +31,8 @@ export default function Innovation() {
   };
   const GAP_VERB = { behind: `${clientName} is BEHIND`, parity: `${clientName} is AT PARITY`, ahead: `${clientName} is AHEAD` };
 
-  const getSavedInnov = () => {
-    try {
-      const s = localStorage.getItem("kssl_innov_state");
-      return s ? JSON.parse(s) : {};
-    } catch (e) { return {}; }
-  };
-  const savedInnov = getSavedInnov();
-
-  const [cat, setCat] = useState(savedInnov.cat || (data.techCats && data.techCats[0] ? data.techCats[0].id : null));
-  const [sel, setSel] = useState(savedInnov.sel !== undefined ? savedInnov.sel : null);
+  const [cat, setCat] = useState(data.techCats && data.techCats[0] ? data.techCats[0].id : null);
+  const [sel, setSel] = useState(null);
   const [report, setReport] = useState(null);
   const [generating, setGenerating] = useState(false);
   const detRef = useRef(null);
@@ -50,12 +42,6 @@ export default function Innovation() {
       detRef.current.scrollTop = 0;
     }
   }, [sel, cat]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("kssl_innov_state", JSON.stringify({ cat, sel }));
-    } catch (e) {}
-  }, [cat, sel]);
 
   const list = useMemo(() => data.innovations[cat] || EMPTY, [data.innovations, cat]);
   const iv = sel !== null ? list[sel] : null;

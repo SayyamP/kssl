@@ -32,50 +32,16 @@ export default function Geo() {
   const { setScope } = useAppState();
   const clientName =
     (data.client && (data.client.short || data.client.name)) || "KSSL";
-  const getSavedGeo = () => {
-    try {
-      const s = localStorage.getItem("kssl_geo_state");
-      return s ? JSON.parse(s) : {};
-    } catch (e) {
-      return {};
-    }
-  };
-  const savedGeo = getSavedGeo();
-
-  const [comp, setComp] = useState(savedGeo.comp || null);
-  const [country, setCountry] = useState(savedGeo.country || null);
-  const [showDetail, setShowDetail] = useState(!!savedGeo.showDetail);
+  const [comp, setComp] = useState(null);
+  const [country, setCountry] = useState(null);
+  const [showDetail, setShowDetail] = useState(false);
   const [menu, setMenu] = useState(null); // 'comp' | 'country' | null
   const [menuQuery, setMenuQuery] = useState("");
-  const [back, setBack] = useState(savedGeo.back || null); // {mode, arg}
-  const [pair, setPair] = useState(savedGeo.pair || null); // {cid, country}
-  const [prodIndex, setProdIndex] = useState(
-    savedGeo.prodIndex !== undefined ? savedGeo.prodIndex : null,
-  );
+  const [back, setBack] = useState(null); // {mode, arg}
+  const [pair, setPair] = useState(null); // {cid, country}
+  const [prodIndex, setProdIndex] = useState(null);
   const [activeGeoNewsArticle, setActiveGeoNewsArticle] = useState(null);
   const rootRef = useRef(null);
-
-  /* Three invented market stories used to be returned here for every
-     company-country pair -- "$120M Export Contract for 18 Platform Units", a
-     "CAIRO / NEW DELHI" dateline, attributed to a "Ministry of Defence / Official
-     Export Filings", a "Defence Procurement Directorate" and a "Bilateral Trade &
-     Export Credit Bureau", none of which issued anything. They are replaced by the
-     company's real pipeline news filtered to the articles that name this country;
-     when none do, the panel shows nothing rather than something untrue. */
-  const geoNewsArticles = useMemo(() => {
-    const cid = comp || (pair ? pair.cid : null);
-    const ctName = country || (pair ? pair.country : null);
-    if (!cid || !ctName) return [];
-    return marketNews(data, cid, ctName);
-  }, [comp, country, pair, data]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "kssl_geo_state",
-        JSON.stringify({ comp, country, showDetail, pair, prodIndex, back }),
-      );
-    } catch (e) {}
-  }, [comp, country, showDetail, pair, prodIndex, back]);
 
   const closeDetail = () => {
     setShowDetail(false);

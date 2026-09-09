@@ -10,21 +10,7 @@ import { advantageText } from "../../lib/specs";
 export default function Positioning() {
   const { data, gapModel } = useData();
   const { setScope, takePending, jumpTo } = useAppState();
-  const [selected, setSelectedState] = useState(() => {
-    try {
-      return localStorage.getItem("kssl_pos_selected") || null;
-    } catch (e) {
-      return null;
-    }
-  });
-
-  const setSelected = (val) => {
-    setSelectedState(val);
-    try {
-      if (val) localStorage.setItem("kssl_pos_selected", val);
-      else localStorage.removeItem("kssl_pos_selected");
-    } catch (e) {}
-  };
+  const [selected, setSelected] = useState(null);
 
   const select = (id) => {
     if (!id) {

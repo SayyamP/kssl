@@ -17,19 +17,11 @@ export default function Patents() {
   const { data } = useData();
   const { setScope, takePending } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
-  const getSavedPat = () => {
-    try {
-      const s = localStorage.getItem("kssl_pat_state");
-      return s ? JSON.parse(s) : {};
-    } catch (e) { return {}; }
-  };
-  const savedPat = getSavedPat();
-
-  const [lens, setLens] = useState(savedPat.lens || "rival");
+  const [lens, setLens] = useState("rival");
   const [compQuery, setCompQuery] = useState("");
   const [techQuery, setTechQuery] = useState("");
-  const [cid, setCid] = useState(savedPat.cid || data.compOrder[0]);
-  const [catFilter, setCatFilter] = useState(savedPat.catFilter || "");
+  const [cid, setCid] = useState(data.compOrder[0]);
+  const [catFilter, setCatFilter] = useState("");
   const [compRes, setCompRes] = useState(null);
 
   useEffect(() => {
@@ -45,14 +37,8 @@ export default function Patents() {
      all reading 0 while 21 filings sat under the rival lens. The configured areas,
      then the tracked categories, remain the fallbacks when nothing is indexed. */
   const areas = useMemo(() => patentAreas(data.PATENTS, data.techCats), [data]);
-  const [area, setArea] = useState(savedPat.area || areas[0] || null);
+  const [area, setArea] = useState(areas[0] || null);
   const [techRes, setTechRes] = useState(null);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("kssl_pat_state", JSON.stringify({ lens, cid, area, catFilter }));
-    } catch (e) {}
-  }, [lens, cid, area, catFilter]);
 
   /* Selection triggers the search, through the same seam a live backend would use. */
   useEffect(() => {

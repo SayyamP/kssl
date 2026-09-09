@@ -336,7 +336,6 @@ export function buildProfile(d, cid) {
   const sources = (d.companySources || {})[name] || [];
 
   const leadership = sourcedRows(c, "leadership");
-  const facilitiesRows = sourcedRows(c, "facilities");
   const salesRows = sourcedRows(c, "sales");
 
   const sections = [
@@ -349,7 +348,6 @@ export function buildProfile(d, cid) {
     { key: "presence", label: "Country presence", rows: presence.length },
     { key: "patents", label: "Patents", rows: patents.length },
     { key: "leadership", label: "Leadership", rows: leadership.length },
-    { key: "facilities", label: "Facilities", rows: facilitiesRows.length },
     { key: "sales", label: "Sales", rows: salesRows.length },
   ];
 
@@ -384,7 +382,7 @@ export function buildProfile(d, cid) {
     presence,
     patents,
     leadership,
-    facilities: facilitiesRows,
+    facilities: [],
     sales: salesRows,
     sources,
     sections,

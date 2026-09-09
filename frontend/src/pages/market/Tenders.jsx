@@ -88,20 +88,12 @@ export default function Tenders({ mode = "tender" }) {
   const { data, gapModel } = useData();
   const { setScope, takePending, searchQuery } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
-  const getSavedTender = () => {
-    try {
-      const s = localStorage.getItem("kssl_tender_state");
-      return s ? JSON.parse(s) : {};
-    } catch (e) { return {}; }
-  };
-  const savedTender = getSavedTender();
-
-  const [productType, setProductType] = useState(savedTender.productType || null);
-  const [country, setCountry] = useState(savedTender.country || null);
-  const [cat, setCat] = useState(savedTender.cat || null);
+  const [productType, setProductType] = useState(null);
+  const [country, setCountry] = useState(null);
+  const [cat, setCat] = useState(null);
   const [menu, setMenu] = useState(null);
   const [menuQuery, setMenuQuery] = useState("");
-  const [sel, setSel] = useState(savedTender.sel !== undefined ? savedTender.sel : null);
+  const [sel, setSel] = useState(null);
   const asmtRef = useRef(null);
 
   useEffect(() => {
@@ -109,12 +101,6 @@ export default function Tenders({ mode = "tender" }) {
       asmtRef.current.scrollTop = 0;
     }
   }, [sel]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem("kssl_tender_state", JSON.stringify({ productType, country, cat, sel }));
-    } catch (e) {}
-  }, [productType, country, cat, sel]);
 
   /* A tab CHANGE drops the selection -- a row from the open list is not on the awarded
      list. Guarded against the mount run: an effect with [mode] also fires once after
