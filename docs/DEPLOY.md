@@ -164,8 +164,27 @@ Back up, deploy, then verify:
 
     db/schema_snapshot.sh "$KSSL_DSN" | diff - db/schema_snapshot.txt
 
-`deploy.sh` runs **no** migrations on any environment. `sync_from_prod.sh` is the only thing
-that does, and says so itself.
+**Who applies a migration depends on the environment**, and the asymmetry is deliberate:
+
+    if [ "$KSSL_ENV_NAME" != "prod" ] && [ -d db/migrations ]; then
+      _apply_pending_migrations || echo "!! migrations: step did not complete. The deploy continues."
+    fi
+
+`staging` and `dev` migrate **themselves** on every deploy, so a column lands the moment
+the branch does — that is what makes staging a real rehearsal. **Production does not.** A
+migration reaches prod through `sync_from_prod.sh`, deliberately, so no push can take an
+`ACCESS EXCLUSIVE` lock on the live database as a side effect.
+
+That gap is the reason the rehearsal above matters: on staging the failure is a red deploy,
+on prod it is a blocked reader.
+
+**A migration that adds a column to a table under a view must refresh the view too.**
+Postgres expands `SELECT *` at `CREATE VIEW` time into a fixed column list, so
+`serving_live.*` does **not** gain a column because `serving.*` did. CI cannot catch this —
+it builds every object from scratch, so the view is created after the `ALTER` and picks the
+column up. Only a database where the view already exists — staging and production — keeps
+serving the old list, and `backend/app.py` reads `serving_live`. End every such migration
+with `CREATE OR REPLACE VIEW`.
 
 ## Things that will bite you
 
