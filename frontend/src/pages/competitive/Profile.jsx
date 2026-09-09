@@ -799,7 +799,7 @@ export default function Profile() {
                     // Helper to render source link in the requested style
                     const renderSourceLink = (item) => {
                       if (!item || !item.url) {
-                        return <span style={{ fontSize: "11px", color: "var(--d-txt-3)" }}>{item && item.source ? item.source : "Source"}</span>;
+                        return <span style={{ fontSize: "11px", color: "var(--d-txt-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item && item.source ? item.source : "Source"}</span>;
                       }
                       return (
                         <a
@@ -819,12 +819,17 @@ export default function Profile() {
                             alignItems: "center",
                             gap: "4px",
                             cursor: "pointer",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            minWidth: 0,
                           }}
                           onMouseEnter={(e) => (e.currentTarget.style.color = "var(--d-txt-1)")}
                           onMouseLeave={(e) => (e.currentTarget.style.color = "var(--d-txt-3)")}
                         >
-                          <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: "#f0593c", display: "inline-block" }} />
-                          {item.source || "Source"} ↗
+                          <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: "#f0593c", display: "inline-block", flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {item.source || "Source"} ↗
+                          </span>
                         </a>
                       );
                     };
@@ -840,17 +845,29 @@ export default function Profile() {
                             display: "flex",
                             justifyContent: "space-between",
                             alignItems: "center",
-                            gap: "8px",
+                            gap: "6px",
                             width: "100%",
+                            minWidth: 0,
+                            overflow: "hidden",
                           }}
                         >
-                          {renderSourceLink(item)}
+                          <div style={{ minWidth: 0, overflow: "hidden", display: "flex", alignItems: "center", flexShrink: 1 }}>
+                            {renderSourceLink(item)}
+                          </div>
                           <span
                             onClick={(e) => {
                               e.stopPropagation();
                               openNewsArticle(item);
                             }}
-                            style={{ fontSize: "11px", color: "#f0593c", fontWeight: "600", whiteSpace: "nowrap", cursor: "pointer" }}
+                            style={{
+                              fontSize: "11px",
+                              color: "#f0593c",
+                              fontWeight: "600",
+                              whiteSpace: "nowrap",
+                              cursor: "pointer",
+                              flexShrink: 0,
+                              marginLeft: "auto",
+                            }}
                           >
                             Read Full Article →
                           </span>
