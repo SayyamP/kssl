@@ -14,5 +14,18 @@
 -- whose article yielded nothing worth showing. The panel falls back to `what` plus the
 -- statement rows on a NULL, so this is additive and no row is ever left blank.
 --
--- serving_live.signal_detail is `SELECT *`, so it picks the column up with no re-create.
 ALTER TABLE serving.signal_detail ADD COLUMN IF NOT EXISTS summary text;
+
+-- AND THE VIEW, WHICH DOES NOT FOLLOW ON ITS OWN.
+--
+-- serving_live.signal_detail is `SELECT * FROM serving.signal_detail`, and Postgres
+-- expands that `*` at CREATE time into a fixed column list. Adding a column to the base
+-- table does NOT add it to an existing view. This file previously claimed the opposite.
+--
+-- CI could not catch it: the schema job builds every object from scratch, so the view is
+-- created after the column exists and picks it up. Only a database where the view already
+-- exists -- staging and production, the two that matter -- would have kept serving the
+-- old column list, and backend/app.py reads serving_live, not serving. The column would
+-- have existed, been filled, and never reached the browser.
+CREATE OR REPLACE VIEW serving_live.signal_detail AS
+    SELECT * FROM serving.signal_detail WHERE origin = 'pipeline';

@@ -476,6 +476,7 @@ serving_live.signal_detail.source_doc_ids ARRAY
 serving_live.signal_detail.source_prop_ids ARRAY
 serving_live.signal_detail.source_run_id text
 serving_live.signal_detail.suggest jsonb
+serving_live.signal_detail.summary text
 serving_live.signal_detail.title text
 serving_live.signal_detail.updated_at timestamp with time zone
 serving_live.signal_detail.url text
