@@ -799,7 +799,7 @@ export default function Profile() {
                     // Helper to render source link in the requested style
                     const renderSourceLink = (item) => {
                       if (!item || !item.url) {
-                        return <span style={{ fontSize: "11px", color: "var(--d-txt-3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item && item.source ? item.source : "Source"}</span>;
+                        return <span style={{ fontSize: "10.5px", color: "var(--d-txt-3)", whiteSpace: "nowrap" }}>{item && item.source ? item.source : "Source"}</span>;
                       }
                       return (
                         <a
@@ -809,7 +809,7 @@ export default function Profile() {
                           onClick={(e) => e.stopPropagation()}
                           title={`Open ${item.source || "source"} in a new tab`}
                           style={{
-                            fontSize: "11px",
+                            fontSize: "10.5px",
                             color: "var(--d-txt-3)",
                             textDecoration: "underline",
                             textUnderlineOffset: "2px",
@@ -819,17 +819,12 @@ export default function Profile() {
                             alignItems: "center",
                             gap: "4px",
                             cursor: "pointer",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            minWidth: 0,
                           }}
                           onMouseEnter={(e) => (e.currentTarget.style.color = "var(--d-txt-1)")}
                           onMouseLeave={(e) => (e.currentTarget.style.color = "var(--d-txt-3)")}
                         >
                           <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: "#f0593c", display: "inline-block", flexShrink: 0 }} />
-                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {item.source || "Source"} ↗
-                          </span>
+                          <span>{item.source || "Source"} ↗</span>
                         </a>
                       );
                     };
@@ -845,28 +840,23 @@ export default function Profile() {
                             display: "flex",
                             justifyContent: "space-between",
                             alignItems: "center",
-                            gap: "6px",
+                            gap: "8px",
                             width: "100%",
-                            minWidth: 0,
-                            overflow: "hidden",
                           }}
                         >
-                          <div style={{ minWidth: 0, overflow: "hidden", display: "flex", alignItems: "center", flexShrink: 1 }}>
-                            {renderSourceLink(item)}
-                          </div>
+                          {renderSourceLink(item)}
                           <span
                             onClick={(e) => {
                               e.stopPropagation();
                               openNewsArticle(item);
                             }}
                             style={{
-                              fontSize: "11px",
+                              fontSize: "10.5px",
                               color: "#f0593c",
                               fontWeight: "600",
                               whiteSpace: "nowrap",
                               cursor: "pointer",
                               flexShrink: 0,
-                              marginLeft: "auto",
                             }}
                           >
                             Read Full Article →
@@ -1040,7 +1030,8 @@ export default function Profile() {
                                   style={{
                                     cursor: "pointer",
                                     display: "flex",
-                                    gap: "12px",
+                                    flexDirection: "column",
+                                    gap: "8px",
                                     padding: "10px 12px",
                                     background: "var(--d-bg-1)",
                                     border: "1px solid var(--d-line)",
@@ -1053,31 +1044,33 @@ export default function Profile() {
                                   tabIndex={0}
                                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openNewsArticle(item); } }}
                                 >
-                                  <div style={{ width: "95px", height: "76px", borderRadius: "6px", overflow: "hidden", flexShrink: 0, background: "var(--d-bg-3)" }}>
-                                    <Thumb src={item.image} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                  </div>
-                                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                                      <span style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f0593c", fontWeight: "600" }}>
-                                        {item.category} · <span style={{ color: "var(--d-txt-3)" }}>{item.ago}</span>
-                                      </span>
+                                  <div style={{ display: "flex", gap: "12px", width: "100%" }}>
+                                    <div style={{ width: "85px", height: "70px", borderRadius: "6px", overflow: "hidden", flexShrink: 0, background: "var(--d-bg-3)" }}>
+                                      <Thumb src={item.image} alt={item.title} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                                     </div>
-                                    <div
-                                      style={{
-                                        fontSize: "12.5px",
-                                        fontWeight: "600",
-                                        color: "var(--d-txt)",
-                                        lineHeight: "1.35",
-                                        overflow: "hidden",
-                                        display: "-webkit-box",
-                                        WebkitLineClamp: 2,
-                                        WebkitBoxOrient: "vertical",
-                                      }}
-                                    >
-                                      {item.title}
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1, minWidth: 0 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                                        <span style={{ fontFamily: "var(--mono)", fontSize: "10.5px", color: "#f0593c", fontWeight: "600" }}>
+                                          {item.category} · <span style={{ color: "var(--d-txt-3)" }}>{item.ago}</span>
+                                        </span>
+                                      </div>
+                                      <div
+                                        style={{
+                                          fontSize: "12.5px",
+                                          fontWeight: "600",
+                                          color: "var(--d-txt)",
+                                          lineHeight: "1.35",
+                                          overflow: "hidden",
+                                          display: "-webkit-box",
+                                          WebkitLineClamp: 2,
+                                          WebkitBoxOrient: "vertical",
+                                        }}
+                                      >
+                                        {item.title}
+                                      </div>
                                     </div>
-                                    {renderCardFooter(item)}
                                   </div>
+                                  {renderCardFooter(item)}
                                 </div>
                               );
                             })}
