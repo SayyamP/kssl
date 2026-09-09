@@ -829,6 +829,35 @@ export default function Profile() {
                       );
                     };
 
+                    const renderCardFooter = (item) => {
+                      if (!item) return null;
+                      return (
+                        <div
+                          style={{
+                            marginTop: "auto",
+                            paddingTop: "6px",
+                            borderTop: "1px solid var(--d-line)",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: "8px",
+                            width: "100%",
+                          }}
+                        >
+                          {renderSourceLink(item)}
+                          <span
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openNewsArticle(item);
+                            }}
+                            style={{ fontSize: "11px", color: "#f0593c", fontWeight: "600", whiteSpace: "nowrap", cursor: "pointer" }}
+                          >
+                            Read Full Article →
+                          </span>
+                        </div>
+                      );
+                    };
+
                     return (
                       <div className="ln-layout-wrapper" style={{ display: "flex", flexDirection: "column", gap: "16px", width: "100%" }}>
                         {/* TOP SECTION: 3 COLUMNS (Left: Top Story & Latest; Middle: Small Feed; Right: Stacked Cards) */}
@@ -907,28 +936,7 @@ export default function Profile() {
                                       {b1.excerpt}
                                     </p>
                                   )}
-                                  <div
-                                    style={{
-                                      marginTop: "auto",
-                                      paddingTop: "10px",
-                                      borderTop: "1px solid var(--d-line)",
-                                      display: "flex",
-                                      justifyContent: "space-between",
-                                      alignItems: "center",
-                                      gap: "12px",
-                                    }}
-                                  >
-                                    {renderSourceLink(b1)}
-                                    <span
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openNewsArticle(b1);
-                                      }}
-                                      style={{ fontSize: "11px", color: "#f0593c", fontWeight: "600", whiteSpace: "nowrap", cursor: "pointer" }}
-                                    >
-                                      Read Full Article →
-                                    </span>
-                                  </div>
+                                  {renderCardFooter(b1)}
                                 </div>
                               </div>
                             )}
@@ -997,28 +1005,7 @@ export default function Profile() {
                                       {b2.excerpt}
                                     </p>
                                   )}
-                                  <div
-                                    style={{
-                                      marginTop: "auto",
-                                      paddingTop: "10px",
-                                      borderTop: "1px solid var(--d-line)",
-                                      display: "flex",
-                                      justifyContent: "space-between",
-                                      alignItems: "center",
-                                      gap: "12px",
-                                    }}
-                                  >
-                                    {renderSourceLink(b2)}
-                                    <span
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        openNewsArticle(b2);
-                                      }}
-                                      style={{ fontSize: "11px", color: "#f0593c", fontWeight: "600", whiteSpace: "nowrap", cursor: "pointer" }}
-                                    >
-                                      Read Full Article →
-                                    </span>
-                                  </div>
+                                  {renderCardFooter(b2)}
                                 </div>
                               </div>
                             )}
@@ -1072,9 +1059,7 @@ export default function Profile() {
                                     >
                                       {item.title}
                                     </div>
-                                    <div style={{ marginTop: "auto", paddingTop: "4px" }}>
-                                      {renderSourceLink(item)}
-                                    </div>
+                                    {renderCardFooter(item)}
                                   </div>
                                 </div>
                               );
@@ -1126,9 +1111,7 @@ export default function Profile() {
                                   >
                                     {b10.title}
                                   </div>
-                                  <div style={{ marginTop: "auto", paddingTop: "4px" }}>
-                                    {renderSourceLink(b10)}
-                                  </div>
+                                  {renderCardFooter(b10)}
                                 </div>
                               </div>
                             )}
@@ -1182,9 +1165,7 @@ export default function Profile() {
                                   >
                                     {b11.title}
                                   </div>
-                                  <div style={{ marginTop: "auto", paddingTop: "3px" }}>
-                                    {renderSourceLink(b11)}
-                                  </div>
+                                  {renderCardFooter(b11)}
                                 </div>
                               )}
 
@@ -1224,9 +1205,7 @@ export default function Profile() {
                                   >
                                     {b12.title}
                                   </div>
-                                  <div style={{ marginTop: "auto", paddingTop: "3px" }}>
-                                    {renderSourceLink(b12)}
-                                  </div>
+                                  {renderCardFooter(b12)}
                                 </div>
                               )}
                             </div>
@@ -1301,9 +1280,7 @@ export default function Profile() {
                                     {b3.excerpt}
                                   </div>
                                 )}
-                                <div style={{ marginTop: "auto", paddingTop: "6px" }}>
-                                  {renderSourceLink(b3)}
-                                </div>
+                                {renderCardFooter(b3)}
                               </div>
                             </div>
                           )}
@@ -1365,9 +1342,7 @@ export default function Profile() {
                                     {b4.excerpt}
                                   </div>
                                 )}
-                                <div style={{ marginTop: "auto", paddingTop: "6px" }}>
-                                  {renderSourceLink(b4)}
-                                </div>
+                                {renderCardFooter(b4)}
                               </div>
                             </div>
                           )}
@@ -1430,9 +1405,7 @@ export default function Profile() {
                                     {b6.excerpt}
                                   </div>
                                 )}
-                                <div style={{ marginTop: "auto", paddingTop: "6px" }}>
-                                  {renderSourceLink(b6)}
-                                </div>
+                                {renderCardFooter(b6)}
                               </div>
                             </div>
                           )}
@@ -1494,9 +1467,7 @@ export default function Profile() {
                                     {b5.excerpt}
                                   </div>
                                 )}
-                                <div style={{ marginTop: "auto", paddingTop: "6px" }}>
-                                  {renderSourceLink(b5)}
-                                </div>
+                                {renderCardFooter(b5)}
                               </div>
                             </div>
                           )}
