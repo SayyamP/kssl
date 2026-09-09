@@ -19,13 +19,7 @@ export default function Partnerships() {
   const { data, partners } = useData();
   const { setScope, searchQuery } = useAppState();
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
-  const getSavedPart = () => {
-    try {
-      const s = localStorage.getItem("kssl_part_state");
-      return s ? JSON.parse(s) : {};
-    } catch (e) { return {}; }
-  };
-  const savedPart = getSavedPart();
+
   /* A saved selection outlives the dataset that produced it: the stored id can be
      from an older export, or the client itself (which this list no longer shows).
      Restore it only if the row is still here, or the drawer renders an id with no
@@ -71,8 +65,6 @@ export default function Partnerships() {
 
   useEffect(() => {
     try {
-      if (cid) localStorage.setItem("kssl_part_state", JSON.stringify({ cid, tie, mode }));
-      else localStorage.removeItem("kssl_part_state");
     } catch (e) {}
   }, [cid, tie, mode]);
 

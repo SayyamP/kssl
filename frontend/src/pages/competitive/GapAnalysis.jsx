@@ -18,7 +18,6 @@ export default function GapAnalysis() {
   const { jumpTo } = useAppState();
   const getSavedGap = () => {
     try {
-      return localStorage.getItem("kssl_gap_cat") || null;
     } catch (e) { return null; }
   };
 
@@ -38,11 +37,9 @@ export default function GapAnalysis() {
 
   useEffect(() => {
     if (!cats.length) {
-      // no served categories: a stale localStorage name must not sit in the eyebrow
       if (cat) {
         setCat(null);
         try {
-          localStorage.removeItem("kssl_gap_cat");
         } catch (e) {}
       }
       return;
@@ -52,7 +49,6 @@ export default function GapAnalysis() {
 
   useEffect(() => {
     try {
-      if (cat) localStorage.setItem("kssl_gap_cat", cat);
     } catch (e) {}
   }, [cat]);
 

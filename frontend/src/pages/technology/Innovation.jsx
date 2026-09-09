@@ -33,7 +33,6 @@ export default function Innovation() {
 
   const getSavedInnov = () => {
     try {
-      const s = localStorage.getItem("kssl_innov_state");
       return s ? JSON.parse(s) : {};
     } catch (e) { return {}; }
   };
@@ -53,7 +52,6 @@ export default function Innovation() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("kssl_innov_state", JSON.stringify({ cat, sel }));
     } catch (e) {}
   }, [cat, sel]);
 

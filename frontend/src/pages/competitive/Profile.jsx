@@ -143,20 +143,7 @@ export default function Profile() {
      and the Tender Pipeline remember theirs: this page reset to roster[0] on every
      reload and every detour to another rail row, alone among the sidebars. A saved id
      that the served roster no longer carries falls back to the first row. */
-  const [cid, setCidState] = useState(() => {
-    try {
-      const saved = localStorage.getItem(PROFILE_KEY);
-      if (saved && roster.some((r) => r.cid === saved)) return saved;
-    } catch (e) {}
-    return roster[0] ? roster[0].cid : "";
-  });
-  const setCid = (next) => {
-    setCidState(next);
-    try {
-      if (next) localStorage.setItem(PROFILE_KEY, next);
-      else localStorage.removeItem(PROFILE_KEY);
-    } catch (e) {}
-  };
+  const [cid, setCid] = useState(() => (roster[0] ? roster[0].cid : ""));
 
   /* Opened from global search targeting one company. Without this the page took the
      jump but never read the payload, so picking "RENK" in the search box landed on

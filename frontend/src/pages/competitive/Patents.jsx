@@ -19,7 +19,6 @@ export default function Patents() {
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
   const getSavedPat = () => {
     try {
-      const s = localStorage.getItem("kssl_pat_state");
       return s ? JSON.parse(s) : {};
     } catch (e) { return {}; }
   };
@@ -50,7 +49,6 @@ export default function Patents() {
 
   useEffect(() => {
     try {
-      localStorage.setItem("kssl_pat_state", JSON.stringify({ lens, cid, area, catFilter }));
     } catch (e) {}
   }, [lens, cid, area, catFilter]);
 

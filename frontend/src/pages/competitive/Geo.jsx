@@ -34,7 +34,6 @@ export default function Geo() {
     (data.client && (data.client.short || data.client.name)) || "KSSL";
   const getSavedGeo = () => {
     try {
-      const s = localStorage.getItem("kssl_geo_state");
       return s ? JSON.parse(s) : {};
     } catch (e) {
       return {};
@@ -68,15 +67,6 @@ export default function Geo() {
     if (!cid || !ctName) return [];
     return marketNews(data, cid, ctName);
   }, [comp, country, pair, data]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        "kssl_geo_state",
-        JSON.stringify({ comp, country, showDetail, pair, prodIndex, back }),
-      );
-    } catch (e) {}
-  }, [comp, country, showDetail, pair, prodIndex, back]);
-
   const closeDetail = () => {
     setShowDetail(false);
     setPair(null);
@@ -84,9 +74,6 @@ export default function Geo() {
     setCountry(null);
     setBack(null);
     setProdIndex(null);
-    try {
-      localStorage.removeItem("kssl_geo_state");
-    } catch (e) {}
   };
 
   // clicking outside closes whichever menu is open
@@ -110,7 +97,6 @@ export default function Geo() {
      with two exceptions this effect used to trample:
        - its MOUNT run. An effect with these deps fires once after the first render,
          and that run cleared the pair, the Back door and the open product just
-         restored from localStorage: a drill into "Adani Defence in India" came back
          from a reload, or from a detour to Patents, as the competitor's country list.
        - a click that sets a selection AND a pair in one go (a map marker: country +
          top competitor's products). The pair landed, the effect saw the country
@@ -268,7 +254,6 @@ export default function Geo() {
      rather than the dropdowns. The Back button clears the pair to come back out. */
   const relList = () => {
     if (pair) {
-      // `pair` is rehydrated from localStorage: a company dropped from a later
       // dataset would otherwise take the whole panel down on mount
       const c = data.geoComps.find((x) => x.id === pair.cid);
       const ovPanel = !c

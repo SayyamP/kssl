@@ -90,7 +90,6 @@ export default function Tenders({ mode = "tender" }) {
   const clientName = (data.client && (data.client.short || data.client.name)) || "KSSL";
   const getSavedTender = () => {
     try {
-      const s = localStorage.getItem("kssl_tender_state");
       return s ? JSON.parse(s) : {};
     } catch (e) { return {}; }
   };
@@ -112,13 +111,11 @@ export default function Tenders({ mode = "tender" }) {
 
   useEffect(() => {
     try {
-      localStorage.setItem("kssl_tender_state", JSON.stringify({ productType, country, cat, sel }));
     } catch (e) {}
   }, [productType, country, cat, sel]);
 
   /* A tab CHANGE drops the selection -- a row from the open list is not on the awarded
      list. Guarded against the mount run: an effect with [mode] also fires once after
-     the first render, and that run was clearing the `sel` restored from localStorage
      three lines up, so the selection this page saves on every change never survived a
      reload or a detour to the Market Report and back. */
   const lastMode = useRef(mode);

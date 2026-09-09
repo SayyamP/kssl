@@ -1087,10 +1087,7 @@ const PG_IMG_ONERROR =
      the rivals that carry no synthesis. */
   function compReportHtml(c, cid, clientNameOverride) {
     const clientName = clientNameOverride || (d.client && (d.client.short || d.client.name)) || "KSSL";
-    /* A competitor id restored from localStorage can outlive the dataset that
-       held it, and then `c` is an id with no row behind it. Read the ties through
-       one guarded local rather than assuming the array exists. */
-    const rows = c.partners || [];
+    const rows = (c && c.partners) || [];
     const syn = COMPSYN ? COMPSYN[cid] : null;
     const hasSyn = syn && syn.vulns && syn.vulns.length;
     if (!hasSyn) {

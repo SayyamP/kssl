@@ -11,7 +11,6 @@ export default function Positioning() {
   const { setScope, takePending, jumpTo } = useAppState();
   const [selected, setSelectedState] = useState(() => {
     try {
-      return localStorage.getItem("kssl_pos_selected") || null;
     } catch (e) {
       return null;
     }
@@ -20,8 +19,6 @@ export default function Positioning() {
   const setSelected = (val) => {
     setSelectedState(val);
     try {
-      if (val) localStorage.setItem("kssl_pos_selected", val);
-      else localStorage.removeItem("kssl_pos_selected");
     } catch (e) {}
   };
 

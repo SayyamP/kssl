@@ -48,7 +48,6 @@ const SECTIONS = [
 const SECTION_KEY = "kssl_market_section";
 const savedSection = () => {
   try {
-    const s = localStorage.getItem(SECTION_KEY);
     return SECTIONS.some((x) => x.id === s) ? s : "active";
   } catch (e) {
     return "active";
@@ -210,7 +209,6 @@ export default function MarketOverview() {
     setCountry("all");
     setCat(null);
     try {
-      localStorage.setItem(SECTION_KEY, id);
     } catch (e) {}
   };
 
