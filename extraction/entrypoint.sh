@@ -256,6 +256,19 @@ case "${1:-worker}" in
       # as the corpus grows.
       step retranslate python3 serving_fill.py --retranslate --apply \
               --limit "${KSSL_RETRANSLATE_LIMIT:-200}"
+      # AND THE SAME PROBLEM AGAIN, FOR THE ARTICLE SUMMARY. fill() writes `summary`
+      # inside the INSERT that creates a card, so every detail row that existed before
+      # the column did has no path that would ever fill it -- and with the corpus caught
+      # up ("0 card(s) written" every cycle) that is all of them. Without this step the
+      # panel falls back to the one-line `what` on every card that exists today, for ever.
+      #
+      # The limit is deliberately far below retranslate's 200. A summary is one model call
+      # over up to 7000 characters of article for EVERY card, where retranslate sends
+      # nothing at all for an English one; six replicas each doing 40 is 240 articles a
+      # cycle, which drains a 2,190-card backlog in well under a day without taking the
+      # farm away from the forward path.
+      step resummarise python3 serving_fill.py --resummarise --apply \
+              --limit "${KSSL_RESUMMARISE_LIMIT:-40}"
       sleep "${SIGNALS_EVERY_S:-120}"
     done
     ;;

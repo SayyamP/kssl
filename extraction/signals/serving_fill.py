@@ -1952,6 +1952,109 @@ def glance_rows(cur, did, company, title, stats=None):
     return rows
 
 
+def resummarise(dsn=DSN, limit=None, verbose=True, only=None, apply=False):
+    """Article summaries for cards ALREADY served. The forward path only reaches new ones.
+
+    fill() writes the summary inside the same INSERT that creates the card, so the 2,190
+    details that existed before the column did have `summary IS NULL` and no code path
+    that would ever fill it. The corpus is caught up -- `0 card(s) written` every cycle --
+    so without this pass the panel falls back to the one-line `what` on every card that
+    exists today, for ever, and only tomorrow's articles would show a summary.
+
+    Shaped like retranslate() above, deliberately and for the same reason.
+
+    `summarised` holds the prompt version the row was last done under, so a row is
+    selected only when it has never been summarised or was summarised under an older
+    prompt. WITHOUT that column, `summary IS NULL` is the only available cursor -- and a
+    NULL is also what a legitimate refusal writes (an article under 200 characters, a
+    summary that came back in the source language). Those rows would be re-asked every
+    120 seconds for ever: exactly the defect 9dee205 fixed for translation, where the
+    same first 200 of 949 cards were re-billed each cycle and the rest were never
+    reached. Marking a refusal is the point of the column.
+
+    INNER JOIN on the document, not LEFT: a summary is read from extracted.document.text,
+    so a card whose document row has been pruned has nothing to summarise. Those rows are
+    never candidates rather than being selected and skipped, which keeps them out of the
+    LIMIT window instead of consuming it.
+
+    FOR UPDATE SKIP LOCKED because the signals role runs six replicas on production.
+    """
+    import psycopg2
+    con = psycopg2.connect(dsn)
+    cur = con.cursor()
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema='serving' "
+                "AND table_name='signal_detail' AND column_name='summarised'")
+    if not cur.fetchone():
+        print("resummarise: serving.signal_detail.summarised is absent -- run "
+              "db/migrations/2026-09-09_signal_detail_summarised.sql", flush=True)
+        con.close()
+        return {"cards": 0, "written": 0}
+
+    cur.execute("""SELECT d.id, doc.language::text, doc.title, doc.text
+                     FROM serving.signal_detail d
+                     JOIN extracted.document doc
+                       ON doc.document_id = substring(d.id from 4)
+                    WHERE d.origin='pipeline' AND d.id LIKE 'pl\\_%%'
+                      AND (%s IS NULL OR d.id = %s)
+                      AND (%s OR d.summarised IS DISTINCT FROM %s)
+                    ORDER BY d.summarised NULLS FIRST, d.updated_at
+                    LIMIT %s
+                      FOR UPDATE OF d SKIP LOCKED""",
+                (only, only, bool(only), summarize.PROMPT_VERSION, limit or 10 ** 9))
+    cards = cur.fetchall()
+    stats = {"cards": len(cards), "written": 0}
+    for cid, lang, title, text in cards:
+        did = cid[3:]
+        summary = None
+        try:
+            summary = summarize.summarize(
+                text, title=title, language=lang, stats=stats,
+                ask=lambda pr: ask(pr, doc_id=did, npredict=700))
+        except Exception as e:                                         # noqa: BLE001
+            # A transport failure is NOT a refusal, so the row is left unmarked and the
+            # next cycle retries it. Only an answer the gates rejected gets marked.
+            stats["summary_error"] = stats.get("summary_error", 0) + 1
+            if verbose:
+                print("  summary failed for %s: %s" % (did, e), flush=True)
+            continue
+        if summary:
+            stats["written"] += 1
+        if apply:
+            # coalesce, so a pass that ran while the farm was down cannot wipe a good
+            # summary with the None it just produced -- same reason fill() coalesces.
+            cur.execute("""UPDATE serving.signal_detail
+                              SET summary=coalesce(%s, summary), summarised=%s,
+                                  updated_at=now()
+                            WHERE id=%s""", (summary, summarize.PROMPT_VERSION, cid))
+            # COMMIT PER CARD, for the reason retranslate() records: a single commit
+            # after the loop leaves a pass that is merely still running with nothing
+            # written, and a timeout discards every card it had paid for.
+            con.commit()
+    if apply:
+        con.commit()
+    print("resummarise: %d card(s) scanned, %d written; %s%s"
+          % (stats["cards"], stats["written"],
+             {k: v for k, v in sorted(stats.items()) if k not in ("cards", "written")},
+             "" if apply else "  (dry run -- nothing written)"), flush=True)
+    con.close()
+    # A PASS THAT ASKED AND STORED NOTHING IS AN OUTAGE, NOT A QUIET SUCCESS -- the same
+    # judgement retranslate() makes. Every refusal reason is counted by summarize(), so
+    # "scanned some, wrote none, and none of them were refused for a stated reason"
+    # means the backend answered nothing.
+    # summary_error is a TRANSPORT failure, not a refusal, so it must not count here --
+    # it is the very thing being alerted on. Counting it made three dead farm calls look
+    # like three articles legitimately declined and swallowed the alert entirely.
+    refused = sum(v for k, v in stats.items() if k.startswith("summary_")
+                  and k not in ("summary_written", "summary_error"))
+    if stats["cards"] and not stats["written"] and not refused:
+        print("[ALERT] resummarise: scanned %d card(s), stored none, and none was "
+              "refused for a stated reason -- the backend answered nothing. Check "
+              "C_MODEL and that llmapi reports via='farm'." % stats["cards"],
+              file=sys.stderr, flush=True)
+        return None
+    return stats
+
+
 def retranslate(dsn=DSN, limit=None, verbose=True, only=None, apply=False):
     """English lead-ins for cards ALREADY served. The forward path only reaches tomorrow's.
 
@@ -2431,6 +2534,9 @@ if __name__ == "__main__":
                     help="re-run the subject gate over the SERVED cards and report; "
                          "add --apply to delete the rows that fail it")
     ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--resummarise", action="store_true",
+                    help="write the article summary for cards already served (the "
+                         "forward path only reaches new documents)")
     ap.add_argument("--retranslate", action="store_true",
                     help="rebuild the served statements of stored cards with English "
                          "lead-ins (the forward path only reaches new documents)")
@@ -2444,6 +2550,9 @@ if __name__ == "__main__":
         reglance(a.dsn, limit=a.limit, only=a.only)
     elif a.regate:
         regate(a.dsn, apply=a.apply, recard=a.recard)
+    elif a.resummarise:
+        if resummarise(a.dsn, limit=a.limit, only=a.only, apply=a.apply) is None:
+            sys.exit(1)
     elif a.retranslate:
         if retranslate(a.dsn, limit=a.limit, only=a.only, apply=a.apply) is None:
             sys.exit(1)
