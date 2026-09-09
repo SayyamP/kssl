@@ -207,6 +207,10 @@ CREATE TABLE serving.signal_detail (
     -- summary; this is not. NULL means not written yet -- the panel falls back to `what`
     -- plus the statement rows, so no row is ever left blank.
     summary    text,
+    -- The prompt version `summary` was last written under, so --resummarise can
+    -- advance instead of re-asking. NULL means never attempted; a refusal is
+    -- recorded here too, which is the whole point -- see the 2026-09-09 migration.
+    summarised text,
     why        text,
     lens       jsonb,
     actions    jsonb,
