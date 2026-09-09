@@ -64,6 +64,35 @@ def test_tie_doc_ids_single_source():
     print("  ok  tie_doc_ids: a single-source tie records exactly its one document")
 
 
+def _pr(s):                       # a minimal proposition carrying only what the helper ignores
+    return {"s": s, "p": "fields", "o": "x", "q": s}
+
+
+def test_matchup_doc_ids_every_contributing_document():
+    # hits is the (document_id, proposition) list the product name matched; a matchup
+    # spanning three documents records all three -- multi-document, deduped, sorted.
+    hits = [("d3", _pr("a")), ("d1", _pr("b")), ("d2", _pr("c"))]
+    assert enrich_serving.matchup_doc_ids(hits) == ["d1", "d2", "d3"]
+    print("  ok  matchup_doc_ids: every contributing document recorded, sorted")
+
+
+def test_matchup_doc_ids_dedupes_multiple_props_same_doc():
+    # Two product-matching propositions in the SAME document is ONE source, not two.
+    hits = [("d1", _pr("a")), ("d1", _pr("b")), ("d2", _pr("c"))]
+    assert enrich_serving.matchup_doc_ids(hits) == ["d1", "d2"]
+    print("  ok  matchup_doc_ids: multiple props in one document collapse to one id")
+
+
+def test_matchup_doc_ids_no_false_attribution():
+    # Only documents that actually produced a hit are recorded. A matchup with no hits
+    # records NOTHING -- it never borrows an id from elsewhere.
+    assert enrich_serving.matchup_doc_ids([]) == []
+    # and the set is exactly the hit documents, never a superset
+    hits = [("d1", _pr("a"))]
+    assert enrich_serving.matchup_doc_ids(hits) == ["d1"]
+    print("  ok  matchup_doc_ids: no hits -> no ids; never fabricates attribution")
+
+
 if __name__ == "__main__":
     test_card_lineage_single_run()
     test_card_lineage_multi_run_refuses_to_guess()
@@ -71,4 +100,7 @@ if __name__ == "__main__":
     test_tie_doc_ids_preserves_every_contributing_document()
     test_tie_doc_ids_filters_and_dedupes()
     test_tie_doc_ids_single_source()
+    test_matchup_doc_ids_every_contributing_document()
+    test_matchup_doc_ids_dedupes_multiple_props_same_doc()
+    test_matchup_doc_ids_no_false_attribution()
     print("ok - writers record correct provenance and never guess")

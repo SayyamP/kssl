@@ -2131,6 +2131,16 @@ def tie_doc_ids(did, pr, docs):
     return sorted({d for d in dids if d in docs})
 
 
+def matchup_doc_ids(hits):
+    """Every corpus document whose proposition underlies this matchup, deduped and
+    sorted. `hits` is the (document_id, proposition) list the product name matched --
+    the SAME set that builds the spec text and the sourced evidence -- so it is the
+    honest contributing set, never one arbitrary pick and never a guess. Pure, so it is
+    testable without a database. An empty hit list yields [], not a fabricated id.
+    """
+    return sorted({did for did, _pr in hits})
+
+
 def owned_elsewhere(props_by_doc, did, pr):
     """-> the sibling proposition proving this pair is an ACQUISITION, or None.
 
@@ -3655,6 +3665,11 @@ def step_matchups(cur, con, docs, props_by_doc, limit=None):
     # unscoped delete-first here wiped its 453 rows on the next run -- the same
     # two-writers-one-id-space fault that already cost us serving.tender.
     cur.execute("DELETE FROM serving.matchup WHERE origin='pipeline' AND matchup_id < 20000")
+    # LINEAGE: spliced only where the column exists (deploy.sh runs no migrations), exactly
+    # as step_partnerships guards serving.partner.source_doc_ids.
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema='serving' "
+                "AND table_name='matchup' AND column_name='source_doc_ids'")
+    has_matchup_lineage = bool(cur.fetchone())
     profiles = load_profiles(cur)
     rivals = [p for p in profiles if p["dir"] == "rival" and p["products"]]
     if not rivals:
@@ -3678,8 +3693,11 @@ def step_matchups(cur, con, docs, props_by_doc, limit=None):
             if not hits:
                 skipped += 1
                 continue
+            # The spec-feeding slice, named so the recorded lineage is provably the same
+            # document set that produces the specs and the evidence below.
+            contrib = hits[:10]
             ptext = " ".join("%s %s %s %s" % (pr["s"], pr["p"], pr["o"], pr["q"])
-                             for _d, pr in hits[:10])
+                             for _d, pr in contrib)
             band = categorise_product(product)
             if band is None or band not in cat_label:
                 skipped += 1
@@ -3722,20 +3740,34 @@ def step_matchups(cur, con, docs, props_by_doc, limit=None):
                       % (esc(product), esc(p["name"]), esc(cat_label[band]))
                       + ((" KSSL fields <b>%s</b> in this category." % esc(anchor))
                          if anchor else ""))
+            # LINEAGE: the contributing document set, for serving.matchup.source_doc_ids.
+            doc_ids = matchup_doc_ids(contrib)
+            mid = MATCHUP_ID0 + n
+            _mcol = ", source_doc_ids" if has_matchup_lineage else ""
+            _mval = ", %s" if has_matchup_lineage else ""
             cur.execute("""INSERT INTO serving.matchup
                              (matchup_id, cat, anchor, "global", dir, country, comp,
                               "compBy", bf, "bfBy", ks_thin, reason, edge, specs,
                               "advComp", "advBf", det, "verdictH", verdict, "catKey",
-                              srcs, gen, origin)
+                              srcs, gen, origin{mcol})
                            VALUES (%s,%s,%s,false,NULL,NULL,%s,%s,%s,%s,true,%s,NULL,
-                                   %s,'[]','[]',%s,NULL,NULL,%s,%s,true,'pipeline')
-                           ON CONFLICT (matchup_id) DO NOTHING""",
-                        (MATCHUP_ID0 + n, cat_label[band], anchor,
+                                   %s,'[]','[]',%s,NULL,NULL,%s,%s,true,'pipeline'{mval})
+                           ON CONFLICT (matchup_id) DO NOTHING""".format(mcol=_mcol,
+                                                                         mval=_mval),
+                        (mid, cat_label[band], anchor,
                          "%s · %s" % (esc(p["name"]), esc(product)), esc(p["name"]),
                          ("KSSL · %s" % esc(anchor)) if anchor else None,
                          "Kalyani Strategic Systems" if anchor else None,
                          reason, json.dumps(specs),
-                         json.dumps(det), band, json.dumps(srcs)))
+                         json.dumps(det), band, json.dumps(srcs))
+                        + ((doc_ids,) if has_matchup_lineage else ()))
+            # One enriched event per CONTRIBUTING document, so every source of a matchup
+            # is queryable -- the multi-document provenance source_doc_ids records.
+            for _d in (doc_ids or [None]):
+                provenance.emit("enrich", "enrich_serving.py", "enriched", document_id=_d,
+                                ref_table="serving.matchup", ref_id=str(mid),
+                                evidence={"comp": p["name"], "product": product,
+                                          "cat": cat_label[band]})
             written += 1
     con.commit()
     print("matchups: %d written, %d product(s) skipped (no corpus hits / no KSSL "

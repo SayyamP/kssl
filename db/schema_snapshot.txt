@@ -153,6 +153,7 @@ serving.matchup.origin text NOT NULL
 serving.matchup.product_news jsonb
 serving.matchup.reason text
 serving.matchup.revenue_filter text
+serving.matchup.source_doc_ids ARRAY
 serving.matchup.specs jsonb
 serving.matchup.srcs jsonb
 serving.matchup.updated_at timestamp with time zone NOT NULL DEFAULT now()
@@ -394,6 +395,7 @@ serving_live.matchup.origin text
 serving_live.matchup.product_news jsonb
 serving_live.matchup.reason text
 serving_live.matchup.revenue_filter text
+serving_live.matchup.source_doc_ids ARRAY
 serving_live.matchup.specs jsonb
 serving_live.matchup.srcs jsonb
 serving_live.matchup.updated_at timestamp with time zone
