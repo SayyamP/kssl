@@ -201,6 +201,12 @@ CREATE TABLE serving.signal_detail (
     title      text NOT NULL,
     facts      jsonb,
     what       text,
+    -- The article read for the reader: a short English paragraph then the specifics,
+    -- built by extraction/signals/summarize.py from extracted.document.text. `what` is
+    -- one sentence from a prompt that never saw the article, so it is a summary of a
+    -- summary; this is not. NULL means not written yet -- the panel falls back to `what`
+    -- plus the statement rows, so no row is ever left blank.
+    summary    text,
     why        text,
     lens       jsonb,
     actions    jsonb,

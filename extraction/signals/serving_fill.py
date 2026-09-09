@@ -42,6 +42,7 @@ from article_date import pick_date as pick_html_date  # noqa: E402
 from article_image import resolve_image  # noqa: E402
 import glance  # noqa: E402  ("At a glance" rows from typed spans, each with its quote)
 import translate  # noqa: E402  (source-language lead-ins -> English; never the quote)
+import summarize  # noqa: E402  (the article read for the reader; English, from the body)
 import provenance  # noqa: E402  (append-only pipeline events; never raises)
 
 DSN = os.environ.get("KSSL_DSN", "host=127.0.0.1 port=5460 dbname=kssl user=postgres password=kssl")
@@ -1624,6 +1625,12 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
     if not has_card_lineage and verbose:
         print("signal_card/detail lineage columns absent -- provenance not recorded "
               "(run db/migrations/2026-09-07_lineage_columns.sql)", flush=True)
+    cur.execute("SELECT 1 FROM information_schema.columns WHERE table_schema='serving' "
+                "AND table_name='signal_detail' AND column_name='summary'")
+    has_summary = bool(cur.fetchone())
+    if not has_summary and verbose:
+        print("signal_detail.summary absent -- the panel keeps the old one-line `what` "
+              "(run db/migrations/2026-09-07_signal_detail_summary.sql)", flush=True)
     cur.execute("""SELECT company, title, sowhat FROM serving.signal_card
                     WHERE origin='pipeline'""")
     _rows = cur.fetchall()
@@ -1808,11 +1815,41 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
         what = esc(card["what"] or (lead[0] + "." if lead else "%s %s %s." % (s0, p0, o0)))
         lens = [["STATEMENT", "%s — %s" % (esc(lead[i]), quote_html(q, lang))]
                 for i, (s, p, o, _m, q) in enumerate(props[:6])]
-        _dcol = (", source_doc_ids, source_run_id, source_prop_ids" if has_detail_lineage else "")
-        _dval = (", %s, %s, %s" if has_detail_lineage else "")
-        _dset = (", source_doc_ids=EXCLUDED.source_doc_ids, "
-                 "source_run_id=EXCLUDED.source_run_id, "
-                 "source_prop_ids=EXCLUDED.source_prop_ids" if has_detail_lineage else "")
+        # THE ARTICLE, READ FOR THE READER. Everything above this line is a summary of
+        # the PROPOSITIONS: `what` comes from a prompt that was never shown the article,
+        # and the STATEMENT rows are a six-word paraphrase beside a sentence in the
+        # publisher's language. summarize() reads extracted.document.text instead, which
+        # is the only place in this loop the whole article exists, and writes the English
+        # paragraph-plus-specifics the fragments were standing in for. None is a real
+        # answer -- the panel then keeps what it has rather than showing an empty block.
+        summary = None
+        if has_summary:
+            cur.execute("SELECT text FROM extracted.document WHERE document_id=%s", (did,))
+            _t = cur.fetchone()
+            if _t and _t[0]:
+                try:
+                    summary = summarize.summarize(
+                        _t[0], title=title, language=lang, stats=stats,
+                        ask=lambda pr: ask(pr, doc_id=did, npredict=700))
+                except Exception as e:                                 # noqa: BLE001
+                    # A summary is an addition to the panel, not the card. A transport
+                    # failure here must not cost the card its row -- every other block
+                    # is already written and correct.
+                    stats["summary_error"] = stats.get("summary_error", 0) + 1
+                    if verbose:
+                        print("  summary failed for %s: %s" % (did, e), flush=True)
+        _dcol = ((", summary" if has_summary else "")
+                 + (", source_doc_ids, source_run_id, source_prop_ids" if has_detail_lineage else ""))
+        _dval = ((", %s" if has_summary else "")
+                 + (", %s, %s, %s" if has_detail_lineage else ""))
+        # coalesce, for the same reason as `image` below: a pass that ran while the farm
+        # was down produces summary=None, and EXCLUDED.summary would then wipe a good
+        # write-up an earlier pass had already proved.
+        _dset = ((", summary=coalesce(EXCLUDED.summary, serving.signal_detail.summary)"
+                  if has_summary else "")
+                 + (", source_doc_ids=EXCLUDED.source_doc_ids, "
+                    "source_run_id=EXCLUDED.source_run_id, "
+                    "source_prop_ids=EXCLUDED.source_prop_ids" if has_detail_lineage else ""))
         cur.execute(("""INSERT INTO serving.signal_detail
                          (id, ord, rank, dir, title, facts, what, why, lens, actions, url,
                           suggest, image, origin{dcol})
@@ -1828,6 +1865,7 @@ def fill(dsn=DSN, limit=None, verbose=True, only=None):
                      card["dir"],
                      esc(card["title"]), json.dumps(facts), what, esc(card["sowhat"]),
                      json.dumps(lens), url, img)
+                    + ((summary,) if has_summary else ())
                     + ((_cd, _cr, _cp) if has_detail_lineage else ()))
         con.commit()
         stats["cards"] += 1
