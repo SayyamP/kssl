@@ -143,7 +143,7 @@ export default function Profile() {
      and the Tender Pipeline remember theirs: this page reset to roster[0] on every
      reload and every detour to another rail row, alone among the sidebars. A saved id
      that the served roster no longer carries falls back to the first row. */
-  const [cid, setCid] = useState(() => (roster[0] ? roster[0].cid : ""));
+  const [cid, setCid] = useState("");
 
   /* Opened from global search targeting one company. Without this the page took the
      jump but never read the payload, so picking "RENK" in the search box landed on
@@ -489,7 +489,11 @@ export default function Profile() {
       {/* 2. RIGHT PANE: FOCUSED SECTIONS OR BIG WHITE NEWS DETAIL WINDOW */}
       <div className="cp-body" style={{ padding: "24px" }}>
         {!p ? (
-          <div className="cp-empty">select a competitor</div>
+          <div className="cp-empty" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px", gap: "12px", color: "var(--d-txt-2)" }}>
+            <span style={{ fontSize: "32px" }}>🏢</span>
+            <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--d-txt-1)" }}>Select a competitor to view profile details</span>
+            <span style={{ fontSize: "12px", color: "var(--d-txt-3)" }}>Click any company on the left sidebar to inspect details, leadership, and intelligence.</span>
+          </div>
         ) : activeArticle ? (
           /* ============ BIG WHITE-BACKGROUND ARTICLE DETAIL WINDOW ============ */
           <div

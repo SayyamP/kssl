@@ -185,10 +185,7 @@ export default function Products() {
   }, [data, clientCid]);
 
   const firstCompCid = useMemo(() => (companyRoster[0] ? companyRoster[0].cid : ""), [companyRoster]);
-  /* Remembered, as the other sidebars remember theirs: this page reset to the first
-     company on every reload and every detour to another rail row. A saved id the
-     served roster no longer carries falls back to the first row. */
-  const [selectedCid, setSelectedCid] = useState(firstCompCid);
+  const [selectedCid, setSelectedCid] = useState("");
   /* The revenue facet, from the rows -- like the two selects above it. It was three
      fixed options over a roster on which revenue_filter is null for every company
      (0 of 42 live, 0 of 28 sample), so each one emptied the list. With no tier on
@@ -201,12 +198,6 @@ export default function Products() {
   // Product News category filter pill & open detail article state
   const [prodNewsFilter, setProdNewsFilter] = useState("All");
   const [activeProdArticle, setActiveProdArticle] = useState(null);
-
-  useEffect(() => {
-    if (!selectedCid && firstCompCid) {
-      setSelectedCid(firstCompCid);
-    }
-  }, [selectedCid, firstCompCid]);
 
   // Reset product news state when product changes
   useEffect(() => {
@@ -664,7 +655,13 @@ export default function Products() {
 
       {/* 2. RIGHT PANE: LINE-BY-LINE PRODUCTS LIST OR WHITE BACKGROUND SPECS TAB */}
       <div className="cp-body" style={{ padding: "20px", background: "var(--d-bg)" }}>
-        {selectedProduct ? (
+        {!selectedCid ? (
+          <div className="cp-empty" style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "400px", gap: "12px", color: "var(--d-txt-2)" }}>
+            <span style={{ fontSize: "32px" }}>📦</span>
+            <span style={{ fontSize: "14px", fontWeight: "600", color: "var(--d-txt-1)" }}>Select a company to view product portfolio</span>
+            <span style={{ fontSize: "12px", color: "var(--d-txt-3)" }}>Click any company on the left sidebar to inspect products, categories, and technical specs.</span>
+          </div>
+        ) : selectedProduct ? (
           activeProdArticle ? (
             /* ============ WHITE BACKGROUND ARTICLE DETAIL VIEW ============ */
             <div
